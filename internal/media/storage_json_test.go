@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path"
 	"reflect"
 	"strings"
@@ -188,6 +189,10 @@ func Test_jsonStore_Store(t *testing.T) {
 
 func Test_streamMkvToMp4(t *testing.T) {
 	t.Run("successful mkv to mp4 stream", func(t *testing.T) {
+		if _, err := exec.LookPath("ffmpeg"); err != nil {
+			t.Skip("ffmpeg binary not found")
+		}
+
 		// Prepare test file path
 		mkvPath := "mock/Jellyfish_1080_10s_1MB.mkv"
 		if _, err := os.Stat(mkvPath); err != nil {
