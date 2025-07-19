@@ -44,20 +44,6 @@ func (m *mockResponseWriter) WriteHeader(statusCode int) {
 	m.statusCode = statusCode
 }
 
-type brokenResponseWriter struct{}
-
-func (brokenResponseWriter) Header() http.Header {
-	return http.Header{}
-}
-
-func (brokenResponseWriter) Write([]byte) (int, error) {
-	return 0, io.ErrUnexpectedEOF
-}
-
-func (brokenResponseWriter) WriteHeader(statusCode int) {
-	// Do nothing
-}
-
 func Test_jsonStore_Setup(t *testing.T) {
 	t.Run("successful setup", func(t *testing.T) {
 		s := newJSONStore()
