@@ -237,7 +237,7 @@ func Test_streamMkvToMp4(t *testing.T) {
 
 	t.Run("missing ffmpeg returns error", func(t *testing.T) {
 		origLookPath := ffmpegLookPath
-		ffmpegLookPath = "non-existant"
+		ffmpegLookPath = "non-existent"
 		t.Cleanup(func() {
 			ffmpegLookPath = origLookPath
 		})
