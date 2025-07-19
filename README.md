@@ -6,11 +6,32 @@
 
 Test coverage:
 
-Host local movies within your private network, but with mandatory AI!
+Host local movies within your private network with mandatory AI!
 
 <div align="center">
   <img src="img/banner.jpg" alt="Banner">
 </div>
+
+## Installation
+
+**Option 1:**
+
+```bash
+go install github.com/baalimago/kinoview@latest
+```
+
+**Option 2:**
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/baalimago/kinoview/main/setup.sh | sh
+```
+
+## How to use it?
+
+1. `kinoview s|serve -host 0.0.0.0 <directory-with-media>`
+2. `ip a`
+3. Browse to `<private-network-address>` on your device
+4. Enjoy media!
 
 ## Why not Plex or Jellyfish?
 
