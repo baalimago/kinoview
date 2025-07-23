@@ -97,6 +97,7 @@ func (rw *recursiveWatcher) handleError(err error) {
 
 func (rw *recursiveWatcher) handleEvent(ev fsnotify.Event) error {
 	if ev.Has(fsnotify.Write) || ev.Has(fsnotify.Create) {
+		ancli.Noticef("Got file event: %v", ev)
 		return rw.checkFile(ev.Name)
 	}
 	// TODO: Implement this (need to change updates channel)

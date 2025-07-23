@@ -20,7 +20,7 @@ func (m *mockStore) Setup(ctx context.Context, storePath string) error {
 	return m.setup()
 }
 
-func (m *mockStore) Store(i model.Item) error {
+func (m *mockStore) Store(ctx context.Context, i model.Item) error {
 	return m.store()
 }
 
@@ -55,7 +55,8 @@ func (m *mockWatcher) Watch(ctx context.Context, path string) error {
 
 func Test_Indexer_Setup(t *testing.T) {
 	t.Run("error on store error", func(t *testing.T) {
-		i := NewIndexer()
+		tmpDir := t.TempDir()
+		i := NewIndexer(tmpDir)
 		want := errors.New("whopsidops")
 		i.store = &mockStore{
 			setup: func() error {
@@ -69,7 +70,8 @@ func Test_Indexer_Setup(t *testing.T) {
 	})
 
 	t.Run("error on watcher error", func(t *testing.T) {
-		i := NewIndexer()
+		i := NewIndexer(t.TempDir())
+
 		want := errors.New("whopsidops")
 		i.store = &mockStore{
 			setup: func() error { return nil },
@@ -86,7 +88,7 @@ func Test_Indexer_Setup(t *testing.T) {
 	})
 
 	t.Run("should return error nil on OK", func(t *testing.T) {
-		i := NewIndexer()
+		i := NewIndexer(t.TempDir())
 		var want error
 		i.store = &mockStore{
 			setup: func() error { return want },
@@ -105,14 +107,15 @@ func Test_Indexer_Setup(t *testing.T) {
 	})
 
 	testboil.ReturnsOnContextCancel(t, func(ctx context.Context) {
-		i := NewIndexer()
-		i.Setup(ctx, "", t.TempDir())
+		tDir := t.TempDir()
+		i := NewIndexer(tDir)
+		i.Setup(ctx, "", tDir)
 	}, time.Millisecond*100)
 }
 
 func Test_NewIndexer(t *testing.T) {
 	t.Run("watcher and store should not be nil", func(t *testing.T) {
-		i := NewIndexer()
+		i := NewIndexer(t.TempDir())
 		if i.watcher == nil {
 			t.Fatal("watcher shouldnt be nil")
 		}
@@ -125,7 +128,7 @@ func Test_NewIndexer(t *testing.T) {
 
 func Test_Start_errorHandling(t *testing.T) {
 	t.Run("error on no fileUpdates", func(t *testing.T) {
-		i := NewIndexer()
+		i := NewIndexer(t.TempDir())
 		i.fileUpdates = nil
 		got := i.Start(context.Background())
 		if got == nil {
@@ -134,7 +137,7 @@ func Test_Start_errorHandling(t *testing.T) {
 	})
 
 	t.Run("error on store error", func(t *testing.T) {
-		i := NewIndexer()
+		i := NewIndexer(t.TempDir())
 		want := errors.New("store error")
 		i.store = &mockStore{
 			setup: func() error { return nil },
@@ -161,7 +164,7 @@ func Test_Start_errorHandling(t *testing.T) {
 	})
 
 	t.Run("error on watcher error", func(t *testing.T) {
-		i := NewIndexer()
+		i := NewIndexer(t.TempDir())
 		want := errors.New("watcher error")
 		i.store = &mockStore{
 			setup: func() error { return nil },
@@ -188,7 +191,7 @@ func Test_Start_errorHandling(t *testing.T) {
 	})
 
 	t.Run("exit on context cancel", func(t *testing.T) {
-		i := NewIndexer()
+		i := NewIndexer(t.TempDir())
 		i.store = &mockStore{
 			setup: func() error { return nil },
 			store: func() error { return nil },

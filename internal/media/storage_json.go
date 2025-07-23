@@ -10,7 +10,9 @@ import (
 	"path"
 	"strings"
 
+	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agent"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -31,19 +33,60 @@ type jsonStore struct {
 	cache              map[string]model.Item
 	subStreamFinder    subtitleStreamFinder
 	subStreamExtractor subtitleStreamExtractor
+	classifier         agent.Classifier
 }
 
-func newJSONStore() *jsonStore {
+func newJSONStore(configPath string) *jsonStore {
 	subUtils := &ffmpegSubsUtil{
 		mediaCache: map[string]MediaInfo{},
 	}
 	return &jsonStore{
 		subStreamFinder:    subUtils,
 		subStreamExtractor: subUtils,
+		classifier: agent.NewClassifier(models.Configurations{
+			Model:     "gpt-5",
+			ConfigDir: configPath,
+			InternalTools: []models.ToolName{
+				models.CatTool,
+				models.FindTool,
+				models.FFProbeTool,
+				models.WebsiteTextTool,
+				models.RipGrepTool,
+			},
+		}),
 	}
 }
 
-// Setup the jsonStore by loading 'store.json' from storeDirPath and adding all
+func (s *jsonStore) loadPersistedItems(storeDirPath string) error {
+	files, err := os.ReadDir(storeDirPath)
+	if err != nil {
+		return fmt.Errorf("failed to list directory: '%v', err: %w", storeDirPath, err)
+	}
+	for _, file := range files {
+		if file.IsDir() {
+			continue
+		}
+		filePath := path.Join(storeDirPath, file.Name())
+		f, err := os.Open(filePath)
+		if err != nil {
+			ancli.Warnf("failed to open file: '%v', err: %v", filePath, err)
+			continue
+		}
+		var items []model.Item
+		if err := json.NewDecoder(f).Decode(&items); err != nil {
+			ancli.Warnf("failed to decode items in file: '%v', err: %v", filePath, err)
+			f.Close()
+			continue
+		}
+		f.Close()
+		for _, item := range items {
+			s.cache[item.ID] = item
+		}
+	}
+	return nil
+}
+
+// Setup the jsonStore by loading all files from storeDirPath and adding all
 // items found to cache
 func (s *jsonStore) Setup(ctx context.Context, storeDirPath string) error {
 	ancli.Noticef("setting up json store")
@@ -51,32 +94,15 @@ func (s *jsonStore) Setup(ctx context.Context, storeDirPath string) error {
 	if s.cache == nil {
 		s.cache = make(map[string]model.Item)
 	}
-	storePath := path.Join(storeDirPath, "store.json")
-	if _, err := os.Stat(storePath); os.IsNotExist(err) {
-		ancli.Noticef("found no '%v', creating new", storePath)
-		empty, err := os.Create(storePath)
-		if err != nil {
-			return fmt.Errorf("failed to create: '%v', err: %w", storePath, err)
-		}
-		_, err = empty.WriteString("[]")
-		if err != nil {
-			return fmt.Errorf("failed to write empty list into: '%v', err: %w", storePath, err)
-		}
-		empty.Close()
-	}
-
-	f, err := os.Open(storePath)
+	err := s.loadPersistedItems(storeDirPath)
 	if err != nil {
-		return fmt.Errorf("failed to open: '%v', err: %w", storePath, err)
+		return fmt.Errorf("jsonStore Setup failed to load persisted items: %w", err)
 	}
-	defer f.Close()
 
-	var items []model.Item
-	if err := json.NewDecoder(f).Decode(&items); err != nil {
-		return fmt.Errorf("failed to decode []model.Item: %w", err)
-	}
-	for _, item := range items {
-		s.cache[item.ID] = item
+	ancli.Noticef("setting up classifier")
+	err = s.classifier.Setup(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup classifier: %w", err)
 	}
 	return nil
 }
@@ -114,29 +140,10 @@ func generateID(i model.Item) string {
 	return fmt.Sprintf("%x", sum)[:16]
 }
 
-// Store the item in the local json store and add i to the cache
-func (s *jsonStore) Store(i model.Item) error {
-	hadID := i.ID != ""
-	if i.ID == "" {
-		i.ID = generateID(i)
-	}
-	existingItem, exists := s.cache[i.ID]
-
-	// Only keep path if the item when it exists
-	// yet new item lacks generated ID. This is a cheap way of not
-	// overwriting existing item on re-scan since the IDs
-	// are deterministic. Although, since the file might have
-	// been moved, update the path
-	if exists && !hadID {
-		maybeNewPath := i.Path
-		i = existingItem
-		i.Path = maybeNewPath
-	}
-	if !exists {
-		ancli.Noticef("registering new media: %v", i.Name)
-	}
+func (s *jsonStore) store(i model.Item) error {
 	s.cache[i.ID] = i
-	f, err := os.OpenFile(path.Join(s.storePath, "store.json"), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+	storePath := path.Join(s.storePath, i.ID)
+	f, err := os.OpenFile(storePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open store: %w", err)
 	}
@@ -148,7 +155,51 @@ func (s *jsonStore) Store(i model.Item) error {
 	if err := json.NewEncoder(f).Encode(items); err != nil {
 		return fmt.Errorf("failed to encode items: %w", err)
 	}
+	ancli.Noticef("updated store: '%v'", storePath)
 	return nil
+}
+
+func (s *jsonStore) addMetadata(ctx context.Context, i *model.Item) error {
+	withMetadata, err := s.classifier.Classify(ctx, *i)
+	if err != nil {
+		return fmt.Errorf("failed to add metadata: %w", err)
+	}
+	i.Metadata = withMetadata.Metadata
+	return nil
+}
+
+// Store the item in the local json store and add i to the cache
+func (s *jsonStore) Store(ctx context.Context, i model.Item) error {
+	hadID := i.ID != ""
+	if i.ID == "" {
+		i.ID = generateID(i)
+	}
+	existingItem, exists := s.cache[i.ID]
+
+	if exists {
+		// Only keep path if the item when it exists
+		// yet new item lacks generated ID. This is a cheap way of not
+		// overwriting existing item on re-scan since the IDs
+		// are deterministic. Although, since the file might have
+		// been moved, update the path
+		if !hadID {
+			maybeNewPath := i.Path
+			i = existingItem
+			i.Path = maybeNewPath
+		}
+		i.Metadata = existingItem.Metadata
+	}
+	if !exists {
+		ancli.Noticef("registering new media: %v", i.Name)
+	}
+
+	if i.Metadata == nil {
+		err := s.addMetadata(ctx, &i)
+		if err != nil {
+			ancli.Errf("failed to append metadata: %v", err)
+		}
+	}
+	return s.store(i)
 }
 
 // ListHandlerFunc returns a list of all available items in the gallery
