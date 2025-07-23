@@ -195,7 +195,7 @@ func Test_walkDo(t *testing.T) {
 			t.Fatalf("expected: %v to contain: %v", got, tmpDirPath)
 		}
 
-		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Second/10)
+		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Second/2)
 		t.Cleanup(testCtxCancel)
 		hasItem := make(chan string)
 		go func() {

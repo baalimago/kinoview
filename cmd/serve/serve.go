@@ -50,7 +50,7 @@ func Command() *command {
 	r, _ := os.Executable()
 	return &command{
 		binPath:   r,
-		indexer:   media.NewIndexer(),
+		indexer:   media.NewIndexer(kinoviewConfigDir),
 		configDir: kinoviewConfigDir,
 	}
 }

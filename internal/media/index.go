@@ -12,7 +12,7 @@ import (
 
 type storage interface {
 	Setup(ctx context.Context, storePath string) error
-	Store(i model.Item) error
+	Store(ctx context.Context, i model.Item) error
 	ListHandlerFunc() http.HandlerFunc
 	VideoHandlerFunc() http.HandlerFunc
 	SubsListHandlerFunc() http.HandlerFunc
@@ -63,12 +63,12 @@ type Indexer struct {
 	errorUpdates  chan error
 }
 
-func NewIndexer() *Indexer {
+func NewIndexer(configPath string) *Indexer {
 	i := &Indexer{}
 	// Ignore error as this only affects buffered fsnotify.Watchers
 	w, _ := newRecursiveWatcher()
 	i.watcher = w
-	i.store = newJSONStore()
+	i.store = newJSONStore(configPath)
 	i.errorChannels = make(map[string]errorListener)
 	i.errorUpdates = make(chan error, 1000)
 	return i
@@ -114,6 +114,14 @@ func (i *Indexer) Setup(ctx context.Context, watchPath, storePath string) error 
 	return nil
 }
 
+func (i *Indexer) handleNewItem(ctx context.Context, item model.Item) error {
+	err := i.store.Store(ctx, item)
+	if err != nil {
+		return fmt.Errorf("Indexer failed to handle new item: %w", err)
+	}
+	return nil
+}
+
 func (i *Indexer) Start(ctx context.Context) error {
 	if i.fileUpdates == nil {
 		return errors.New("fileUpdates must not be nil. Please run Setup")
@@ -132,7 +140,7 @@ func (i *Indexer) Start(ctx context.Context) error {
 				close(storeErrChan)
 				return
 			case bareItem := <-i.fileUpdates:
-				err := i.store.Store(bareItem)
+				err := i.handleNewItem(ctx, bareItem)
 				if err != nil {
 					storeErrChan <- err
 				}

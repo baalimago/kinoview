@@ -9,6 +9,10 @@ require (
 )
 
 require (
+	github.com/baalimago/clai v1.8.1 // indirect
+	golang.org/x/exp v0.0.0-20240119083558-1b970713d09a // indirect
 	golang.org/x/net v0.28.0 // indirect
 	golang.org/x/sys v0.23.0 // indirect
 )
+
+replace github.com/baalimago/clai v1.8.1 => ../clai/
