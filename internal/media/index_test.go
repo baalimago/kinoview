@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
+	"github.com/baalimago/kinoview/internal/model"
 )
 
 type mockStore struct {
@@ -19,7 +20,7 @@ func (m *mockStore) Setup(ctx context.Context, storePath string) error {
 	return m.setup()
 }
 
-func (m *mockStore) Store(i Item) error {
+func (m *mockStore) Store(i model.Item) error {
 	return m.store()
 }
 
@@ -32,11 +33,11 @@ func (m *mockStore) ListHandlerFunc() http.HandlerFunc {
 }
 
 type mockWatcher struct {
-	setup func(ctx context.Context) (<-chan Item, error)
+	setup func(ctx context.Context) (<-chan model.Item, error)
 	watch func(ctx context.Context, path string) error
 }
 
-func (m *mockWatcher) Setup(ctx context.Context) (<-chan Item, error) {
+func (m *mockWatcher) Setup(ctx context.Context) (<-chan model.Item, error) {
 	return m.setup(ctx)
 }
 
@@ -66,7 +67,7 @@ func Test_Indexer_Setup(t *testing.T) {
 			setup: func() error { return nil },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan Item, error) {
+			setup: func(ctx context.Context) (<-chan model.Item, error) {
 				return nil, want
 			},
 		}
@@ -83,7 +84,7 @@ func Test_Indexer_Setup(t *testing.T) {
 			setup: func() error { return want },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan Item, error) {
+			setup: func(ctx context.Context) (<-chan model.Item, error) {
 				return nil, want
 			},
 		}
@@ -132,8 +133,8 @@ func Test_Start_errorHandling(t *testing.T) {
 			store: func() error { return want },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan Item, error) {
-				ch := make(chan Item)
+			setup: func(ctx context.Context) (<-chan model.Item, error) {
+				ch := make(chan model.Item)
 				close(ch)
 				return ch, nil
 			},
@@ -159,8 +160,8 @@ func Test_Start_errorHandling(t *testing.T) {
 			store: func() error { return nil },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan Item, error) {
-				ch := make(chan Item)
+			setup: func(ctx context.Context) (<-chan model.Item, error) {
+				ch := make(chan model.Item)
 				close(ch)
 				return ch, nil
 			},
@@ -185,8 +186,8 @@ func Test_Start_errorHandling(t *testing.T) {
 			store: func() error { return nil },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan Item, error) {
-				ch := make(chan Item)
+			setup: func(ctx context.Context) (<-chan model.Item, error) {
+				ch := make(chan model.Item)
 				close(ch)
 				return ch, nil
 			},

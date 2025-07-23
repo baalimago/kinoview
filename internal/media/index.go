@@ -7,26 +7,19 @@ import (
 	"net/http"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/model"
 )
 
 type storage interface {
 	Setup(ctx context.Context, storePath string) error
-	Store(i Item) error
+	Store(i model.Item) error
 	ListHandlerFunc() http.HandlerFunc
 	ItemHandlerFunc() http.HandlerFunc
 }
 
 type watcher interface {
-	Setup(ctx context.Context) (<-chan Item, error)
+	Setup(ctx context.Context) (<-chan model.Item, error)
 	Watch(ctx context.Context, path string) error
-}
-
-type Item struct {
-	ID       string
-	Path     string
-	Name     string
-	MIMEType string
-	Metadata any
 }
 
 type Indexer struct {
@@ -35,7 +28,7 @@ type Indexer struct {
 	watcher   watcher
 	store     storage
 
-	fileUpdates <-chan Item
+	fileUpdates <-chan model.Item
 }
 
 func NewIndexer() *Indexer {

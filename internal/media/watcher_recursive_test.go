@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
+	"github.com/baalimago/kinoview/internal/model"
 )
 
 func Test_recursiveWatcher_Setup(t *testing.T) {
@@ -75,7 +76,7 @@ func Test_recursiveWatcher_checkFile(t *testing.T) {
 		image.Write([]byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00})
 		defer video.Close()
 		defer image.Close()
-		updateChan := make(chan Item, 2)
+		updateChan := make(chan model.Item, 2)
 		rw, err := newRecursiveWatcher()
 		if err != nil {
 			t.Fatal(err)

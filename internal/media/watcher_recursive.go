@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/model"
 	"github.com/fsnotify/fsnotify"
 )
 
 type recursiveWatcher struct {
 	watcher *fsnotify.Watcher
-	updates chan Item
+	updates chan model.Item
 }
 
 func newRecursiveWatcher() (*recursiveWatcher, error) {
@@ -25,11 +26,11 @@ func newRecursiveWatcher() (*recursiveWatcher, error) {
 	}
 	return &recursiveWatcher{
 		w,
-		make(chan Item),
+		make(chan model.Item),
 	}, nil
 }
 
-func (rw *recursiveWatcher) Setup(ctx context.Context) (<-chan Item, error) {
+func (rw *recursiveWatcher) Setup(ctx context.Context) (<-chan model.Item, error) {
 	ancli.Noticef("setting up recursive watcher")
 	if rw.updates == nil {
 		return nil, errors.New("updates channel is nil. Please create with newRecursiveWatcher")
@@ -37,7 +38,7 @@ func (rw *recursiveWatcher) Setup(ctx context.Context) (<-chan Item, error) {
 	return rw.updates, nil
 }
 
-// checkFile and emit Item on updates channel if file is
+// checkFile and emit model.Item on updates channel if file is
 // is video-like or image-like
 func (rw *recursiveWatcher) checkFile(p string) error {
 	_, err := os.Stat(p)
@@ -60,7 +61,7 @@ func (rw *recursiveWatcher) checkFile(p string) error {
 	mimeType := http.DetectContentType(buf[:n])
 
 	if mimeType[:5] == "video" || mimeType[:5] == "image" {
-		rw.updates <- Item{Name: path.Base(p), Path: p, MIMEType: mimeType}
+		rw.updates <- model.Item{Name: path.Base(p), Path: p, MIMEType: mimeType}
 	}
 
 	return nil

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
+	"github.com/baalimago/kinoview/internal/model"
 )
 
 func mockHTTPRequest(method, target string, body io.Reader) *http.Request {
@@ -87,8 +88,8 @@ func Test_jsonStore_Setup(t *testing.T) {
 		tmpDir := t.TempDir()
 
 		key := "an-id"
-		want := Item{Name: "a", ID: key}
-		wantList := []Item{want}
+		want := model.Item{Name: "a", ID: key}
+		wantList := []model.Item{want}
 		wantBytes, err := json.Marshal(wantList)
 		if err != nil {
 			t.Fatalf("failed to marshal want: %v", err)
@@ -131,7 +132,7 @@ func Test_jsonStore_Store(t *testing.T) {
 			t.Fatalf("Setup failed: %v", err)
 		}
 
-		item := Item{Name: "sample", ID: "1234"}
+		item := model.Item{Name: "sample", ID: "1234"}
 		err = s.Store(item)
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
@@ -168,7 +169,7 @@ func Test_jsonStore_Store(t *testing.T) {
 		pre.WriteString(largeIshString)
 		post.WriteString(largeIshString)
 		want := "This should stay"
-		has := Item{Name: "with_ID", Path: pre.Name(), Metadata: want}
+		has := model.Item{Name: "with_ID", Path: pre.Name(), Metadata: want}
 		id := generateID(has)
 		has.ID = id
 		s.cache[id] = has
@@ -274,7 +275,7 @@ func Test_streamMkvToMp4(t *testing.T) {
 
 func Test_jsonStore_ListHandlerFunc(t *testing.T) {
 	jStore := &jsonStore{
-		cache: map[string]Item{
+		cache: map[string]model.Item{
 			"1": {ID: "1", Name: "foo"},
 			"2": {ID: "2", Name: "bar"},
 		},
@@ -290,7 +291,7 @@ func Test_jsonStore_ListHandlerFunc(t *testing.T) {
 		if ct := rr.Header().Get("Content-Type"); ct != "application/json" {
 			t.Errorf("got Content-Type %q, want application/json", ct)
 		}
-		var items []Item
+		var items []model.Item
 		if err := json.NewDecoder(rr.Body).Decode(&items); err != nil {
 			t.Fatalf("failed decoding response: %v", err)
 		}
@@ -330,7 +331,7 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("missing id returns bad request", func(t *testing.T) {
-		js.cache = map[string]Item{}
+		js.cache = map[string]model.Item{}
 		req := httptest.NewRequest(http.MethodGet, "/item", nil)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -340,7 +341,7 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("unknown id returns 404", func(t *testing.T) {
-		js.cache = map[string]Item{}
+		js.cache = map[string]model.Item{}
 		req := httptest.NewRequest(http.MethodGet, "/item/xyz", nil)
 		req.SetPathValue("id", "xyz")
 		rr := httptest.NewRecorder()
@@ -351,7 +352,7 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("known id, file not found", func(t *testing.T) {
-		js.cache = map[string]Item{"x": {Path: "no/such/file", MIMEType: "image/png", Name: "img.png"}}
+		js.cache = map[string]model.Item{"x": {Path: "no/such/file", MIMEType: "image/png", Name: "img.png"}}
 		req := httptest.NewRequest(http.MethodGet, "/item/x", nil)
 		req.SetPathValue("id", "x")
 		rr := httptest.NewRecorder()
@@ -368,7 +369,7 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
-		item := Item{
+		item := model.Item{
 			Name:     "cacheonly",
 			ID:       "cache-test-id",
 			Path:     path.Join(tmpDir, "not-a-real-file.txt"),

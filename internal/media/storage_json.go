@@ -11,11 +11,12 @@ import (
 	"strings"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/model"
 )
 
 type jsonStore struct {
 	storePath string
-	cache     map[string]Item
+	cache     map[string]model.Item
 }
 
 func newJSONStore() *jsonStore {
@@ -28,7 +29,7 @@ func (s *jsonStore) Setup(ctx context.Context, storeDirPath string) error {
 	ancli.Noticef("setting up json store")
 	s.storePath = storeDirPath
 	if s.cache == nil {
-		s.cache = make(map[string]Item)
+		s.cache = make(map[string]model.Item)
 	}
 	storePath := path.Join(storeDirPath, "store.json")
 	if _, err := os.Stat(storePath); os.IsNotExist(err) {
@@ -50,9 +51,9 @@ func (s *jsonStore) Setup(ctx context.Context, storeDirPath string) error {
 	}
 	defer f.Close()
 
-	var items []Item
+	var items []model.Item
 	if err := json.NewDecoder(f).Decode(&items); err != nil {
-		return fmt.Errorf("failed to decode []Item: %w", err)
+		return fmt.Errorf("failed to decode []model.Item: %w", err)
 	}
 	for _, item := range items {
 		s.cache[item.ID] = item
@@ -61,7 +62,7 @@ func (s *jsonStore) Setup(ctx context.Context, storeDirPath string) error {
 }
 
 // generateID by creating a hash using sha256 on the contents of item.Path
-func generateID(i Item) string {
+func generateID(i model.Item) string {
 	f, err := os.Open(i.Path)
 	if err != nil {
 		return ""
@@ -94,7 +95,7 @@ func generateID(i Item) string {
 }
 
 // Store the item in the local json store and add i to the cache
-func (s *jsonStore) Store(i Item) error {
+func (s *jsonStore) Store(i model.Item) error {
 	hadID := i.ID != ""
 	if i.ID == "" {
 		i.ID = generateID(i)
@@ -117,7 +118,7 @@ func (s *jsonStore) Store(i Item) error {
 		return fmt.Errorf("failed to open store: %w", err)
 	}
 	defer f.Close()
-	items := make([]Item, 0, len(s.cache))
+	items := make([]model.Item, 0, len(s.cache))
 	for _, v := range s.cache {
 		items = append(items, v)
 	}
@@ -134,7 +135,7 @@ func (s *jsonStore) ListHandlerFunc() http.HandlerFunc {
 			http.Error(w, "store not initialized", http.StatusInternalServerError)
 			return
 		}
-		items := make([]Item, 0, len(s.cache))
+		items := make([]model.Item, 0, len(s.cache))
 		for _, v := range s.cache {
 			items = append(items, v)
 		}
