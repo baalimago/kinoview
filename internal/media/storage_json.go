@@ -14,13 +14,31 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
+type subtitleStreamFinder interface {
+	// fid the media info for some item
+	find(item model.Item) (MediaInfo, error)
+}
+
+type subtitleStreamExtractor interface {
+	// extract the subs and return path to the file
+	// containing subs. Subs are expected to be in .vtt
+	// format
+	extract(item model.Item, streamIndex string) (string, error)
+}
+
 type jsonStore struct {
-	storePath string
-	cache     map[string]model.Item
+	storePath          string
+	cache              map[string]model.Item
+	subStreamFinder    subtitleStreamFinder
+	subStreamExtractor subtitleStreamExtractor
 }
 
 func newJSONStore() *jsonStore {
-	return &jsonStore{}
+	subUtils := &ffmpegSubsUtil{}
+	return &jsonStore{
+		subStreamFinder:    subUtils,
+		subStreamExtractor: subUtils,
+	}
 }
 
 // Setup the jsonStore by loading 'store.json' from storeDirPath and adding all
@@ -146,8 +164,9 @@ func (s *jsonStore) ListHandlerFunc() http.HandlerFunc {
 	}
 }
 
-// ItemHandlerFunc returns a handler to get an item by ID with go1.22 style
-func (s *jsonStore) ItemHandlerFunc() http.HandlerFunc {
+// VideoHandlerFunc returns a handler to get a video by ID, if item is not a video
+// it will return 404
+func (s *jsonStore) VideoHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
@@ -161,6 +180,11 @@ func (s *jsonStore) ItemHandlerFunc() http.HandlerFunc {
 		}
 		pathToMedia := item.Path
 		mimeType := item.MIMEType
+
+		if !strings.Contains(mimeType, "video") {
+			http.Error(w, "media found, but its not a video", http.StatusNotFound)
+			return
+		}
 
 		w.Header().Set("Content-Type", mimeType)
 		file, err := os.Open(pathToMedia)
@@ -184,5 +208,66 @@ func (s *jsonStore) ItemHandlerFunc() http.HandlerFunc {
 
 		modTime := info.ModTime()
 		http.ServeContent(w, r, item.Name, modTime, file)
+	}
+}
+
+// SubsHandlerFunc by stripping out the substitle streams using ffmpeg from video media found at
+// PathValue id. If there are multiple subtitle streams found, select one at random
+func (s *jsonStore) SubsListHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("vid")
+		if id == "" {
+			http.Error(w, "missing vid", http.StatusBadRequest)
+			return
+		}
+		item, ok := s.cache[id]
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		if !strings.Contains(item.MIMEType, "video") {
+			http.Error(w, "media found, but its not a video", http.StatusNotFound)
+			return
+		}
+
+		info, err := s.subStreamFinder.find(item)
+		if err != nil {
+			ancli.Errf("jsonStore failed to handle SubsList when subStripper.extract, err: %v", err)
+			http.Error(w, "failed to extract subtitles from media", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(info)
+		ancli.Okf("media info served")
+	}
+}
+
+func (s *jsonStore) SubsHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		vid := r.PathValue("vid")
+		if vid == "" {
+			http.Error(w, "missing video id", http.StatusBadRequest)
+			return
+		}
+
+		sid := r.PathValue("sub_idx")
+		if sid == "" {
+			http.Error(w, "missing subtitle index", http.StatusBadRequest)
+			return
+		}
+
+		cacheFile, exists := s.cache[vid]
+		if !exists {
+			http.Error(w, fmt.Sprintf("cache miss for: '%v'", vid), http.StatusNotFound)
+			return
+		}
+		subs, err := s.subStreamExtractor.extract(cacheFile, sid)
+		if err != nil {
+			ancli.Errf("failed to extract subs: %v", err)
+			http.Error(w, "failed to extract subs", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+		http.ServeFile(w, r, subs)
 	}
 }

@@ -1,7 +1,10 @@
 package media
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -9,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/model"
 )
 
 // This is to allow for testing
@@ -47,6 +51,10 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 		"-vcodec", "libx264", "-preset", "veryfast",
 		"-acodec", "aac", "-strict", "-2", "pipe:1")
 
+	tmpStderr, _ := os.CreateTemp("", "ffmpeg_stderr_*.log")
+	cmd.Stderr = tmpStderr
+	ancli.Noticef("progress at: %v", tmpStderr.Name())
+
 	// Start ffmpeg with stdout piped
 	wg.Add(1)
 	go func() {
@@ -54,7 +62,6 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 		defer pipeWriter.Close()
 
 		cmd.Stdout = pipeWriter
-		cmd.Stderr = os.Stderr
 
 		if err := cmd.Run(); err != nil {
 			select {
@@ -105,4 +112,86 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 	}
 
 	wg.Wait()
+}
+
+type ffmpegSubsUtil struct {
+	// mediaCache of pre-scanned media, allowing for validation and speedup
+	mediaCache map[string]MediaInfo
+	subsCache  map[string]string
+}
+
+func (f *ffmpegSubsUtil) find(item model.Item) (info MediaInfo, err error) {
+	info, exists := f.mediaCache[item.ID]
+	if exists {
+		return
+	}
+	cmd := exec.Command("ffprobe",
+		item.Path,
+		"-v",
+		"quiet",
+		"-print_format",
+		"json",
+		"-show_streams",
+		"-select_streams",
+		"s",
+	)
+	tmpStderr, _ := os.CreateTemp("", "ffmpeg_sub_stderr_*.log")
+	cmd.Stderr = tmpStderr
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	ancli.Noticef("subs conversion ffmpeg info: %v", tmpStderr.Name())
+	err = cmd.Run()
+	if err != nil {
+		err = fmt.Errorf("failed to extract media info: %w", err)
+		return
+	}
+	err = json.Unmarshal(out.Bytes(), &info)
+	if err != nil {
+		err = fmt.Errorf("failed to unmarshal media info: %w", err)
+		return
+	}
+	f.mediaCache[item.ID] = info
+	return
+}
+
+func (f *ffmpegSubsUtil) extract(item model.Item, streamIndex string) (pathToSubs string, err error) {
+	pathToSubs, exists := f.subsCache[item.ID]
+	if exists {
+		return
+	}
+	subs, err := os.CreateTemp("", "*.vtt")
+	defer func() {
+		closeErr := subs.Close()
+		if closeErr != nil {
+			ancli.Errf("failed to close subs file: %v", closeErr)
+		}
+	}()
+	if err != nil {
+		err = fmt.Errorf("failed to create temp sub file: %w", err)
+		return
+	}
+	mapArg := "0:" + streamIndex
+	cmd := exec.Command("ffmpeg",
+		"-y",
+		"-i", item.Path,
+		"-map", mapArg,
+		"-f", "webvtt",
+		subs.Name())
+	convOutp, err := os.CreateTemp("", "subs_convert_*.log")
+	defer func() {
+		convCloseErr := convOutp.Close()
+		if convCloseErr != nil {
+			ancli.Errf("failed to close subs conversion output file: %v", convCloseErr)
+		}
+	}()
+	ancli.Noticef("subs extract info at: %v", convOutp.Name())
+	cmd.Stderr = convOutp
+
+	if err = cmd.Run(); err != nil {
+		err = fmt.Errorf("subtitle extraction failed: %w", err)
+		return
+	}
+
+	pathToSubs = subs.Name()
+	return
 }
