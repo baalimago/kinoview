@@ -1,7 +1,10 @@
 package media
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"os"
@@ -47,6 +50,10 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 		"-vcodec", "libx264", "-preset", "veryfast",
 		"-acodec", "aac", "-strict", "-2", "pipe:1")
 
+	tmpStderr, _ := os.CreateTemp("", "ffmpeg_stderr_*.log")
+	cmd.Stderr = tmpStderr
+	ancli.Noticef("progress at: %v", tmpStderr.Name())
+
 	// Start ffmpeg with stdout piped
 	wg.Add(1)
 	go func() {
@@ -54,7 +61,6 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 		defer pipeWriter.Close()
 
 		cmd.Stdout = pipeWriter
-		cmd.Stderr = os.Stderr
 
 		if err := cmd.Run(); err != nil {
 			select {
@@ -105,4 +111,59 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 	}
 
 	wg.Wait()
+}
+
+type ffmpegSubsUtil struct {
+	// cache of pre-scanned media, allowing for validation and speedup
+	cache map[string]MediaInfo
+}
+
+func (f *ffmpegSubsUtil) find(pathToVideo string) (info MediaInfo, err error) {
+	cmd := exec.Command("ffprobe",
+		pathToVideo,
+		"-v",
+		"quiet",
+		"-print_format",
+		"json",
+		"-show_streams",
+		"-select_streams",
+		"s",
+	)
+	tmpStderr, _ := os.CreateTemp("", "ffmpeg_sub_stderr_*.log")
+	cmd.Stderr = tmpStderr
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	ancli.Noticef("subs conversion ffmpeg info: %v", tmpStderr.Name())
+	err = cmd.Run()
+	if err != nil {
+		err = fmt.Errorf("failed to extract media info: %w", err)
+		return
+	}
+	err = json.Unmarshal(out.Bytes(), &info)
+	if err != nil {
+		err = fmt.Errorf("failed to unmarshal media info: %w", err)
+		return
+	}
+	return
+}
+
+func (f *ffmpegSubsUtil) extract(pathToVideo string, streamIndex string) (subs *os.File, err error) {
+	subs, err = os.CreateTemp("", "*.vtt")
+	if err != nil {
+		err = fmt.Errorf("failed to create temp sub file: %w", err)
+		return
+	}
+	mapArg := "0:" + streamIndex
+	cmd := exec.Command("ffmpeg",
+		"-y",
+		"-i", pathToVideo,
+		"-map", mapArg,
+		"-f", "webvtt",
+		subs.Name())
+
+	if err = cmd.Run(); err != nil {
+		err = fmt.Errorf("subtitle extraction failed: %W", err)
+		return
+	}
+	return
 }

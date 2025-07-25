@@ -9,17 +9,31 @@
   </head>
 
   <body>
-    <video id="screen" class="screen" controls type="video/mp4"></video>
+    <video id="screen" class="screen" controls type="video/mp4">
+      <track default id="subs" kind="subtitles" />
+    </video>
 
-    <div>
-      <p>Please select a video:</p>
-      <select
-        id="debugMediaSelector"
-        class="mediaSelector"
-        onchange="selectMedia(this.value)"
-      >
-        <option value="">Select video</option>
-      </select>
+    <div id="selection-wrapper">
+      <div>
+        <p>Please select a video:</p>
+        <select
+          id="debugMediaSelector"
+          class="mediaSelector"
+          onchange="selectMedia(this.value)"
+        >
+          <option value="">Select video</option>
+        </select>
+      </div>
+      <div>
+        <p>Please select subtitles:</p>
+        <select
+          id="debugSubsSelector"
+          class="mediaSelector"
+          onchange="selectSubtitle(this.value)"
+        >
+          <option value="">Select subtitles</option>
+        </select>
+      </div>
     </div>
   </body>
 </html>

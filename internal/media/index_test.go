@@ -24,7 +24,15 @@ func (m *mockStore) Store(i model.Item) error {
 	return m.store()
 }
 
-func (m *mockStore) ItemHandlerFunc() http.HandlerFunc {
+func (m *mockStore) VideoHandlerFunc() http.HandlerFunc {
+	return nil
+}
+
+func (m *mockStore) SubsHandlerFunc() http.HandlerFunc {
+	return nil
+}
+
+func (m *mockStore) SubsListHandlerFunc() http.HandlerFunc {
 	return nil
 }
 

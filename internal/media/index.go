@@ -14,7 +14,9 @@ type storage interface {
 	Setup(ctx context.Context, storePath string) error
 	Store(i model.Item) error
 	ListHandlerFunc() http.HandlerFunc
-	ItemHandlerFunc() http.HandlerFunc
+	VideoHandlerFunc() http.HandlerFunc
+	SubsListHandlerFunc() http.HandlerFunc
+	SubsHandlerFunc() http.HandlerFunc
 }
 
 type watcher interface {
@@ -103,6 +105,8 @@ func (i *Indexer) Start(ctx context.Context) error {
 func (i *Indexer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", i.store.ListHandlerFunc())
-	mux.HandleFunc("/{id}", i.store.ItemHandlerFunc())
+	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
+	mux.HandleFunc("/subs/{vid}", i.store.SubsListHandlerFunc())
+	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.SubsHandlerFunc())
 	return mux
 }
