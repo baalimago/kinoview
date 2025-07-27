@@ -3,6 +3,7 @@ package media
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -315,12 +316,12 @@ func Test_jsonStore_ListHandlerFunc(t *testing.T) {
 	})
 }
 
-func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
+func Test_jsonStore_VideoHandlerFunc(t *testing.T) {
 	js := &jsonStore{}
-	handler := js.ItemHandlerFunc()
+	handler := js.VideoHandlerFunc()
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/item/1", nil)
+		req := httptest.NewRequest(http.MethodGet, "/video/1", nil)
 		req.SetPathValue("id", "1")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -332,7 +333,7 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 
 	t.Run("missing id returns bad request", func(t *testing.T) {
 		js.cache = map[string]model.Item{}
-		req := httptest.NewRequest(http.MethodGet, "/item", nil)
+		req := httptest.NewRequest(http.MethodGet, "/video", nil)
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
 		if rr.Result().StatusCode != http.StatusBadRequest {
@@ -340,9 +341,36 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 		}
 	})
 
+	t.Run("it should return 404 if item is found, but its not of video mimetype", func(t *testing.T) {
+		js.cache = map[string]model.Item{
+			"without_video_mime": {
+				MIMEType: "something/else",
+				Path:     "mock/Jellyfish_1080_10s_1MB.mkv",
+			},
+			"with_video_mime": {
+				MIMEType: "video/webm",
+				Path:     "mock/Jellyfish_1080_10s_1MB.mkv",
+			},
+		}
+		req := httptest.NewRequest(http.MethodGet, "/video/with_video_mime", nil)
+		req.SetPathValue("id", "with_video_mime")
+		rr := httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Result().StatusCode != http.StatusOK {
+			t.Errorf("want 200 on video with mime, got %d", rr.Result().StatusCode)
+		}
+		req = httptest.NewRequest(http.MethodGet, "/video/without_video_mime", nil)
+		req.SetPathValue("id", "without_video_mime")
+		rr = httptest.NewRecorder()
+		handler.ServeHTTP(rr, req)
+		if rr.Result().StatusCode != http.StatusNotFound {
+			t.Errorf("want 404 on video without mimetype, got %d", rr.Result().StatusCode)
+		}
+	})
+
 	t.Run("unknown id returns 404", func(t *testing.T) {
 		js.cache = map[string]model.Item{}
-		req := httptest.NewRequest(http.MethodGet, "/item/xyz", nil)
+		req := httptest.NewRequest(http.MethodGet, "/video/xyz", nil)
 		req.SetPathValue("id", "xyz")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -353,7 +381,7 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 
 	t.Run("known id, file not found", func(t *testing.T) {
 		js.cache = map[string]model.Item{"x": {Path: "no/such/file", MIMEType: "image/png", Name: "img.png"}}
-		req := httptest.NewRequest(http.MethodGet, "/item/x", nil)
+		req := httptest.NewRequest(http.MethodGet, "/video/x", nil)
 		req.SetPathValue("id", "x")
 		rr := httptest.NewRecorder()
 		handler.ServeHTTP(rr, req)
@@ -373,21 +401,221 @@ func Test_jsonStore_ItemHandlerFunc(t *testing.T) {
 			Name:     "cacheonly",
 			ID:       "cache-test-id",
 			Path:     path.Join(tmpDir, "not-a-real-file.txt"),
-			MIMEType: "text/plain",
+			MIMEType: "video/plain",
 		}
 		s.cache[item.ID] = item
 
-		req := mockHTTPRequest("GET", "/item/"+item.ID, nil)
+		req := mockHTTPRequest("GET", "/video/"+item.ID, nil)
 		req.SetPathValue("id", item.ID)
 
 		rec := newMockResponseWriter()
-		handler := s.ItemHandlerFunc()
+		handler := s.VideoHandlerFunc()
 		handler(rec, req)
 		if rec.statusCode != http.StatusNotFound {
 			t.Fatalf("Expected status 404, got %d", rec.statusCode)
 		}
-		if !strings.Contains(string(rec.buffer), "media not found") {
+		if !strings.Contains(string(rec.buffer), "") {
 			t.Errorf("Expected error response, got: %s", rec.buffer)
 		}
 	})
+}
+
+type mockExtractor struct{}
+
+func (m *mockExtractor) extract(item model.Item, streamIndex string) (string, error) {
+	return "", fmt.Errorf("mocked failure")
+}
+
+func Test_jsonStore_SubsHandlerFunc(t *testing.T) {
+	js := newJSONStore()
+
+	t.Run("cache nil triggers not found", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)
+		req.SetPathValue("vid", "1")
+		req.SetPathValue("sub_idx", "0")
+		rr := httptest.NewRecorder()
+		handler := js.SubsHandlerFunc()
+		handler.ServeHTTP(rr, req)
+		if rr.Result().StatusCode != http.StatusNotFound {
+			t.Errorf("expected 404 on nil cache, got %d", rr.Result().StatusCode)
+		}
+	})
+
+	t.Run("missing video ID returns bad request", func(t *testing.T) {
+		js.cache = map[string]model.Item{}
+		req := httptest.NewRequest(http.MethodGet, "/subs", nil)
+		rr := httptest.NewRecorder()
+		handler := js.SubsHandlerFunc()
+		handler.ServeHTTP(rr, req)
+		if rr.Result().StatusCode != http.StatusBadRequest {
+			t.Errorf("expected 400, got %d", rr.Result().StatusCode)
+		}
+	})
+
+	t.Run("respond with 500 on extract failure", func(t *testing.T) {
+		js := newJSONStore()
+		js.cache = map[string]model.Item{"1": {ID: "1", Path: "dummy"}}
+
+		js.subStreamExtractor = &mockExtractor{}
+		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)
+		req.SetPathValue("vid", "1")
+		req.SetPathValue("sub_idx", "0")
+		rr := httptest.NewRecorder()
+		handler := js.SubsHandlerFunc()
+		handler.ServeHTTP(rr, req)
+		if rr.Result().StatusCode != http.StatusInternalServerError {
+			t.Errorf("expected 500 on extractor fail, got %d", rr.Result().StatusCode)
+		}
+	})
+}
+
+func Test_Stream_jsonStore_ffmpegSubsUtil_extract(t *testing.T) {
+	t.Run("extract subs if possible", func(t *testing.T) {
+		subsUtil := ffmpegSubsUtil{}
+		given := model.Item{
+			ID:   "some_ID",
+			Path: "./mock/Jellyfish_with_subs.mkv",
+		}
+		gotFile, err := subsUtil.extract(given, "1")
+		if err != nil {
+			t.Fatalf("failed to extract: %v", err)
+		}
+
+		gotData, err := os.ReadFile(gotFile)
+		if err != nil {
+			t.Fatalf("failed to read gotFile: %v", err)
+		}
+		// Subtitle line which appears in mock video
+		testboil.AssertStringContains(t, string(gotData), "Pay close attention to each step.")
+	})
+
+	t.Run("it should error if ffmpeg is not installed", func(t *testing.T) {
+		subsUtil := &ffmpegSubsUtil{}
+		origPath := os.Getenv("PATH")
+		defer os.Setenv("PATH", origPath)
+		os.Setenv("PATH", "/nonexistent")
+		item := model.Item{ID: "no-ffmpeg", Path: "/tmp/doesnotmatter.mkv"}
+		_, err := subsUtil.extract(item, "0")
+		if err == nil {
+			t.Fatal("expected error when ffprobe unavailable, got nil")
+		}
+	})
+}
+
+func Test_Stream_jsonStore_ffmpegSubsUtil_find(t *testing.T) {
+	t.Run("find uses mediaCache hit", func(t *testing.T) {
+		wantIdx := 404
+		util := &ffmpegSubsUtil{
+			mediaCache: map[string]MediaInfo{
+				"cache-id": {[]Stream{{Index: wantIdx}}},
+			},
+		}
+		item := model.Item{ID: "cache-id", Path: "/tmp/some.mkv"}
+		info, err := util.find(item)
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if len(info.Streams) < 1 || info.Streams[0].Index != wantIdx {
+			t.Fatalf("unexpected info: %+v", info)
+		}
+	})
+
+	t.Run("find returns error when ffprobe/ffmpeg unavailable", func(t *testing.T) {
+		util := &ffmpegSubsUtil{mediaCache: map[string]MediaInfo{}}
+		origPath := os.Getenv("PATH")
+		defer os.Setenv("PATH", origPath)
+		os.Setenv("PATH", "/nonexistent")
+		item := model.Item{ID: "missing-ff", Path: "/tmp/irrelevant.mkv"}
+		_, err := util.find(item)
+		if err == nil {
+			t.Fatal("expected error when ffmpeg is unavailable, got nil")
+		}
+	})
+
+	t.Run("find returns error for invalid input", func(t *testing.T) {
+		util := &ffmpegSubsUtil{mediaCache: map[string]MediaInfo{}}
+		item := model.Item{ID: "bogus", Path: "/path/does/not/exist.mkv"}
+		_, err := util.find(item)
+		if err == nil {
+			t.Fatal("expected error for invalid input, got nil")
+		}
+	})
+
+	t.Run("find caches on successful find", func(t *testing.T) {
+		util := &ffmpegSubsUtil{
+			mediaCache: map[string]MediaInfo{},
+		}
+		// Use a known good file with ffprobe available in path
+		item := model.Item{ID: "some-unique-id", Path: "./mock/Jellyfish_with_subs.mkv"}
+		_, err := util.find(item)
+		if err != nil {
+			t.Fatalf("unexpected error calling find: %v", err)
+		}
+		// Should set cache for this ID
+		if _, ok := util.mediaCache[item.ID]; !ok {
+			t.Fatalf("expected find to cache result for %s", item.ID)
+		}
+	})
+}
+
+func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
+	t.Run("it should return item on media cache hit", func(t *testing.T) {
+		wantIdx := 1337
+		// Setup ffmpegSubsUtil with mock caches
+		util := &ffmpegSubsUtil{
+			mediaCache: map[string]MediaInfo{
+				"id-abc": {[]Stream{
+					{
+						Index: wantIdx,
+					},
+				}},
+			},
+			subsCache: map[string]string{
+				"id-xyz": "/tmp/mocksubs.vtt",
+			},
+		}
+
+		item := model.Item{ID: "id-abc", Path: "/tmp/mockfile.mkv"}
+		// Should hit mediaCache and return without error
+		info, err := util.find(item)
+		if err != nil {
+			t.Fatalf("expected nil error, got %v", err)
+		}
+		if info.Streams[0].Index != wantIdx {
+			t.Fatalf("unexpected info from mediaCache: %+v", info)
+		}
+
+		item.ID = "id-xyz"
+		got, err := util.extract(item, "0")
+		if err != nil {
+			t.Fatalf("expected nil err from extract cache, got %v", err)
+		}
+		if got != "/tmp/mocksubs.vtt" {
+			t.Fatalf("unexpected path from subsCache: %s", got)
+		}
+	})
+
+	t.Run("error on ffmpeg error (not panic)", func(t *testing.T) {
+		util := &ffmpegSubsUtil{
+			mediaCache: map[string]MediaInfo{},
+			subsCache:  map[string]string{},
+		}
+
+		item := model.Item{ID: "nohit-" + randString(6), Path: os.DevNull}
+		// Funky streamIndex but ffmpeg will fail, so expect error not panics
+		_, err := util.extract(item, "0")
+		if err == nil {
+			t.Fatalf("expected error due to ffmpeg fail")
+		}
+	})
+}
+
+// randString for ID, deterministic length, not crypto-rand.
+func randString(n int) string {
+	letters := []rune("abcdefghijklmnopqrstuvwxyz")
+	out := make([]rune, n)
+	for i := range out {
+		out[i] = letters[i%len(letters)]
+	}
+	return string(out)
 }

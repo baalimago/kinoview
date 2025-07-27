@@ -15,3 +15,7 @@ body {
 .mediaSelector {
   width: fit-content;
 }
+
+#selection-wrapper {
+  display: flex;
+}
