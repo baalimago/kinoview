@@ -8,7 +8,7 @@ on:
 
 jobs:
   call-workflow:
-    uses: baalimago/simple-go-pipeline/.github/workflows/validate.yml@feat/prerun-step
+    uses: baalimago/simple-go-pipeline/.github/workflows/validate.yml@main
     with:
       go-version: "1.24"
       prerun-step-cmd: "sudo apt install ffmpeg -y"
