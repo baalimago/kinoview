@@ -10,6 +10,7 @@ body {
 
 .screen {
   width: 100%;
+  display: none;
 }
 
 .mediaSelector {
@@ -18,4 +19,18 @@ body {
 
 #selection-wrapper {
   display: flex;
+  position: relative;
+}
+
+@keyframes spin360 {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.mediaSelector:active {
+  animation: spin360 0.4s linear;
 }

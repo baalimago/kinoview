@@ -24,9 +24,10 @@ fetch('/gallery')
 var mostRecentID = "";
 function selectMedia(id) {
   const video = document.getElementById("screen");
-  // Thank the gods for the lack of async checks
+  // Thank the gods for js's excellent singlethreaded scheduler
   mostRecentID = id;
   video.src = `/gallery/video/${id}`;
+  video.style.display = "initial"
   loadSubtitles(id);
 }
 
