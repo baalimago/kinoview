@@ -42,7 +42,10 @@ type command struct {
 }
 
 func Command() *command {
-	configDir, _ := os.UserConfigDir()
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		ancli.Errf("failed to find user config dir: %v", err)
+	}
 	kinoviewConfigDir := path.Join(configDir, "kinoview")
 	r, _ := os.Executable()
 	return &command{
@@ -70,10 +73,12 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 	c.watchPath = path.Clean(relPath)
 
-	if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
-		ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
-		if err := os.MkdirAll(c.configDir, 0o755); err != nil {
-			return fmt.Errorf("could not create config dir: %w", err)
+	if c.configDir != "" {
+		if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
+			ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
+			if err := os.MkdirAll(c.configDir, 0o755); err != nil {
+				return fmt.Errorf("could not create config dir: %w", err)
+			}
 		}
 	}
 
