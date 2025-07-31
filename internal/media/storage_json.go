@@ -34,7 +34,9 @@ type jsonStore struct {
 }
 
 func newJSONStore() *jsonStore {
-	subUtils := &ffmpegSubsUtil{}
+	subUtils := &ffmpegSubsUtil{
+		mediaCache: map[string]MediaInfo{},
+	}
 	return &jsonStore{
 		subStreamFinder:    subUtils,
 		subStreamExtractor: subUtils,
