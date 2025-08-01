@@ -37,12 +37,12 @@ function loadSubtitles(id) {
     .then(data => {
       const options = document.getElementById("debugSubsSelector")
       for (const i of data.streams) {
-        if (!i.tags.language) {
+        if (!i.codec_type == "subtitle") {
           continue
         }
         const opt = document.createElement("option")
         opt.value = i.index
-        opt.innerText = i.tags.language
+        opt.innerText = i.tags.language ? i.tags.language : "who knows?"
         options.append(opt)
       }
     })
