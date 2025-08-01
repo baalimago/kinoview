@@ -17,6 +17,7 @@ import (
 type recursiveWatcher struct {
 	watcher *fsnotify.Watcher
 	updates chan model.Item
+	errChan chan error
 }
 
 func newRecursiveWatcher() (*recursiveWatcher, error) {
@@ -27,15 +28,16 @@ func newRecursiveWatcher() (*recursiveWatcher, error) {
 	return &recursiveWatcher{
 		w,
 		make(chan model.Item),
+		make(chan error),
 	}, nil
 }
 
-func (rw *recursiveWatcher) Setup(ctx context.Context) (<-chan model.Item, error) {
+func (rw *recursiveWatcher) Setup(ctx context.Context) (<-chan model.Item, <-chan error, error) {
 	ancli.Noticef("setting up recursive watcher")
 	if rw.updates == nil {
-		return nil, errors.New("updates channel is nil. Please create with newRecursiveWatcher")
+		return nil, nil, errors.New("updates channel is nil. Please create with newRecursiveWatcher")
 	}
-	return rw.updates, nil
+	return rw.updates, rw.errChan, nil
 }
 
 // checkFile and emit model.Item on updates channel if file is
@@ -82,11 +84,49 @@ func (rw *recursiveWatcher) walkDo(p string, info os.DirEntry, err error) error 
 	return rw.checkFile(p)
 }
 
+// handleError by sending it to rw.errChan in a non-blocking way
+func (rw *recursiveWatcher) handleError(err error) {
+	if err != nil {
+		select {
+		case rw.errChan <- err:
+		default:
+			ancli.Warnf("Error channel full or unavailable: %v", err)
+		}
+	}
+}
+
+func (rw *recursiveWatcher) handleEvent(ev fsnotify.Event) error {
+	if ev.Has(fsnotify.Write) || ev.Has(fsnotify.Create) {
+		return rw.checkFile(ev.Name)
+	}
+	// TODO: Implement this (need to change updates channel)
+	// if ev.Has(fsnotify.Rename) || ev.Has(fsnotify.Remove) {
+	// 	return rw.removeFile(ev.Name)
+	// }
+	return nil
+}
+
 func (rw *recursiveWatcher) Watch(ctx context.Context, path string) error {
 	err := filepath.WalkDir(path, rw.walkDo)
 	if err != nil {
 		return fmt.Errorf("filepath.WalkDir error: %w", err)
 	}
-	<-ctx.Done()
-	return rw.watcher.Close()
+	defer rw.watcher.Close()
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev, open := <-rw.watcher.Events:
+			if open {
+				err := rw.handleEvent(ev)
+				if err != nil {
+					rw.handleError(err)
+				}
+			}
+		case err, open := <-rw.watcher.Errors:
+			if open {
+				rw.handleError(err)
+			}
+		}
+	}
 }

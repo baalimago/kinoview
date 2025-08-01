@@ -20,8 +20,36 @@ type storage interface {
 }
 
 type watcher interface {
-	Setup(ctx context.Context) (<-chan model.Item, error)
+	// Setup a watcher, returning its update channel and error channel. If error is not nil
+	// the setup has failed. The error channel will propagate errors back to parent routine
+	// where severity of issue may be handled
+	Setup(ctx context.Context) (<-chan model.Item, <-chan error, error)
+
+	// Watch the path, error on catastrophic failure to start
+	// Will propagate errors via error cannel from Setup
 	Watch(ctx context.Context, path string) error
+}
+
+// errorListener is slightly overengineered. But we don't care about that
+// this is fine.
+type errorListener struct {
+	// stopContext function to cancel the errorListener whenever
+	// we wish to deregister it
+	stopContext func()
+	name        string
+	in          <-chan error
+	out         chan<- error
+}
+
+func (el *errorListener) start(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case e := <-el.in:
+			el.out <- fmt.Errorf("%v: %w", el.name, e)
+		}
+	}
 }
 
 type Indexer struct {
@@ -30,7 +58,9 @@ type Indexer struct {
 	watcher   watcher
 	store     storage
 
-	fileUpdates <-chan model.Item
+	fileUpdates   <-chan model.Item
+	errorChannels map[string]errorListener
+	errorUpdates  chan error
 }
 
 func NewIndexer() *Indexer {
@@ -39,7 +69,29 @@ func NewIndexer() *Indexer {
 	w, _ := newRecursiveWatcher()
 	i.watcher = w
 	i.store = newJSONStore()
+	i.errorChannels = make(map[string]errorListener)
+	i.errorUpdates = make(chan error, 1000)
 	return i
+}
+
+func (i *Indexer) registerErrorChannel(ctx context.Context, subRoutineName string, errChan <-chan error) error {
+	_, exists := i.errorChannels[subRoutineName]
+	if exists {
+		return fmt.Errorf("error channel with name '%v' already exists", subRoutineName)
+	}
+
+	errChanCtx, errChanCtxCancel := context.WithCancel(ctx)
+	errL := errorListener{
+		name:        subRoutineName,
+		stopContext: errChanCtxCancel,
+		in:          errChan,
+		out:         i.errorUpdates,
+	}
+	go errL.start(errChanCtx)
+
+	i.errorChannels[subRoutineName] = errL
+
+	return nil
 }
 
 func (i *Indexer) Setup(ctx context.Context, watchPath, storePath string) error {
@@ -48,12 +100,13 @@ func (i *Indexer) Setup(ctx context.Context, watchPath, storePath string) error 
 		return fmt.Errorf("Setup store: %v", err)
 	}
 
-	fileUpdates, err := i.watcher.Setup(ctx)
+	fileUpdates, watcherErrors, err := i.watcher.Setup(ctx)
 	if err != nil {
 		return fmt.Errorf("Setup watcher: %v", err)
 	}
 
 	i.fileUpdates = fileUpdates
+	i.registerErrorChannel(ctx, "watcher", watcherErrors)
 	i.watchPath = watchPath
 	i.storePath = storePath
 
@@ -71,6 +124,7 @@ func (i *Indexer) Start(ctx context.Context) error {
 	}()
 
 	storeErrChan := make(chan error)
+
 	go func() {
 		for {
 			select {
@@ -88,6 +142,8 @@ func (i *Indexer) Start(ctx context.Context) error {
 
 	for {
 		select {
+		case err := <-i.errorUpdates:
+			ancli.Errf("indexer subroutine err: %v", err)
 		case err := <-watcherErrChan:
 			if err != nil {
 				return fmt.Errorf("Start got watcher err: %w", err)
