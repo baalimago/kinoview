@@ -41,11 +41,11 @@ func (m *mockStore) ListHandlerFunc() http.HandlerFunc {
 }
 
 type mockWatcher struct {
-	setup func(ctx context.Context) (<-chan model.Item, error)
+	setup func(ctx context.Context) (<-chan model.Item, <-chan error, error)
 	watch func(ctx context.Context, path string) error
 }
 
-func (m *mockWatcher) Setup(ctx context.Context) (<-chan model.Item, error) {
+func (m *mockWatcher) Setup(ctx context.Context) (<-chan model.Item, <-chan error, error) {
 	return m.setup(ctx)
 }
 
@@ -75,8 +75,8 @@ func Test_Indexer_Setup(t *testing.T) {
 			setup: func() error { return nil },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan model.Item, error) {
-				return nil, want
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
+				return nil, nil, want
 			},
 		}
 		got := i.Setup(context.Background(), "", t.TempDir())
@@ -92,8 +92,8 @@ func Test_Indexer_Setup(t *testing.T) {
 			setup: func() error { return want },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan model.Item, error) {
-				return nil, want
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
+				return nil, nil, want
 			},
 		}
 
@@ -141,10 +141,10 @@ func Test_Start_errorHandling(t *testing.T) {
 			store: func() error { return want },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan model.Item, error) {
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
 				ch := make(chan model.Item)
 				close(ch)
-				return ch, nil
+				return ch, nil, nil
 			},
 			watch: func(ctx context.Context, path string) error { return nil },
 		}
@@ -168,10 +168,10 @@ func Test_Start_errorHandling(t *testing.T) {
 			store: func() error { return nil },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan model.Item, error) {
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
 				ch := make(chan model.Item)
 				close(ch)
-				return ch, nil
+				return ch, nil, nil
 			},
 			watch: func(ctx context.Context, path string) error { return want },
 		}
@@ -194,10 +194,10 @@ func Test_Start_errorHandling(t *testing.T) {
 			store: func() error { return nil },
 		}
 		i.watcher = &mockWatcher{
-			setup: func(ctx context.Context) (<-chan model.Item, error) {
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
 				ch := make(chan model.Item)
 				close(ch)
-				return ch, nil
+				return ch, nil, nil
 			},
 			watch: func(ctx context.Context, path string) error { tmp := make(chan struct{}); <-tmp; return nil },
 		}
@@ -210,5 +210,74 @@ func Test_Start_errorHandling(t *testing.T) {
 		testboil.ReturnsOnContextCancel(t, func(ctx context.Context) {
 			i.Start(ctx)
 		}, time.Millisecond*100)
+	})
+}
+
+func Test_RegisterErrorChannel(t *testing.T) {
+	t.Run("registers new error channel", func(t *testing.T) {
+		i := &Indexer{
+			errorChannels: make(map[string]errorListener),
+			errorUpdates:  make(chan error),
+		}
+		errCh := make(chan error)
+		err := i.registerErrorChannel(context.Background(), "testRoutine", errCh)
+		if err != nil {
+			t.Errorf("Expected no error, got: %v", err)
+		}
+
+		if _, exists := i.errorChannels["testRoutine"]; !exists {
+			t.Errorf("Expected error channel 'testRoutine' to be registered")
+		}
+	})
+
+	t.Run("returns error for duplicate channel name", func(t *testing.T) {
+		i := &Indexer{
+			errorChannels: map[string]errorListener{
+				"testRoutine": {},
+			},
+			errorUpdates: make(chan error),
+		}
+		errCh := make(chan error)
+		err := i.registerErrorChannel(context.Background(), "testRoutine", errCh)
+		if err == nil {
+			t.Errorf("Expected error, got none")
+		}
+		if err.Error() != "error channel with name 'testRoutine' already exists" {
+			t.Errorf("Unexpected error message: %v", err.Error())
+		}
+	})
+	t.Run("errors should be propagated", func(t *testing.T) {
+		i := &Indexer{
+			errorChannels: make(map[string]errorListener),
+			errorUpdates:  make(chan error, 2),
+		}
+		errCh := make(chan error, 2)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		err := i.registerErrorChannel(ctx, "routineA", errCh)
+		if err != nil {
+			t.Fatalf("unexpected error registering channel: %v", err)
+		}
+		expectedErr := errors.New("something bad happened")
+		go func() { errCh <- expectedErr }()
+		select {
+		case got := <-i.errorUpdates:
+			if got == nil || got.Error() == "" ||
+				got.Error() == expectedErr.Error() {
+				t.Errorf("got unwrapped error, want wrapped: %v", got)
+			} else if !errors.Is(got, expectedErr) {
+				t.Errorf("got: %v, want: %v", got, expectedErr)
+			}
+		case <-time.After(time.Second):
+			t.Errorf("timeout waiting for error propagation")
+		}
+		// confirm unrelated errors are not present
+		select {
+		case got := <-i.errorUpdates:
+			t.Errorf("unexpected message propagated: %v", got)
+		case <-time.After(50 * time.Millisecond):
+		}
+		// Confirm teardown/closure is safe
+		cancel()
 	})
 }

@@ -132,6 +132,9 @@ func (s *jsonStore) Store(i model.Item) error {
 		i = existingItem
 		i.Path = maybeNewPath
 	}
+	if !exists {
+		ancli.Noticef("registering new media: %v", i.Name)
+	}
 	s.cache[i.ID] = i
 	f, err := os.OpenFile(path.Join(s.storePath, "store.json"), os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
 	if err != nil {

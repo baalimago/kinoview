@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -19,7 +20,7 @@ func Test_recursiveWatcher_Setup(t *testing.T) {
 	// function, evne though it doesn't do much
 	t.Run("error on no updates chan", func(t *testing.T) {
 		rw := recursiveWatcher{}
-		_, err := rw.Setup(context.Background())
+		_, _, err := rw.Setup(context.Background())
 		if err == nil {
 			t.Fatal("expected error, got nil")
 		}
@@ -164,6 +165,79 @@ func Test_walkDo(t *testing.T) {
 			t.Fatalf("expected: %v to contain: %v", got, tmpDirPath)
 		}
 	})
+
+	t.Run("it should add files when added after start", func(t *testing.T) {
+		rw, err := newRecursiveWatcher()
+		if err != nil {
+			t.Fatal(err)
+		}
+		tmpDirPath := t.TempDir()
+
+		err = os.Mkdir(path.Join(tmpDirPath, "someDir"), 0x755)
+		if err != nil {
+			t.Fatal(fmt.Errorf("failed to create test tmp dir: %w", err))
+		}
+
+		ctx, ctxCancel := context.WithCancel(context.Background())
+		t.Cleanup(ctxCancel)
+		waitStart := make(chan struct{})
+		go func() {
+			close(waitStart)
+			watchErr := rw.Watch(ctx, tmpDirPath)
+			if watchErr != nil {
+				ancli.Errf("unexpected error, probably no good: %v", watchErr)
+			}
+		}()
+		<-waitStart
+
+		got := rw.watcher.WatchList()
+		if !slices.Contains(got, tmpDirPath) {
+			t.Fatalf("expected: %v to contain: %v", got, tmpDirPath)
+		}
+
+		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Second/10)
+		t.Cleanup(testCtxCancel)
+		hasItem := make(chan string)
+		go func() {
+			select {
+			case f := <-rw.updates:
+				hasItem <- f.Path
+			case <-testCtx.Done():
+				return
+			}
+		}()
+
+		// Create a new file in the tmpDirPath
+		want := path.Join(tmpDirPath, "addedfile.txt")
+		content := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46, 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00}
+		err = os.WriteFile(want, content, 0o644)
+		if err != nil {
+			t.Fatalf("failed to create file: %v", err)
+		}
+
+		// Verify the file is there
+		entries, err := os.ReadDir(tmpDirPath)
+		if err != nil {
+			t.Fatalf("could not re-read tmpDir: %v", err)
+		}
+		found := false
+		for _, e := range entries {
+			if e.Name() == "addedfile.txt" {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Fatalf("added file not found in directory")
+		}
+		select {
+		case <-testCtx.Done():
+			t.Fatal("Test timeout, didn't receive any updates")
+		case got := <-hasItem:
+			testboil.FailTestIfDiff(t, got, want)
+		}
+	})
+
 	t.Run("it should error if file doesnt exist", func(t *testing.T) {
 		rw, err := newRecursiveWatcher()
 		if err != nil {
