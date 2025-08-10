@@ -11,7 +11,7 @@ import (
 )
 
 type storage interface {
-	Setup(ctx context.Context, storePath string) error
+	Setup(ctx context.Context) error
 	Store(ctx context.Context, i model.Item) error
 	ListHandlerFunc() http.HandlerFunc
 	VideoHandlerFunc() http.HandlerFunc
@@ -54,7 +54,6 @@ func (el *errorListener) start(ctx context.Context) {
 
 type Indexer struct {
 	watchPath string
-	storePath string
 	watcher   watcher
 	store     storage
 
@@ -63,15 +62,37 @@ type Indexer struct {
 	errorUpdates  chan error
 }
 
-func NewIndexer(configPath string) *Indexer {
-	i := &Indexer{}
-	// Ignore error as this only affects buffered fsnotify.Watchers
-	w, _ := newRecursiveWatcher()
-	i.watcher = w
-	i.store = newJSONStore(configPath)
-	i.errorChannels = make(map[string]errorListener)
-	i.errorUpdates = make(chan error, 1000)
-	return i
+type IndexerOption func(*Indexer)
+
+func WithStorage(s storage) IndexerOption {
+	return func(i *Indexer) {
+		i.store = s
+	}
+}
+
+func WithWatchPath(watchPath string) IndexerOption {
+	return func(i *Indexer) {
+		i.watchPath = watchPath
+	}
+}
+
+func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
+	w, err := newRecursiveWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create recursive watcher: %w", err)
+	}
+
+	i := &Indexer{
+		watcher:       w,
+		errorChannels: make(map[string]errorListener),
+		errorUpdates:  make(chan error, 1000),
+	}
+
+	for _, opt := range opts {
+		opt(i)
+	}
+
+	return i, nil
 }
 
 func (i *Indexer) registerErrorChannel(ctx context.Context, subRoutineName string, errChan <-chan error) error {
@@ -94,8 +115,11 @@ func (i *Indexer) registerErrorChannel(ctx context.Context, subRoutineName strin
 	return nil
 }
 
-func (i *Indexer) Setup(ctx context.Context, watchPath, storePath string) error {
-	err := i.store.Setup(ctx, storePath)
+func (i *Indexer) Setup(ctx context.Context) error {
+	if i.store == nil {
+		return errors.New("store must be set, please create Indexer with some store")
+	}
+	err := i.store.Setup(ctx)
 	if err != nil {
 		return fmt.Errorf("Setup store: %v", err)
 	}
@@ -107,8 +131,6 @@ func (i *Indexer) Setup(ctx context.Context, watchPath, storePath string) error 
 
 	i.fileUpdates = fileUpdates
 	i.registerErrorChannel(ctx, "watcher", watcherErrors)
-	i.watchPath = watchPath
-	i.storePath = storePath
 
 	ancli.Okf("indexer.Setup OK")
 	return nil

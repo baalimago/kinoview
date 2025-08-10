@@ -16,7 +16,7 @@ type mockStore struct {
 	store func() error
 }
 
-func (m *mockStore) Setup(ctx context.Context, storePath string) error {
+func (m *mockStore) Setup(ctx context.Context) error {
 	return m.setup()
 }
 
@@ -53,24 +53,49 @@ func (m *mockWatcher) Watch(ctx context.Context, path string) error {
 	return m.watch(ctx, path)
 }
 
+// mockClassifier is a mock implementation of the Classifier interface.
+type mockClassifier struct {
+	SetupFunc    func(context.Context) error
+	ClassifyFunc func(context.Context, model.Item) (model.Item, error)
+}
+
+func (m *mockClassifier) Setup(ctx context.Context) error {
+	if m.SetupFunc != nil {
+		return m.SetupFunc(ctx)
+	}
+	return nil
+}
+
+func (m *mockClassifier) Classify(ctx context.Context, item model.Item) (model.Item, error) {
+	if m.ClassifyFunc != nil {
+		return m.ClassifyFunc(ctx, item)
+	}
+	return item, nil
+}
+
 func Test_Indexer_Setup(t *testing.T) {
 	t.Run("error on store error", func(t *testing.T) {
-		tmpDir := t.TempDir()
-		i := NewIndexer(tmpDir)
+		i, err := NewIndexer()
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := errors.New("whopsidops")
 		i.store = &mockStore{
 			setup: func() error {
 				return want
 			},
 		}
-		got := i.Setup(context.Background(), "", t.TempDir())
+		got := i.Setup(context.Background())
 		if errors.Is(got, want) {
 			t.Fatalf("wanted: %v, got: %v", want, got)
 		}
 	})
 
 	t.Run("error on watcher error", func(t *testing.T) {
-		i := NewIndexer(t.TempDir())
+		i, err := NewIndexer()
+		if err != nil {
+			t.Fatal(err)
+		}
 
 		want := errors.New("whopsidops")
 		i.store = &mockStore{
@@ -81,14 +106,18 @@ func Test_Indexer_Setup(t *testing.T) {
 				return nil, nil, want
 			},
 		}
-		got := i.Setup(context.Background(), "", t.TempDir())
+		got := i.Setup(context.Background())
 		if errors.Is(got, want) {
 			t.Fatalf("wanted: %v, got: %v", want, got)
 		}
 	})
 
 	t.Run("should return error nil on OK", func(t *testing.T) {
-		i := NewIndexer(t.TempDir())
+		wantWatchPath := t.TempDir()
+		i, err := NewIndexer(WithWatchPath(wantWatchPath))
+		if err != nil {
+			t.Fatal(err)
+		}
 		var want error
 		i.store = &mockStore{
 			setup: func() error { return want },
@@ -99,23 +128,26 @@ func Test_Indexer_Setup(t *testing.T) {
 			},
 		}
 
-		wantWatchPath := t.TempDir()
-		wantStorePath := t.TempDir()
-		got := i.Setup(context.Background(), wantWatchPath, wantStorePath)
+		got := i.Setup(context.Background())
 		testboil.FailTestIfDiff(t, got, want)
 		testboil.FailTestIfDiff(t, i.watchPath, wantWatchPath)
 	})
 
 	testboil.ReturnsOnContextCancel(t, func(ctx context.Context) {
-		tDir := t.TempDir()
-		i := NewIndexer(tDir)
-		i.Setup(ctx, "", tDir)
+		i, err := NewIndexer()
+		if err != nil {
+			t.Fatal(err)
+		}
+		i.Setup(ctx)
 	}, time.Millisecond*100)
 }
 
 func Test_NewIndexer(t *testing.T) {
 	t.Run("watcher and store should not be nil", func(t *testing.T) {
-		i := NewIndexer(t.TempDir())
+		i, err := NewIndexer(WithStorage(&mockStore{}))
+		if err != nil {
+			t.Fatal(err)
+		}
 		if i.watcher == nil {
 			t.Fatal("watcher shouldnt be nil")
 		}
@@ -128,7 +160,10 @@ func Test_NewIndexer(t *testing.T) {
 
 func Test_Start_errorHandling(t *testing.T) {
 	t.Run("error on no fileUpdates", func(t *testing.T) {
-		i := NewIndexer(t.TempDir())
+		i, err := NewIndexer()
+		if err != nil {
+			t.Fatal(err)
+		}
 		i.fileUpdates = nil
 		got := i.Start(context.Background())
 		if got == nil {
@@ -137,7 +172,10 @@ func Test_Start_errorHandling(t *testing.T) {
 	})
 
 	t.Run("error on store error", func(t *testing.T) {
-		i := NewIndexer(t.TempDir())
+		i, err := NewIndexer()
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := errors.New("store error")
 		i.store = &mockStore{
 			setup: func() error { return nil },
@@ -152,7 +190,7 @@ func Test_Start_errorHandling(t *testing.T) {
 			watch: func(ctx context.Context, path string) error { return nil },
 		}
 
-		err := i.Setup(context.Background(), "", t.TempDir())
+		err = i.Setup(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -164,7 +202,10 @@ func Test_Start_errorHandling(t *testing.T) {
 	})
 
 	t.Run("error on watcher error", func(t *testing.T) {
-		i := NewIndexer(t.TempDir())
+		i, err := NewIndexer()
+		if err != nil {
+			t.Fatal(err)
+		}
 		want := errors.New("watcher error")
 		i.store = &mockStore{
 			setup: func() error { return nil },
@@ -179,7 +220,7 @@ func Test_Start_errorHandling(t *testing.T) {
 			watch: func(ctx context.Context, path string) error { return want },
 		}
 
-		err := i.Setup(context.Background(), "", t.TempDir())
+		err = i.Setup(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -191,7 +232,10 @@ func Test_Start_errorHandling(t *testing.T) {
 	})
 
 	t.Run("exit on context cancel", func(t *testing.T) {
-		i := NewIndexer(t.TempDir())
+		i, err := NewIndexer()
+		if err != nil {
+			t.Fatal(err)
+		}
 		i.store = &mockStore{
 			setup: func() error { return nil },
 			store: func() error { return nil },
@@ -205,7 +249,7 @@ func Test_Start_errorHandling(t *testing.T) {
 			watch: func(ctx context.Context, path string) error { tmp := make(chan struct{}); <-tmp; return nil },
 		}
 
-		err := i.Setup(context.Background(), "", t.TempDir())
+		err = i.Setup(context.Background())
 		if err != nil {
 			t.Fatal(err)
 		}

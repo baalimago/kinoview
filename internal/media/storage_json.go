@@ -36,16 +36,51 @@ type jsonStore struct {
 	classifier         agent.Classifier
 }
 
-func newJSONStore(configPath string) *jsonStore {
+type JSONStoreOption func(*jsonStore)
+
+func WithSubtitleStreamFinder(finder subtitleStreamFinder) JSONStoreOption {
+	return func(s *jsonStore) {
+		s.subStreamFinder = finder
+	}
+}
+
+func WithSubtitleStreamExtractor(extractor subtitleStreamExtractor) JSONStoreOption {
+	return func(s *jsonStore) {
+		s.subStreamExtractor = extractor
+	}
+}
+
+func WithClassifier(classifier agent.Classifier) JSONStoreOption {
+	return func(s *jsonStore) {
+		s.classifier = classifier
+	}
+}
+
+func WithStorePath(storePath string) JSONStoreOption {
+	return func(s *jsonStore) {
+		s.storePath = storePath
+	}
+}
+
+func NewJSONStore(opts ...JSONStoreOption) *jsonStore {
 	subUtils := &ffmpegSubsUtil{
 		mediaCache: map[string]MediaInfo{},
 	}
-	return &jsonStore{
+
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		ancli.Warnf("failed to find user config dir: %v", err)
+	}
+	storePath := path.Join(cfgDir, "kinoview", "store")
+	claiPath := path.Join(cfgDir, "kinoview", "clai")
+
+	s := &jsonStore{
 		subStreamFinder:    subUtils,
 		subStreamExtractor: subUtils,
+		storePath:          storePath,
 		classifier: agent.NewClassifier(models.Configurations{
 			Model:     "gpt-5",
-			ConfigDir: configPath,
+			ConfigDir: claiPath,
 			InternalTools: []models.ToolName{
 				models.CatTool,
 				models.FindTool,
@@ -55,6 +90,12 @@ func newJSONStore(configPath string) *jsonStore {
 			},
 		}),
 	}
+
+	for _, opt := range opts {
+		opt(s)
+	}
+
+	return s
 }
 
 func (s *jsonStore) loadPersistedItems(storeDirPath string) error {
@@ -88,13 +129,16 @@ func (s *jsonStore) loadPersistedItems(storeDirPath string) error {
 
 // Setup the jsonStore by loading all files from storeDirPath and adding all
 // items found to cache
-func (s *jsonStore) Setup(ctx context.Context, storeDirPath string) error {
+func (s *jsonStore) Setup(ctx context.Context) error {
 	ancli.Noticef("setting up json store")
-	s.storePath = storeDirPath
+
+	if _, err := os.Stat(s.storePath); err != nil {
+		os.MkdirAll(s.storePath, 0o755)
+	}
 	if s.cache == nil {
 		s.cache = make(map[string]model.Item)
 	}
-	err := s.loadPersistedItems(storeDirPath)
+	err := s.loadPersistedItems(s.storePath)
 	if err != nil {
 		return fmt.Errorf("jsonStore Setup failed to load persisted items: %w", err)
 	}

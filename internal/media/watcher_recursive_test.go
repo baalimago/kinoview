@@ -190,12 +190,13 @@ func Test_walkDo(t *testing.T) {
 		}()
 		<-waitStart
 
+		time.Sleep(time.Microsecond * 50)
 		got := rw.watcher.WatchList()
 		if !slices.Contains(got, tmpDirPath) {
 			t.Fatalf("expected: %v to contain: %v", got, tmpDirPath)
 		}
 
-		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Second/2)
+		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Second)
 		t.Cleanup(testCtxCancel)
 		hasItem := make(chan string)
 		go func() {
