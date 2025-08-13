@@ -1,5 +1,18 @@
 const media = {}
 
+function videoNameWithProgress(vID, vidName) {
+  let name = vidName;
+  const playTime = localStorage.getItem(
+    "video_play_duration_" + vID
+  );
+  if (playTime) {
+    const asSec = playTime.split(".")[0];
+    const asMin = (asSec / 60).toFixed(3);
+    name += ` - ${asMin} min`;
+  }
+  return name;
+}
+
 fetch('/gallery')
   .then(response => response.json())
   .then(data => {
@@ -11,8 +24,9 @@ fetch('/gallery')
       }
       media[i.ID] = i
       const opt = document.createElement("option")
+
       opt.value = i.ID
-      opt.innerText = i.Name
+      opt.innerText = videoNameWithProgress(i.ID, i.Name)
       options.append(opt)
     }
   })
