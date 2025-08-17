@@ -33,7 +33,10 @@ type store struct {
 	cache              map[string]model.Item
 	subStreamFinder    subtitleStreamFinder
 	subStreamExtractor subtitleStreamExtractor
-	classifier         agent.Classifier
+
+	classifier          agent.Classifier
+	classificationQueue []model.Item
+	classificationMu    sync.RWMutex
 }
 
 type JSONStoreOption func(*store)
@@ -206,14 +209,6 @@ func (s *store) store(i model.Item) error {
 	return nil
 }
 
-func (s *store) addMetadata(ctx context.Context, i *model.Item) error {
-	err := s.addToClassificationQueue(ctx, *i)
-	if err != nil {
-		return fmt.Errorf("jsonStore.addMetadata fialed to addToClassificationQueue: %w", err)
-	}
-	return nil
-}
-
 // Store the item in the local json store and add i to the cache
 func (s *store) Store(ctx context.Context, i model.Item) error {
 	hadID := i.ID != ""
@@ -242,10 +237,7 @@ func (s *store) Store(ctx context.Context, i model.Item) error {
 	}
 
 	if i.Metadata == nil {
-		err := s.addMetadata(ctx, &i)
-		if err != nil {
-			ancli.Errf("failed to append metadata: %v", err)
-		}
+		s.addToClassificationQueue(i)
 	}
 	return s.store(i)
 }
