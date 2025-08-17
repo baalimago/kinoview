@@ -1,4 +1,4 @@
-package media
+package storage
 
 import (
 	"context"
@@ -18,6 +18,26 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
 )
+
+// mockClassifier is a mock implementation of the Classifier interface.
+type mockClassifier struct {
+	SetupFunc    func(context.Context) error
+	ClassifyFunc func(context.Context, model.Item) (model.Item, error)
+}
+
+func (m *mockClassifier) Setup(ctx context.Context) error {
+	if m.SetupFunc != nil {
+		return m.SetupFunc(ctx)
+	}
+	return nil
+}
+
+func (m *mockClassifier) Classify(ctx context.Context, item model.Item) (model.Item, error) {
+	if m.ClassifyFunc != nil {
+		return m.ClassifyFunc(ctx, item)
+	}
+	return item, nil
+}
 
 func mockHTTPRequest(method, target string, body io.Reader) *http.Request {
 	req := httptest.NewRequest(method, target, body)
@@ -50,8 +70,8 @@ func (m *mockResponseWriter) WriteHeader(statusCode int) {
 // Mock implementations for testing
 type mockSubtitleStreamFinder struct{}
 
-func (m *mockSubtitleStreamFinder) find(item model.Item) (MediaInfo, error) {
-	return MediaInfo{}, nil
+func (m *mockSubtitleStreamFinder) find(item model.Item) (model.MediaInfo, error) {
+	return model.MediaInfo{}, nil
 }
 
 type mockSubtitleStreamExtractor struct{}
@@ -113,6 +133,8 @@ func Test_jsonStore_Setup(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
+		s.cacheMu.Lock()
+		t.Cleanup(s.cacheMu.Unlock)
 		got, exists := s.cache[key]
 		if !exists {
 			t.Fatal("expected item to exist")
@@ -124,7 +146,7 @@ func Test_jsonStore_Setup(t *testing.T) {
 	})
 
 	testboil.ReturnsOnContextCancel(t, func(ctx context.Context) {
-		s := NewJSONStore()
+		s := NewJSONStore(WithStorePath(t.TempDir()))
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error {
 				return nil
@@ -171,7 +193,9 @@ func Test_jsonStore_Store(t *testing.T) {
 			t.Fatalf("Store failed: %v", err)
 		}
 
+		s.cacheMu.Lock()
 		got, exists := s.cache[item.ID]
+		s.cacheMu.Unlock()
 		if !exists {
 			t.Fatal("expected item to be stored but it does not exist")
 		}
@@ -213,7 +237,10 @@ func Test_jsonStore_Store(t *testing.T) {
 		has := model.Item{Name: "with_ID", Path: pre.Name(), Metadata: &want}
 		id := generateID(has)
 		has.ID = id
+
+		s.cacheMu.Lock()
 		s.cache[id] = has
+		s.cacheMu.Unlock()
 
 		newItemWithNoID := has
 		newItemWithNoID.ID = ""
@@ -225,6 +252,9 @@ func Test_jsonStore_Store(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
+
+		s.cacheMu.Lock()
+		t.Cleanup(s.cacheMu.Unlock)
 		got := s.cache[id].Metadata
 		testboil.FailTestIfDiff(t, string(*got), string(want))
 	})
@@ -316,11 +346,10 @@ func Test_streamMkvToMp4(t *testing.T) {
 }
 
 func Test_jsonStore_ListHandlerFunc(t *testing.T) {
-	jStore := &jsonStore{
-		cache: map[string]model.Item{
-			"1": {ID: "1", Name: "foo"},
-			"2": {ID: "2", Name: "bar"},
-		},
+	jStore := NewJSONStore(WithStorePath(t.TempDir()))
+	jStore.cache = map[string]model.Item{
+		"1": {ID: "1", Name: "foo"},
+		"2": {ID: "2", Name: "bar"},
 	}
 
 	t.Run("returns all items as JSON", func(t *testing.T) {
@@ -343,7 +372,8 @@ func Test_jsonStore_ListHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("cache nil triggers error", func(t *testing.T) {
-		js := &jsonStore{}
+		js := NewJSONStore(WithStorePath(t.TempDir()))
+		js.cache = nil
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		rr := httptest.NewRecorder()
 		handler := js.ListHandlerFunc()
@@ -358,7 +388,7 @@ func Test_jsonStore_ListHandlerFunc(t *testing.T) {
 }
 
 func Test_jsonStore_VideoHandlerFunc(t *testing.T) {
-	js := &jsonStore{}
+	js := NewJSONStore(WithStorePath(t.TempDir()))
 	handler := js.VideoHandlerFunc()
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
@@ -432,7 +462,7 @@ func Test_jsonStore_VideoHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("exists in cache, path not found", func(t *testing.T) {
-		s := NewJSONStore()
+		s := NewJSONStore(WithStorePath(t.TempDir()))
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error {
 				return nil
@@ -476,7 +506,7 @@ func (m *mockExtractor) extract(item model.Item, streamIndex string) (string, er
 }
 
 func Test_jsonStore_SubsHandlerFunc(t *testing.T) {
-	js := NewJSONStore()
+	js := NewJSONStore(WithStorePath(t.TempDir()))
 	js.classifier = &mockClassifier{
 		SetupFunc: func(ctx context.Context) error {
 			return nil
@@ -518,7 +548,7 @@ func Test_jsonStore_SubsHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("respond with 500 on extract failure", func(t *testing.T) {
-		js := NewJSONStore()
+		js := NewJSONStore(WithStorePath(t.TempDir()))
 		js.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error {
 				return nil
@@ -580,8 +610,8 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_find(t *testing.T) {
 	t.Run("find uses mediaCache hit", func(t *testing.T) {
 		wantIdx := 404
 		util := &ffmpegSubsUtil{
-			mediaCache: map[string]MediaInfo{
-				"cache-id": {[]Stream{{Index: wantIdx}}},
+			mediaCache: map[string]model.MediaInfo{
+				"cache-id": {Streams: []model.Stream{{Index: wantIdx}}},
 			},
 		}
 		item := model.Item{ID: "cache-id", Path: "/tmp/some.mkv"}
@@ -595,7 +625,7 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_find(t *testing.T) {
 	})
 
 	t.Run("find returns error when ffprobe/ffmpeg unavailable", func(t *testing.T) {
-		util := &ffmpegSubsUtil{mediaCache: map[string]MediaInfo{}}
+		util := &ffmpegSubsUtil{mediaCache: map[string]model.MediaInfo{}}
 		origPath := os.Getenv("PATH")
 		defer os.Setenv("PATH", origPath)
 		os.Setenv("PATH", "/nonexistent")
@@ -607,7 +637,7 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_find(t *testing.T) {
 	})
 
 	t.Run("find returns error for invalid input", func(t *testing.T) {
-		util := &ffmpegSubsUtil{mediaCache: map[string]MediaInfo{}}
+		util := &ffmpegSubsUtil{mediaCache: map[string]model.MediaInfo{}}
 		item := model.Item{ID: "bogus", Path: "/path/does/not/exist.mkv"}
 		_, err := util.find(item)
 		if err == nil {
@@ -617,7 +647,7 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_find(t *testing.T) {
 
 	t.Run("find caches on successful find", func(t *testing.T) {
 		util := &ffmpegSubsUtil{
-			mediaCache: map[string]MediaInfo{},
+			mediaCache: map[string]model.MediaInfo{},
 		}
 		// Use a known good file with ffprobe available in path
 		item := model.Item{ID: "some-unique-id", Path: "./mock/Jellyfish_with_subs.mkv"}
@@ -637,8 +667,8 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 		wantIdx := 1337
 		// Setup ffmpegSubsUtil with mock caches
 		util := &ffmpegSubsUtil{
-			mediaCache: map[string]MediaInfo{
-				"id-abc": {[]Stream{
+			mediaCache: map[string]model.MediaInfo{
+				"id-abc": {Streams: []model.Stream{
 					{
 						Index: wantIdx,
 					},
@@ -671,7 +701,7 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 
 	t.Run("error on ffmpeg error (not panic)", func(t *testing.T) {
 		util := &ffmpegSubsUtil{
-			mediaCache: map[string]MediaInfo{},
+			mediaCache: map[string]model.MediaInfo{},
 			subsCache:  map[string]string{},
 		}
 
@@ -706,6 +736,9 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
+
+		s.cacheMu.Lock()
+		t.Cleanup(s.cacheMu.Unlock)
 		got, exist := s.cache[item.ID]
 		if !exist {
 			t.Fatal("expected item to exist in store")
@@ -736,7 +769,10 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
+
+		s.cacheMu.Lock()
 		original := s.cache[item.ID]
+		s.cacheMu.Unlock()
 		originalMeta := string(*original.Metadata)
 		t.Logf("Original metadata: %v", originalMeta)
 		s.classifier = &mockClassifier{
@@ -751,6 +787,8 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Store failed on second call: %v", err)
 		}
+		s.cacheMu.Lock()
+		t.Cleanup(s.cacheMu.Unlock)
 		got := s.cache[item.ID]
 		gotMeta := string(*got.Metadata)
 		if gotMeta != originalMeta {
@@ -776,6 +814,7 @@ func Test_newJSONStore_options(t *testing.T) {
 		mockClassifier := &mockClassifier{}
 
 		s := NewJSONStore(
+			WithStorePath(t.TempDir()),
 			WithSubtitleStreamFinder(mockFinder),
 			WithSubtitleStreamExtractor(mockExtractor),
 			WithClassifier(mockClassifier),

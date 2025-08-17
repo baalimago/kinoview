@@ -53,26 +53,6 @@ func (m *mockWatcher) Watch(ctx context.Context, path string) error {
 	return m.watch(ctx, path)
 }
 
-// mockClassifier is a mock implementation of the Classifier interface.
-type mockClassifier struct {
-	SetupFunc    func(context.Context) error
-	ClassifyFunc func(context.Context, model.Item) (model.Item, error)
-}
-
-func (m *mockClassifier) Setup(ctx context.Context) error {
-	if m.SetupFunc != nil {
-		return m.SetupFunc(ctx)
-	}
-	return nil
-}
-
-func (m *mockClassifier) Classify(ctx context.Context, item model.Item) (model.Item, error) {
-	if m.ClassifyFunc != nil {
-		return m.ClassifyFunc(ctx, item)
-	}
-	return item, nil
-}
-
 func Test_Indexer_Setup(t *testing.T) {
 	t.Run("error on store error", func(t *testing.T) {
 		i, err := NewIndexer()

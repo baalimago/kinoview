@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -77,7 +78,7 @@ func WithWatchPath(watchPath string) IndexerOption {
 }
 
 func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
-	w, err := newRecursiveWatcher()
+	w, err := int_watcher.NewRecursiveWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create recursive watcher: %w", err)
 	}

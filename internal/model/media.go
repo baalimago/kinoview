@@ -1,4 +1,4 @@
-package media
+package model
 
 type MediaInfo struct {
 	Streams []Stream `json:"streams"`

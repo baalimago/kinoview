@@ -13,6 +13,7 @@ import (
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/media"
+	"github.com/baalimago/kinoview/internal/media/storage"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
@@ -98,8 +99,8 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 	indexer, err := media.NewIndexer(
 		media.WithStorage(
-			media.NewJSONStore(
-				media.WithStorePath(
+			storage.NewJSONStore(
+				storage.WithStorePath(
 					path.Join(c.configDir, "store"),
 				),
 			),

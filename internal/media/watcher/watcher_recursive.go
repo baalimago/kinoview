@@ -1,4 +1,4 @@
-package media
+package watcher
 
 import (
 	"context"
@@ -20,7 +20,7 @@ type recursiveWatcher struct {
 	errChan chan error
 }
 
-func newRecursiveWatcher() (*recursiveWatcher, error) {
+func NewRecursiveWatcher() (*recursiveWatcher, error) {
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("newRecursiveWatcher failed to create fsnotify.Watcher: %w", err)

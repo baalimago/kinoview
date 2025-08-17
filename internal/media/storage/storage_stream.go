@@ -1,4 +1,4 @@
-package media
+package storage
 
 import (
 	"bytes"
@@ -116,11 +116,11 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 
 type ffmpegSubsUtil struct {
 	// mediaCache of pre-scanned media, allowing for validation and speedup
-	mediaCache map[string]MediaInfo
+	mediaCache map[string]model.MediaInfo
 	subsCache  map[string]string
 }
 
-func (f *ffmpegSubsUtil) find(item model.Item) (info MediaInfo, err error) {
+func (f *ffmpegSubsUtil) find(item model.Item) (info model.MediaInfo, err error) {
 	info, exists := f.mediaCache[item.ID]
 	if exists {
 		return

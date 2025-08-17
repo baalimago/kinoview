@@ -34,6 +34,8 @@ const userPrompt = `Information about the media to classify: %v`
 
 type Classifier interface {
 	Setup(context.Context) error
+	// Classify some item in a blocking manner. Expected to take up to 10-30 seconds
+	// since implementation may be LLM based
 	Classify(context.Context, model.Item) (model.Item, error)
 }
 
