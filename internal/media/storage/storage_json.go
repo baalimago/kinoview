@@ -27,7 +27,7 @@ type subtitleStreamExtractor interface {
 	extract(item model.Item, streamIndex string) (string, error)
 }
 
-type jsonStore struct {
+type store struct {
 	storePath          string
 	cacheMu            *sync.RWMutex
 	cache              map[string]model.Item
@@ -36,33 +36,33 @@ type jsonStore struct {
 	classifier         agent.Classifier
 }
 
-type JSONStoreOption func(*jsonStore)
+type JSONStoreOption func(*store)
 
 func WithSubtitleStreamFinder(finder subtitleStreamFinder) JSONStoreOption {
-	return func(s *jsonStore) {
+	return func(s *store) {
 		s.subStreamFinder = finder
 	}
 }
 
 func WithSubtitleStreamExtractor(extractor subtitleStreamExtractor) JSONStoreOption {
-	return func(s *jsonStore) {
+	return func(s *store) {
 		s.subStreamExtractor = extractor
 	}
 }
 
 func WithClassifier(classifier agent.Classifier) JSONStoreOption {
-	return func(s *jsonStore) {
+	return func(s *store) {
 		s.classifier = classifier
 	}
 }
 
 func WithStorePath(storePath string) JSONStoreOption {
-	return func(s *jsonStore) {
+	return func(s *store) {
 		s.storePath = storePath
 	}
 }
 
-func NewJSONStore(opts ...JSONStoreOption) *jsonStore {
+func NewJSONStore(opts ...JSONStoreOption) *store {
 	subUtils := &ffmpegSubsUtil{
 		mediaCache: map[string]model.MediaInfo{},
 	}
@@ -74,7 +74,7 @@ func NewJSONStore(opts ...JSONStoreOption) *jsonStore {
 	storePath := path.Join(cfgDir, "kinoview", "store")
 	claiPath := path.Join(cfgDir, "kinoview", "clai")
 
-	s := &jsonStore{
+	s := &store{
 		subStreamFinder:    subUtils,
 		subStreamExtractor: subUtils,
 		storePath:          storePath,
@@ -100,7 +100,7 @@ func NewJSONStore(opts ...JSONStoreOption) *jsonStore {
 	return s
 }
 
-func (s *jsonStore) loadPersistedItems(storeDirPath string) error {
+func (s *store) loadPersistedItems(storeDirPath string) error {
 	files, err := os.ReadDir(storeDirPath)
 	if err != nil {
 		return fmt.Errorf("failed to list directory: '%v', err: %w", storeDirPath, err)
@@ -133,7 +133,7 @@ func (s *jsonStore) loadPersistedItems(storeDirPath string) error {
 
 // Setup the jsonStore by loading all files from storeDirPath and adding all
 // items found to cache
-func (s *jsonStore) Setup(ctx context.Context) error {
+func (s *store) Setup(ctx context.Context) error {
 	ancli.Noticef("setting up json store")
 
 	if _, err := os.Stat(s.storePath); err != nil {
@@ -185,7 +185,7 @@ func generateID(i model.Item) string {
 	return fmt.Sprintf("%x", sum)[:16]
 }
 
-func (s *jsonStore) store(i model.Item) error {
+func (s *store) store(i model.Item) error {
 	s.cacheMu.Lock()
 	defer s.cacheMu.Unlock()
 	s.cache[i.ID] = i
@@ -206,17 +206,16 @@ func (s *jsonStore) store(i model.Item) error {
 	return nil
 }
 
-func (s *jsonStore) addMetadata(ctx context.Context, i *model.Item) error {
-	withMetadata, err := s.classifier.Classify(ctx, *i)
+func (s *store) addMetadata(ctx context.Context, i *model.Item) error {
+	err := s.addToClassificationQueue(ctx, *i)
 	if err != nil {
-		return fmt.Errorf("failed to add metadata: %w", err)
+		return fmt.Errorf("jsonStore.addMetadata fialed to addToClassificationQueue: %w", err)
 	}
-	i.Metadata = withMetadata.Metadata
 	return nil
 }
 
 // Store the item in the local json store and add i to the cache
-func (s *jsonStore) Store(ctx context.Context, i model.Item) error {
+func (s *store) Store(ctx context.Context, i model.Item) error {
 	hadID := i.ID != ""
 	if i.ID == "" {
 		i.ID = generateID(i)

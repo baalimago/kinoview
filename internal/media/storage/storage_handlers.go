@@ -12,7 +12,7 @@ import (
 )
 
 // ListHandlerFunc returns a list of all available items in the gallery
-func (s *jsonStore) ListHandlerFunc() http.HandlerFunc {
+func (s *store) ListHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.cacheMu.RLock()
 		defer s.cacheMu.RUnlock()
@@ -33,7 +33,7 @@ func (s *jsonStore) ListHandlerFunc() http.HandlerFunc {
 
 // VideoHandlerFunc returns a handler to get a video by ID, if item is not a video
 // it will return 404
-func (s *jsonStore) VideoHandlerFunc() http.HandlerFunc {
+func (s *store) VideoHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("id")
 		if id == "" {
@@ -82,7 +82,7 @@ func (s *jsonStore) VideoHandlerFunc() http.HandlerFunc {
 
 // SubsHandlerFunc by stripping out the substitle streams using ffmpeg from video media found at
 // PathValue id. If there are multiple subtitle streams found, select one at random
-func (s *jsonStore) SubsListHandlerFunc() http.HandlerFunc {
+func (s *store) SubsListHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("vid")
 		if id == "" {
@@ -113,7 +113,7 @@ func (s *jsonStore) SubsListHandlerFunc() http.HandlerFunc {
 	}
 }
 
-func (s *jsonStore) SubsHandlerFunc() http.HandlerFunc {
+func (s *store) SubsHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vid := r.PathValue("vid")
 		if vid == "" {
