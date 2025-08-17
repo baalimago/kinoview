@@ -3,9 +3,6 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"io"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path"
@@ -18,70 +15,10 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-// mockClassifier is a mock implementation of the Classifier interface.
-type mockClassifier struct {
-	SetupFunc    func(context.Context) error
-	ClassifyFunc func(context.Context, model.Item) (model.Item, error)
-}
-
-func (m *mockClassifier) Setup(ctx context.Context) error {
-	if m.SetupFunc != nil {
-		return m.SetupFunc(ctx)
-	}
-	return nil
-}
-
-func (m *mockClassifier) Classify(ctx context.Context, item model.Item) (model.Item, error) {
-	if m.ClassifyFunc != nil {
-		return m.ClassifyFunc(ctx, item)
-	}
-	return item, nil
-}
-
-func mockHTTPRequest(method, target string, body io.Reader) *http.Request {
-	req := httptest.NewRequest(method, target, body)
-	return req
-}
-
-type mockResponseWriter struct {
-	header     http.Header
-	statusCode int
-	buffer     []byte
-}
-
-func newMockResponseWriter() *mockResponseWriter {
-	return &mockResponseWriter{header: make(http.Header)}
-}
-
-func (m *mockResponseWriter) Header() http.Header {
-	return m.header
-}
-
-func (m *mockResponseWriter) Write(b []byte) (int, error) {
-	m.buffer = append(m.buffer, b...)
-	return len(b), nil
-}
-
-func (m *mockResponseWriter) WriteHeader(statusCode int) {
-	m.statusCode = statusCode
-}
-
-// Mock implementations for testing
-type mockSubtitleStreamFinder struct{}
-
-func (m *mockSubtitleStreamFinder) find(item model.Item) (model.MediaInfo, error) {
-	return model.MediaInfo{}, nil
-}
-
-type mockSubtitleStreamExtractor struct{}
-
-func (m *mockSubtitleStreamExtractor) extract(item model.Item, streamIndex string) (string, error) {
-	return "", nil
-}
-
 func Test_jsonStore_Setup(t *testing.T) {
 	t.Run("successful setup", func(t *testing.T) {
-		s := NewJSONStore()
+		tmpDir := t.TempDir()
+		s := NewJSONStore(WithStorePath(tmpDir))
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error {
 				return nil
@@ -90,14 +27,8 @@ func Test_jsonStore_Setup(t *testing.T) {
 				return i, nil
 			},
 		}
-		tmpDir := t.TempDir()
 
-		jsonPath := path.Join(tmpDir, "store.json")
-		if err := os.WriteFile(jsonPath, []byte("[]"), 0o644); err != nil {
-			t.Fatalf("failed to create empty store.json: %v", err)
-		}
-
-		err := s.Setup(context.Background())
+		_, err := s.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
@@ -128,7 +59,7 @@ func Test_jsonStore_Setup(t *testing.T) {
 			t.Fatalf("failed to create empty store.json: %v", errW)
 		}
 
-		err = s.Setup(context.Background())
+		_, err = s.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
@@ -154,7 +85,7 @@ func Test_jsonStore_Setup(t *testing.T) {
 				return i, nil
 			},
 		}
-		err := s.Setup(context.Background())
+		_, err := s.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
@@ -181,7 +112,7 @@ func Test_jsonStore_Store(t *testing.T) {
 			},
 		}
 
-		err := s.Setup(context.Background())
+		_, err := s.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
@@ -215,7 +146,7 @@ func Test_jsonStore_Store(t *testing.T) {
 				return i, nil
 			},
 		}
-		err := s.Setup(context.Background())
+		_, err := s.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
@@ -484,36 +415,50 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 		}
 	})
 
-	t.Run("properly adds metadata when storing new file", func(t *testing.T) {
+	t.Run("eventually adds metadata when storing new file", func(t *testing.T) {
 		dir := t.TempDir()
 		s := NewJSONStore(WithStorePath(dir))
 		want := `{"some": "metadata"}`
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error { return nil },
 			ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
+				t.Logf("classifying: %v", i)
 				if i.Metadata == nil {
 					r := json.RawMessage(want)
+					t.Logf("setting: %+v", r)
 					i.Metadata = &r
 				}
 				return i, nil
 			},
 		}
-		err := s.Setup(context.Background())
+		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+		t.Cleanup(testCtxCancel)
+		storeErrors, err := s.Setup(testCtx)
+		go func() {
+		}()
+		s.Start(testCtx)
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
-		item := model.Item{Name: "media", ID: "meta1"}
+		item := model.Item{Name: "media", ID: "meta1", MIMEType: "video"}
 		err = s.Store(context.Background(), item)
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
 
+		// Give some time for classification station
+		select {
+		case <-time.After(time.Millisecond * 50):
+		case err := <-storeErrors:
+			t.Fatalf("expected no errors, got: %v", err)
+		}
 		s.cacheMu.Lock()
 		t.Cleanup(s.cacheMu.Unlock)
 		got, exist := s.cache[item.ID]
 		if !exist {
 			t.Fatal("expected item to exist in store")
 		}
+		t.Logf("got: %v", got)
 		gotMetadata := string(*got.Metadata)
 		if gotMetadata != want {
 			t.Errorf("expected metadata to be set, got: %v", gotMetadata)
@@ -531,16 +476,20 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 				return i, nil
 			},
 		}
-		err := s.Setup(context.Background())
+		ctx, ctxCancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+		t.Cleanup(ctxCancel)
+		_, err := s.Setup(ctx)
+		s.Start(ctx)
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}
-		item := model.Item{Name: "media2", ID: "meta2"}
+		item := model.Item{Name: "media2", ID: "meta2", MIMEType: "video"}
 		err = s.Store(context.Background(), item)
 		if err != nil {
 			t.Fatalf("Store failed: %v", err)
 		}
 
+		time.Sleep(time.Millisecond * 100)
 		s.cacheMu.Lock()
 		original := s.cache[item.ID]
 		s.cacheMu.Unlock()
@@ -558,6 +507,7 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Store failed on second call: %v", err)
 		}
+		time.Sleep(time.Millisecond * 100)
 		s.cacheMu.Lock()
 		t.Cleanup(s.cacheMu.Unlock)
 		got := s.cache[item.ID]
@@ -566,16 +516,6 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
 			t.Errorf("metadata should not be overwritten: got %v, want %v", gotMeta, originalMeta)
 		}
 	})
-}
-
-// randString for ID, deterministic length, not crypto-rand.
-func randString(n int) string {
-	letters := []rune("abcdefghijklmnopqrstuvwxyz")
-	out := make([]rune, n)
-	for i := range out {
-		out[i] = letters[i%len(letters)]
-	}
-	return string(out)
 }
 
 func Test_newJSONStore_options(t *testing.T) {

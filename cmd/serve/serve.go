@@ -89,12 +89,10 @@ func (c *command) Setup(ctx context.Context) error {
 		c.configDir = userCfgDir
 	}
 
-	if c.configDir != "" {
-		if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
-			ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
-			if err := os.MkdirAll(c.configDir, 0o755); err != nil {
-				return fmt.Errorf("could not create config dir: %w", err)
-			}
+	if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
+		ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
+		if err := os.MkdirAll(c.configDir, 0o755); err != nil {
+			return fmt.Errorf("could not create config dir: %w", err)
 		}
 	}
 	indexer, err := media.NewIndexer(

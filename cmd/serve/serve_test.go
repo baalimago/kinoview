@@ -106,6 +106,7 @@ func Test_Run(t *testing.T) {
 	t.Run("successful run", func(t *testing.T) {
 		c := Command()
 		c.Flagset()
+		c.configDir = t.TempDir()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second/2)
 		t.Cleanup(func() {
 			cancel()
@@ -115,6 +116,7 @@ func Test_Run(t *testing.T) {
 			t.Fatal(err)
 		}
 		c.configDir = t.TempDir()
+		c.watchPath = t.TempDir()
 		err = c.Run(ctx)
 		if err != nil {
 			t.Errorf("unexpected error during Run: %v", err)

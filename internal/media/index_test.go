@@ -16,8 +16,11 @@ type mockStore struct {
 	store func() error
 }
 
-func (m *mockStore) Setup(ctx context.Context) error {
-	return m.setup()
+func (m *mockStore) Setup(ctx context.Context) (<-chan error, error) {
+	return nil, m.setup()
+}
+
+func (m *mockStore) Start(ctx context.Context) {
 }
 
 func (m *mockStore) Store(ctx context.Context, i model.Item) error {

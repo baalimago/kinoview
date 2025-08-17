@@ -140,7 +140,7 @@ func Test_jsonStore_VideoHandlerFunc(t *testing.T) {
 			},
 		}
 		tmpDir := t.TempDir()
-		err := s.Setup(context.Background())
+		_, err := s.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("Setup failed: %v", err)
 		}

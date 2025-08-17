@@ -12,7 +12,12 @@ import (
 )
 
 type storage interface {
-	Setup(ctx context.Context) error
+	// Setup a storage and return a channel for errors if successful or
+	// or an error explaining why it failed
+	Setup(ctx context.Context) (<-chan error, error)
+	// Start any internal routines
+	Start(ctx context.Context)
+	// Store some item, return error on failure
 	Store(ctx context.Context, i model.Item) error
 	ListHandlerFunc() http.HandlerFunc
 	VideoHandlerFunc() http.HandlerFunc
@@ -120,7 +125,7 @@ func (i *Indexer) Setup(ctx context.Context) error {
 	if i.store == nil {
 		return errors.New("store must be set, please create Indexer with some store")
 	}
-	err := i.store.Setup(ctx)
+	storeErrors, err := i.store.Setup(ctx)
 	if err != nil {
 		return fmt.Errorf("Setup store: %v", err)
 	}
@@ -132,6 +137,7 @@ func (i *Indexer) Setup(ctx context.Context) error {
 
 	i.fileUpdates = fileUpdates
 	i.registerErrorChannel(ctx, "watcher", watcherErrors)
+	i.registerErrorChannel(ctx, "store", storeErrors)
 
 	ancli.Okf("indexer.Setup OK")
 	return nil
@@ -146,6 +152,9 @@ func (i *Indexer) handleNewItem(ctx context.Context, item model.Item) error {
 }
 
 func (i *Indexer) Start(ctx context.Context) error {
+	if i.store != nil {
+		i.store.Start(ctx)
+	}
 	if i.fileUpdates == nil {
 		return errors.New("fileUpdates must not be nil. Please run Setup")
 	}

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"strings"
 	"sync"
 
 	"github.com/baalimago/clai/pkg/text/models"
@@ -33,7 +34,11 @@ type store struct {
 	cache              map[string]model.Item
 	subStreamFinder    subtitleStreamFinder
 	subStreamExtractor subtitleStreamExtractor
-	classifier         agent.Classifier
+
+	classifier            agent.Classifier
+	classificationWorkers int
+	classifierErrors      chan error
+	classificationRequest chan classificationCandidate
 }
 
 type JSONStoreOption func(*store)
@@ -59,6 +64,12 @@ func WithClassifier(classifier agent.Classifier) JSONStoreOption {
 func WithStorePath(storePath string) JSONStoreOption {
 	return func(s *store) {
 		s.storePath = storePath
+	}
+}
+
+func WithClassificationWorkers(amWorkers int) JSONStoreOption {
+	return func(s *store) {
+		s.classificationWorkers = amWorkers
 	}
 }
 
@@ -91,6 +102,9 @@ func NewJSONStore(opts ...JSONStoreOption) *store {
 				models.RipGrepTool,
 			},
 		}),
+		classificationRequest: make(chan classificationCandidate),
+		classifierErrors:      make(chan error),
+		classificationWorkers: 2,
 	}
 
 	for _, opt := range opts {
@@ -123,17 +137,17 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 		}
 		f.Close()
 		s.cacheMu.Lock()
-		defer s.cacheMu.Unlock()
 		for _, item := range items {
 			s.cache[item.ID] = item
 		}
+		s.cacheMu.Unlock()
 	}
 	return nil
 }
 
 // Setup the jsonStore by loading all files from storeDirPath and adding all
 // items found to cache
-func (s *store) Setup(ctx context.Context) error {
+func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 	ancli.Noticef("setting up json store")
 
 	if _, err := os.Stat(s.storePath); err != nil {
@@ -141,15 +155,25 @@ func (s *store) Setup(ctx context.Context) error {
 	}
 	err := s.loadPersistedItems(s.storePath)
 	if err != nil {
-		return fmt.Errorf("jsonStore Setup failed to load persisted items: %w", err)
+		return nil, fmt.Errorf("jsonStore Setup failed to load persisted items: %w", err)
 	}
 
 	ancli.Noticef("setting up classifier")
 	err = s.classifier.Setup(ctx)
 	if err != nil {
-		return fmt.Errorf("failed to setup classifier: %w", err)
+		return nil, fmt.Errorf("failed to setup classifier: %w", err)
 	}
-	return nil
+	s.classifierErrors = make(chan error)
+	return s.classifierErrors, nil
+}
+
+func (s *store) Start(ctx context.Context) {
+	go func() {
+		err := s.startClassificationStation(ctx)
+		if err != nil {
+			s.classifierErrors <- err
+		}
+	}()
 }
 
 // generateID by creating a hash using sha256 on the contents of item.Path
@@ -206,14 +230,6 @@ func (s *store) store(i model.Item) error {
 	return nil
 }
 
-func (s *store) addMetadata(ctx context.Context, i *model.Item) error {
-	err := s.addToClassificationQueue(ctx, *i)
-	if err != nil {
-		return fmt.Errorf("jsonStore.addMetadata fialed to addToClassificationQueue: %w", err)
-	}
-	return nil
-}
-
 // Store the item in the local json store and add i to the cache
 func (s *store) Store(ctx context.Context, i model.Item) error {
 	hadID := i.ID != ""
@@ -241,11 +257,8 @@ func (s *store) Store(ctx context.Context, i model.Item) error {
 		ancli.Noticef("registering new media: %v", i.Name)
 	}
 
-	if i.Metadata == nil {
-		err := s.addMetadata(ctx, &i)
-		if err != nil {
-			ancli.Errf("failed to append metadata: %v", err)
-		}
+	if i.Metadata == nil && strings.Contains(i.MIMEType, "video") {
+		s.addToClassificationQueue(i)
 	}
 	return s.store(i)
 }
