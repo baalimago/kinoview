@@ -56,7 +56,7 @@ func (m *mockWatcher) Watch(ctx context.Context, path string) error {
 	return m.watch(ctx, path)
 }
 
-func Test_Indexer_Setup(t *testing.T) {
+func Test_indexer_Setup(t *testing.T) {
 	t.Run("error on store error", func(t *testing.T) {
 		i, err := NewIndexer()
 		if err != nil {
@@ -125,7 +125,7 @@ func Test_Indexer_Setup(t *testing.T) {
 	}, time.Millisecond*100)
 }
 
-func Test_NewIndexer(t *testing.T) {
+func TestNewIndexer(t *testing.T) {
 	t.Run("watcher and store should not be nil", func(t *testing.T) {
 		i, err := NewIndexer(WithStorage(&mockStore{}))
 		if err != nil {
@@ -141,7 +141,7 @@ func Test_NewIndexer(t *testing.T) {
 	})
 }
 
-func Test_Start_errorHandling(t *testing.T) {
+func TestStart_errorHandling(t *testing.T) {
 	t.Run("error on no fileUpdates", func(t *testing.T) {
 		i, err := NewIndexer()
 		if err != nil {
@@ -243,7 +243,7 @@ func Test_Start_errorHandling(t *testing.T) {
 	})
 }
 
-func Test_RegisterErrorChannel(t *testing.T) {
+func TestRegisterErrorChannel(t *testing.T) {
 	t.Run("registers new error channel", func(t *testing.T) {
 		i := &Indexer{
 			errorChannels: make(map[string]errorListener),

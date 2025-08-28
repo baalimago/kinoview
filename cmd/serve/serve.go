@@ -97,7 +97,7 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 	indexer, err := media.NewIndexer(
 		media.WithStorage(
-			storage.NewJSONStore(
+			storage.NewStore(
 				storage.WithStorePath(
 					path.Join(c.configDir, "store"),
 				),

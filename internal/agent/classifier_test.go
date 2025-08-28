@@ -32,7 +32,7 @@ func (m *mockLLM) Setup(ctx context.Context) error {
 func TestClassify(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("successful_classification", func(t *testing.T) {
+	t.Run("successful classification", func(t *testing.T) {
 		expectedJSON := `{"name":"Test Movie","year":2023,"actors":["Actor One"]}`
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
@@ -64,7 +64,7 @@ func TestClassify(t *testing.T) {
 		testboil.FailTestIfDiff(t, expectedJSON, string(*metadata))
 	})
 
-	t.Run("llm_query_error", func(t *testing.T) {
+	t.Run("LLM query error", func(t *testing.T) {
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{}, errors.New("llm error")
@@ -80,7 +80,7 @@ func TestClassify(t *testing.T) {
 		}
 	})
 
-	t.Run("no_system_message", func(t *testing.T) {
+	t.Run("no system message", func(t *testing.T) {
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
@@ -100,7 +100,7 @@ func TestClassify(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid_braces", func(t *testing.T) {
+	t.Run("invalid braces", func(t *testing.T) {
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
@@ -120,7 +120,7 @@ func TestClassify(t *testing.T) {
 		}
 	})
 
-	t.Run("mismatched_braces", func(t *testing.T) {
+	t.Run("mismatched braces", func(t *testing.T) {
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
@@ -141,7 +141,7 @@ func TestClassify(t *testing.T) {
 		}
 	})
 
-	t.Run("invalid_json", func(t *testing.T) {
+	t.Run("invalid JSON", func(t *testing.T) {
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
@@ -161,7 +161,7 @@ func TestClassify(t *testing.T) {
 		}
 	})
 
-	t.Run("complex_json_extraction", func(t *testing.T) {
+	t.Run("complex JSON extraction", func(t *testing.T) {
 		content := `Here is the classification: {"name":"Complex Movie","year":2024} and some extra text`
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {

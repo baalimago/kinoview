@@ -13,8 +13,8 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-func Test_jsonStore_ListHandlerFunc(t *testing.T) {
-	jStore := NewJSONStore(WithStorePath(t.TempDir()))
+func Test_store_ListHandlerFunc(t *testing.T) {
+	jStore := NewStore(WithStorePath(t.TempDir()))
 	jStore.cache = map[string]model.Item{
 		"1": {ID: "1", Name: "foo"},
 		"2": {ID: "2", Name: "bar"},
@@ -40,7 +40,7 @@ func Test_jsonStore_ListHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("cache nil triggers error", func(t *testing.T) {
-		js := NewJSONStore(WithStorePath(t.TempDir()))
+		js := NewStore(WithStorePath(t.TempDir()))
 		js.cache = nil
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		rr := httptest.NewRecorder()
@@ -55,8 +55,8 @@ func Test_jsonStore_ListHandlerFunc(t *testing.T) {
 	})
 }
 
-func Test_jsonStore_VideoHandlerFunc(t *testing.T) {
-	js := NewJSONStore(WithStorePath(t.TempDir()))
+func Test_store_VideoHandlerFunc(t *testing.T) {
+	js := NewStore(WithStorePath(t.TempDir()))
 	handler := js.VideoHandlerFunc()
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
@@ -130,7 +130,7 @@ func Test_jsonStore_VideoHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("exists in cache, path not found", func(t *testing.T) {
-		s := NewJSONStore(WithStorePath(t.TempDir()))
+		s := NewStore(WithStorePath(t.TempDir()))
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error {
 				return nil
@@ -173,8 +173,8 @@ func (m *mockExtractor) extract(item model.Item, streamIndex string) (string, er
 	return "", fmt.Errorf("mocked failure")
 }
 
-func Test_jsonStore_SubsHandlerFunc(t *testing.T) {
-	js := NewJSONStore(WithStorePath(t.TempDir()))
+func Test_store_SubsHandlerFunc(t *testing.T) {
+	js := NewStore(WithStorePath(t.TempDir()))
 	js.classifier = &mockClassifier{
 		SetupFunc: func(ctx context.Context) error {
 			return nil
@@ -216,7 +216,7 @@ func Test_jsonStore_SubsHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("respond with 500 on extract failure", func(t *testing.T) {
-		js := NewJSONStore(WithStorePath(t.TempDir()))
+		js := NewStore(WithStorePath(t.TempDir()))
 		js.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error {
 				return nil

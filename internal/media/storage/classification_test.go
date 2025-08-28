@@ -28,7 +28,7 @@ func Test_startClassificationStation_success(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(3))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(3))
 
 	s.classificationRequest = make(chan classificationCandidate, 100)
 	s.classifierErrors = make(chan error, 100)
@@ -85,7 +85,7 @@ func Test_startClassificationStation_error(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(2))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(2))
 
 	s.classificationRequest = make(chan classificationCandidate, 100)
 	s.classifierErrors = make(chan error, 100)
@@ -171,7 +171,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(4))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(4))
 
 	s.classificationRequest = make(chan classificationCandidate, 1000)
 	s.classifierErrors = make(chan error, 1000)
@@ -234,7 +234,7 @@ func Test_startClassificationStation_context(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(1))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(1))
 
 	s.classificationRequest = make(chan classificationCandidate, 10)
 	s.classifierErrors = make(chan error, 10)
@@ -277,7 +277,7 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(2))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(2))
 
 	s.classificationRequest = make(chan classificationCandidate, 100)
 	s.classifierErrors = make(chan error, 100)
@@ -334,7 +334,7 @@ func Test_startClassificationStation_backpressure(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(3))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(3))
 
 	s.classificationRequest = make(chan classificationCandidate, 50)
 	s.classifierErrors = make(chan error, 50)
@@ -381,7 +381,7 @@ func Test_startClassificationStation_corr_id_in_error(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(1))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(1))
 
 	s.classificationRequest = make(chan classificationCandidate, 10)
 	s.classifierErrors = make(chan error, 10)
@@ -428,7 +428,7 @@ func Test_startClassificationStation_large_volume(t *testing.T) {
 	defer cancel()
 
 	dir := t.TempDir()
-	s := NewJSONStore(WithStorePath(dir), WithClassificationWorkers(8))
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(8))
 
 	s.classificationRequest = make(chan classificationCandidate, 2000)
 	s.classifierErrors = make(chan error, 2000)

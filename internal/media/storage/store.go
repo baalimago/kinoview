@@ -41,39 +41,39 @@ type store struct {
 	classificationRequest chan classificationCandidate
 }
 
-type JSONStoreOption func(*store)
+type StoreOption func(*store)
 
-func WithSubtitleStreamFinder(finder subtitleStreamFinder) JSONStoreOption {
+func WithSubtitleStreamFinder(finder subtitleStreamFinder) StoreOption {
 	return func(s *store) {
 		s.subStreamFinder = finder
 	}
 }
 
-func WithSubtitleStreamExtractor(extractor subtitleStreamExtractor) JSONStoreOption {
+func WithSubtitleStreamExtractor(extractor subtitleStreamExtractor) StoreOption {
 	return func(s *store) {
 		s.subStreamExtractor = extractor
 	}
 }
 
-func WithClassifier(classifier agent.Classifier) JSONStoreOption {
+func WithClassifier(classifier agent.Classifier) StoreOption {
 	return func(s *store) {
 		s.classifier = classifier
 	}
 }
 
-func WithStorePath(storePath string) JSONStoreOption {
+func WithStorePath(storePath string) StoreOption {
 	return func(s *store) {
 		s.storePath = storePath
 	}
 }
 
-func WithClassificationWorkers(amWorkers int) JSONStoreOption {
+func WithClassificationWorkers(amWorkers int) StoreOption {
 	return func(s *store) {
 		s.classificationWorkers = amWorkers
 	}
 }
 
-func NewJSONStore(opts ...JSONStoreOption) *store {
+func NewStore(opts ...StoreOption) *store {
 	subUtils := &ffmpegSubsUtil{
 		mediaCache: map[string]model.MediaInfo{},
 	}
