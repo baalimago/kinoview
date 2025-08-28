@@ -9,6 +9,8 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
+// This file is dedicated to testing tools
+
 // mockClassifier is a mock implementation of the Classifier interface.
 type mockClassifier struct {
 	SetupFunc    func(context.Context) error

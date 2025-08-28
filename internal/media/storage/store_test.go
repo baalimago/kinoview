@@ -15,7 +15,7 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-func Test_jsonStore_Setup(t *testing.T) {
+func Test_store_Setup(t *testing.T) {
 	t.Run("successful setup", func(t *testing.T) {
 		tmpDir := t.TempDir()
 		s := NewJSONStore(WithStorePath(tmpDir))
