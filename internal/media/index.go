@@ -127,12 +127,12 @@ func (i *Indexer) Setup(ctx context.Context) error {
 	}
 	storeErrors, err := i.store.Setup(ctx)
 	if err != nil {
-		return fmt.Errorf("Setup store: %v", err)
+		return fmt.Errorf("setup store: %w", err)
 	}
 
 	fileUpdates, watcherErrors, err := i.watcher.Setup(ctx)
 	if err != nil {
-		return fmt.Errorf("Setup watcher: %v", err)
+		return fmt.Errorf("setup watcher: %w", err)
 	}
 
 	i.fileUpdates = fileUpdates

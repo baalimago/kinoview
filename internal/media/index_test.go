@@ -69,8 +69,8 @@ func Test_indexer_Setup(t *testing.T) {
 			},
 		}
 		got := i.Setup(context.Background())
-		if errors.Is(got, want) {
-			t.Fatalf("wanted: %v, got: %v", want, got)
+		if !errors.Is(got, want) {
+			t.Fatalf("wanted wrapped error: %v, got: %v", want, got)
 		}
 	})
 
@@ -90,8 +90,8 @@ func Test_indexer_Setup(t *testing.T) {
 			},
 		}
 		got := i.Setup(context.Background())
-		if errors.Is(got, want) {
-			t.Fatalf("wanted: %v, got: %v", want, got)
+		if !errors.Is(got, want) {
+			t.Fatalf("wanted wrapped error: %v, got: %v", want, got)
 		}
 	})
 

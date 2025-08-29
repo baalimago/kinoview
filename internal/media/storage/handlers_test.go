@@ -56,7 +56,7 @@ func Test_store_ListHandlerFunc(t *testing.T) {
 }
 
 func Test_store_VideoHandlerFunc(t *testing.T) {
-	js := NewStore(WithStorePath(t.TempDir()))
+	js := newTestStore(t)
 	handler := js.VideoHandlerFunc()
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
@@ -130,15 +130,7 @@ func Test_store_VideoHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("exists in cache, path not found", func(t *testing.T) {
-		s := NewStore(WithStorePath(t.TempDir()))
-		s.classifier = &mockClassifier{
-			SetupFunc: func(ctx context.Context) error {
-				return nil
-			},
-			ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
-				return i, nil
-			},
-		}
+		s := newTestStore(t)
 		tmpDir := t.TempDir()
 		_, err := s.Setup(context.Background())
 		if err != nil {
@@ -174,23 +166,7 @@ func (m *mockExtractor) extract(item model.Item, streamIndex string) (string, er
 }
 
 func Test_store_SubsHandlerFunc(t *testing.T) {
-	js := NewStore(WithStorePath(t.TempDir()))
-	js.classifier = &mockClassifier{
-		SetupFunc: func(ctx context.Context) error {
-			return nil
-		},
-		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
-			return i, nil
-		},
-	}
-	js.classifier = &mockClassifier{
-		SetupFunc: func(ctx context.Context) error {
-			return nil
-		},
-		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
-			return i, nil
-		},
-	}
+	js := newTestStore(t)
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)
