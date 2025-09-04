@@ -129,17 +129,15 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 			ancli.Warnf("failed to open file: '%v', err: %v", filePath, err)
 			continue
 		}
-		var items []model.Item
-		if err := json.NewDecoder(f).Decode(&items); err != nil {
+		var item model.Item
+		if err := json.NewDecoder(f).Decode(&item); err != nil {
 			ancli.Warnf("failed to decode items in file: '%v', err: %v", filePath, err)
 			f.Close()
 			continue
 		}
 		f.Close()
 		s.cacheMu.Lock()
-		for _, item := range items {
-			s.cache[item.ID] = item
-		}
+		s.cache[item.ID] = item
 		s.cacheMu.Unlock()
 	}
 	return nil
@@ -219,11 +217,7 @@ func (s *store) store(i model.Item) error {
 		return fmt.Errorf("failed to open store: %w", err)
 	}
 	defer f.Close()
-	items := make([]model.Item, 0, len(s.cache))
-	for _, v := range s.cache {
-		items = append(items, v)
-	}
-	if err := json.NewEncoder(f).Encode(items); err != nil {
+	if err := json.NewEncoder(f).Encode(i); err != nil {
 		return fmt.Errorf("failed to encode items: %w", err)
 	}
 	ancli.Noticef("updated store: '%v'", storePath)

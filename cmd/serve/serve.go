@@ -101,6 +101,7 @@ func (c *command) Setup(ctx context.Context) error {
 				storage.WithStorePath(
 					path.Join(c.configDir, "store"),
 				),
+				storage.WithClassificationWorkers(5),
 			),
 		),
 		media.WithWatchPath(c.watchPath),

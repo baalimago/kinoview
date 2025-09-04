@@ -225,7 +225,7 @@ func Test_streamMkvToMp4(t *testing.T) {
 	})
 }
 
-func Test_Stream_jsonStore_ffmpegSubsUtil_extract(t *testing.T) {
+func Test_Stream_store_ffmpegSubsUtil_extract(t *testing.T) {
 	t.Run("extract subs if possible", func(t *testing.T) {
 		subsUtil := ffmpegSubsUtil{}
 		given := model.Item{
@@ -258,7 +258,7 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_extract(t *testing.T) {
 	})
 }
 
-func Test_Stream_jsonStore_ffmpegSubsUtil_find(t *testing.T) {
+func Test_Stream_store_ffmpegSubsUtil_find(t *testing.T) {
 	t.Run("find uses mediaCache hit", func(t *testing.T) {
 		wantIdx := 404
 		util := &ffmpegSubsUtil{
@@ -314,7 +314,7 @@ func Test_Stream_jsonStore_ffmpegSubsUtil_find(t *testing.T) {
 	})
 }
 
-func Test_Stream_jsonStore_ffmpegSubsUtil_cache(t *testing.T) {
+func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 	t.Run("it should return item on media cache hit", func(t *testing.T) {
 		wantIdx := 1337
 		// Setup ffmpegSubsUtil with mock caches
@@ -484,6 +484,270 @@ func Test_newJSONStore_options(t *testing.T) {
 
 		if s.classifier != mockClassifier {
 			t.Fatal("classifier should be the mock classifier")
+		}
+	})
+}
+
+func Test_store_Store(t *testing.T) {
+	t.Run("store item updates cache", func(t *testing.T) {
+		s := newTestStore(t)
+
+		_, err := s.Setup(context.Background())
+		if err != nil {
+			t.Fatalf("Setup failed: %v", err)
+		}
+
+		item := model.Item{Name: "test-name", ID: "test-id"}
+		err = s.store(item)
+		if err != nil {
+			t.Fatalf("Store failed: %v", err)
+		}
+
+		s.cacheMu.Lock()
+		got, exists := s.cache[item.ID]
+		s.cacheMu.Unlock()
+		if !exists {
+			t.Fatal("expected item to be in cache but it is not")
+		}
+		if !reflect.DeepEqual(item, got) {
+			t.Fatalf("expected: %+v, got: %+v", item, got)
+		}
+	})
+
+	t.Run("store updates metadata correctly", func(t *testing.T) {
+		s := newTestStore(t)
+
+		// Using the store function
+		existingItem := model.Item{ID: "meta-id", Name: "old-name"}
+		updatedItem := model.Item{ID: "meta-id", Name: "new-name"}
+
+		s.cacheMu.Lock()
+		s.cache[existingItem.ID] = existingItem
+		s.cacheMu.Unlock()
+
+		err := s.store(updatedItem)
+		if err != nil {
+			t.Fatalf("Store failed: %v", err)
+		}
+
+		s.cacheMu.Lock()
+		got := s.cache[existingItem.ID]
+		s.cacheMu.Unlock()
+
+		if got.Name != "new-name" {
+			t.Fatalf("expected name to be updated to 'new-name', but got %v", got.Name)
+		}
+	})
+
+	t.Run("writes item to cache and file", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		item := model.Item{ID: "a1", Name: "n"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+		s.cacheMu.RLock()
+		got, ok := s.cache["a1"]
+		s.cacheMu.RUnlock()
+		if !ok {
+			t.Fatal("cache miss for a1")
+		}
+		if !reflect.DeepEqual(item, got) {
+			t.Fatalf("want %+v got %+v", item, got)
+		}
+		p := path.Join(dir, "a1")
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		var onDisk model.Item
+		if err := json.Unmarshal(b, &onDisk); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if !reflect.DeepEqual(item, onDisk) {
+			t.Fatalf("want %+v got %+v", item, onDisk)
+		}
+	})
+
+	t.Run("overwrites existing item and persists new data", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		i1 := model.Item{ID: "a1", Name: "old"}
+		i2 := model.Item{ID: "a1", Name: "new"}
+		if err := s.store(i1); err != nil {
+			t.Fatalf("store i1: %v", err)
+		}
+		if err := s.store(i2); err != nil {
+			t.Fatalf("store i2: %v", err)
+		}
+		s.cacheMu.RLock()
+		got := s.cache["a1"]
+		s.cacheMu.RUnlock()
+		if got.Name != "new" {
+			t.Fatalf("cache name = %q", got.Name)
+		}
+		p := path.Join(dir, "a1")
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		var onDisk model.Item
+		if err := json.Unmarshal(b, &onDisk); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if onDisk.Name != "new" {
+			t.Fatalf("disk name = %q", onDisk.Name)
+		}
+	})
+
+	t.Run("truncates file on overwrite", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		big := strings.Repeat("X", 2048)
+		if err := s.store(model.Item{ID: "a1", Name: big}); err != nil {
+			t.Fatalf("store big: %v", err)
+		}
+		if err := s.store(model.Item{ID: "a1", Name: "s"}); err != nil {
+			t.Fatalf("store small: %v", err)
+		}
+		p := path.Join(dir, "a1")
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		if strings.Contains(string(b), big) {
+			t.Fatal("file not truncated on overwrite")
+		}
+	})
+
+	t.Run("sets file mode to 0644", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		if err := s.store(model.Item{ID: "a1"}); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+		p := path.Join(dir, "a1")
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatalf("stat: %v", err)
+		}
+		if fi.Mode().Perm() != 0o644 {
+			t.Fatalf("perm = %v", fi.Mode().Perm())
+		}
+	})
+
+	t.Run("errors when storePath dir missing", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.RemoveAll(dir); err != nil {
+			t.Fatalf("rm: %v", err)
+		}
+		s := NewStore(WithStorePath(dir))
+		err := s.store(model.Item{ID: "a1"})
+		if err == nil {
+			t.Fatal("expected error")
+		}
+		if !strings.Contains(err.Error(), "failed to open store") {
+			t.Fatalf("err = %v", err)
+		}
+	})
+
+	t.Run("errors when storePath is a file (ENOTDIR)", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "pfx")
+		if err != nil {
+			t.Fatalf("tmpfile: %v", err)
+		}
+		defer f.Close()
+		s := NewStore(WithStorePath(f.Name()))
+		if err := s.store(model.Item{ID: "a1"}); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("errors when storePath is read-only", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.Chmod(dir, 0o555); err != nil {
+			t.Fatalf("chmod: %v", err)
+		}
+		s := NewStore(WithStorePath(dir))
+		if err := s.store(model.Item{ID: "a1"}); err == nil {
+			t.Fatal("expected error")
+		}
+	})
+
+	t.Run("concurrent stores are safe and complete", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		N := 20
+		done := make(chan struct{}, N)
+		ids := make([]string, N)
+		for i := 0; i < N; i++ {
+			ids[i] = "id-" + randString(8)
+		}
+		for _, id := range ids {
+			go func(id string) {
+				_ = s.store(model.Item{ID: id})
+				done <- struct{}{}
+			}(id)
+		}
+		for i := 0; i < N; i++ {
+			<-done
+		}
+		s.cacheMu.RLock()
+		l := len(s.cache)
+		s.cacheMu.RUnlock()
+		if l != N {
+			t.Fatalf("cache len = %d want %d", l, N)
+		}
+		for _, id := range ids {
+			p := path.Join(dir, id)
+			if _, err := os.Stat(p); err != nil {
+				t.Fatalf("stat %s: %v", id, err)
+			}
+		}
+	})
+
+	t.Run("idempotent on same item", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+		item := model.Item{ID: "same", Name: "n"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store1: %v", err)
+		}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store2: %v", err)
+		}
+		p := path.Join(dir, "same")
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		var onDisk model.Item
+		if err := json.Unmarshal(b, &onDisk); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if !reflect.DeepEqual(item, onDisk) {
+			t.Fatalf("want %+v got %+v", item, onDisk)
 		}
 	})
 }
