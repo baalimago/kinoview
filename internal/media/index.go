@@ -5,8 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path"
 
+	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents"
+	"github.com/baalimago/kinoview/internal/agents/recommender"
 	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -19,6 +24,8 @@ type storage interface {
 	Start(ctx context.Context)
 	// Store some item, return error on failure
 	Store(ctx context.Context, i model.Item) error
+	// Snapshot of the current item state. Thread safe, returns a copy of cache.
+	Snapshot() []model.Item
 	ListHandlerFunc() http.HandlerFunc
 	VideoHandlerFunc() http.HandlerFunc
 	SubsListHandlerFunc() http.HandlerFunc
@@ -59,9 +66,10 @@ func (el *errorListener) start(ctx context.Context) {
 }
 
 type Indexer struct {
-	watchPath string
-	watcher   watcher
-	store     storage
+	watchPath   string
+	watcher     watcher
+	store       storage
+	recommender agents.Recommender
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
@@ -82,14 +90,30 @@ func WithWatchPath(watchPath string) IndexerOption {
 	}
 }
 
+func WithRecommender(r agents.Recommender) IndexerOption {
+	return func(i *Indexer) {
+		i.recommender = r
+	}
+}
+
 func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 	w, err := int_watcher.NewRecursiveWatcher()
 	if err != nil {
 		return nil, fmt.Errorf("failed to create recursive watcher: %w", err)
 	}
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		ancli.Warnf("failed to find user config dir: %v", err)
+	}
+	claiPath := path.Join(cfgDir, "kinoview", "clai")
 
 	i := &Indexer{
-		watcher:       w,
+		watcher: w,
+		recommender: recommender.NewRecommender(models.Configurations{
+			Model:         "gpt-5",
+			ConfigDir:     claiPath,
+			InternalTools: []models.ToolName{},
+		}),
 		errorChannels: make(map[string]errorListener),
 		errorUpdates:  make(chan error, 1000),
 	}
@@ -204,5 +228,6 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
 	mux.HandleFunc("/subs/{vid}", i.store.SubsListHandlerFunc())
 	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.SubsHandlerFunc())
+	mux.HandleFunc("/recommend", i.recomendHandler())
 	return mux
 }

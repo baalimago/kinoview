@@ -12,7 +12,8 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
-	"github.com/baalimago/kinoview/internal/agent"
+	"github.com/baalimago/kinoview/internal/agents"
+	"github.com/baalimago/kinoview/internal/agents/classifier"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -35,7 +36,7 @@ type store struct {
 	subStreamFinder    subtitleStreamFinder
 	subStreamExtractor subtitleStreamExtractor
 
-	classifier            agent.Classifier
+	classifier            agents.Classifier
 	classificationWorkers int
 	classifierErrors      chan error
 	classificationRequest chan classificationCandidate
@@ -55,7 +56,7 @@ func WithSubtitleStreamExtractor(extractor subtitleStreamExtractor) StoreOption 
 	}
 }
 
-func WithClassifier(classifier agent.Classifier) StoreOption {
+func WithClassifier(classifier agents.Classifier) StoreOption {
 	return func(s *store) {
 		s.classifier = classifier
 	}
@@ -91,7 +92,7 @@ func NewStore(opts ...StoreOption) *store {
 		storePath:          storePath,
 		cache:              make(map[string]model.Item),
 		cacheMu:            &sync.RWMutex{},
-		classifier: agent.NewClassifier(models.Configurations{
+		classifier: classifier.NewClassifier(models.Configurations{
 			Model:     "gpt-5",
 			ConfigDir: claiPath,
 			InternalTools: []models.ToolName{
@@ -255,4 +256,13 @@ func (s *store) Store(ctx context.Context, i model.Item) error {
 		s.addToClassificationQueue(i)
 	}
 	return s.store(i)
+}
+
+func (s *store) Snapshot() (ret []model.Item) {
+	s.cacheMu.RLock()
+	defer s.cacheMu.RUnlock()
+	for _, i := range s.cache {
+		ret = append(ret, i)
+	}
+	return
 }

@@ -1,4 +1,4 @@
-package agent
+package classifier
 
 import (
 	"bytes"
@@ -11,6 +11,7 @@ import (
 
 	"github.com/baalimago/clai/pkg/text"
 	"github.com/baalimago/clai/pkg/text/models"
+	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -32,20 +33,12 @@ OUTPUT ONLY IN THE FOLLOWING FORMAT:
 
 const userPrompt = `Information about the media to classify: %v`
 
-type Classifier interface {
-	Setup(context.Context) error
-	// Classify some item in a blocking manner. Expected to take up to 10-30 seconds
-	// since implementation may be LLM based
-	Classify(context.Context, model.Item) (model.Item, error)
-}
-
 type classifier struct {
 	llm text.FullResponse
 }
 
-// NewClassifier configured by models.Configurations. The prompt will be
-// overwriten with DefaultPrompt, unless configured
-func NewClassifier(c models.Configurations) Classifier {
+// NewClassifier configured by models.Configurations
+func NewClassifier(c models.Configurations) agents.Classifier {
 	c.SystemPrompt = systemPrompt
 	return &classifier{
 		llm: text.NewFullResponseQuerier(c),

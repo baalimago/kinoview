@@ -30,13 +30,12 @@ func Test_store_Setup(t *testing.T) {
 
 		key := "an-id"
 		want := model.Item{Name: "a", ID: key}
-		wantList := []model.Item{want}
-		wantBytes, err := json.Marshal(wantList)
+		wantBytes, err := json.Marshal(want)
 		if err != nil {
 			t.Fatalf("failed to marshal want: %v", err)
 		}
 
-		jsonPath := path.Join(s.storePath, "store.json")
+		jsonPath := path.Join(s.storePath, key)
 		if errW := os.WriteFile(jsonPath, wantBytes, 0o644); errW != nil {
 			t.Fatalf("failed to create empty store.json: %v", errW)
 		}
