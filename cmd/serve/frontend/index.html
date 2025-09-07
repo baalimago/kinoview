@@ -15,6 +15,18 @@
 
     <div id="selection-wrapper">
       <div>
+        <p>Ask for a recommendation:</p>
+        <input
+          id="recommendInput"
+          class="mediaSelector"
+          type="text"
+          placeholder="Type what you feel like watching"
+          onkeydown="if(event.key==='Enter'){requestRecommendation()}"
+        />
+        <button onclick="requestRecommendation()">Recommend</button>
+        <p id="recommendationStatus"></p>
+      </div>
+      <div>
         <p>Please select a video:</p>
         <select
           id="debugMediaSelector"

@@ -48,7 +48,7 @@ func (s *storeWithItems) SubsHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
-func (s *storeWithItems) Items() []model.Item {
+func (s *storeWithItems) Snapshot() []model.Item {
 	return s.items
 }
 
@@ -83,7 +83,7 @@ func TestRecommendHandler_MethodNotAllowed(t *testing.T) {
 	i.recommender = &mockRec{}
 
 	h := i.recomendHandler()
-	req := httptest.NewRequest(http.MethodPost, "/recommend", nil)
+	req := httptest.NewRequest(http.MethodGet, "/recommend", nil)
 	rr := httptest.NewRecorder()
 
 	h(rr, req)
@@ -92,8 +92,8 @@ func TestRecommendHandler_MethodNotAllowed(t *testing.T) {
 		t.Fatalf("got %d, want %d",
 			rr.Code, http.StatusMethodNotAllowed)
 	}
-	if got := rr.Header().Get("Allow"); got != http.MethodGet {
-		t.Fatalf("Allow header %q, want %q", got, http.MethodGet)
+	if got := rr.Header().Get("Allow"); got != http.MethodPost {
+		t.Fatalf("Allow header %q, want %q", got, http.MethodPost)
 	}
 }
 
@@ -104,7 +104,7 @@ func TestRecommendHandler_BadJSON(t *testing.T) {
 
 	h := i.recomendHandler()
 	body := bytes.NewBufferString("{")
-	req := httptest.NewRequest(http.MethodGet, "/recommend", body)
+	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
 	rr := httptest.NewRecorder()
 
 	h(rr, req)
@@ -124,7 +124,7 @@ func TestRecommendHandler_UnknownFields(t *testing.T) {
 	body := bytes.NewBufferString(
 		`{"Request":"a","Context":"b","Extra":1}`,
 	)
-	req := httptest.NewRequest(http.MethodGet, "/recommend", body)
+	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
 	rr := httptest.NewRecorder()
 
 	h(rr, req)
@@ -144,7 +144,7 @@ func TestRecommendHandler_EmptyRequest(t *testing.T) {
 	body := bytes.NewBufferString(
 		`{"Request":"   ","Context":"b"}`,
 	)
-	req := httptest.NewRequest(http.MethodGet, "/recommend", body)
+	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
 	rr := httptest.NewRecorder()
 
 	h(rr, req)
@@ -176,7 +176,7 @@ func TestRecommendHandler_RecommenderError(t *testing.T) {
 	body := bytes.NewBufferString(
 		`{"Request":"play","Context":"now"}`,
 	)
-	req := httptest.NewRequest(http.MethodGet, "/recommend", body)
+	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
 	rr := httptest.NewRecorder()
 
 	h(rr, req)
@@ -209,7 +209,7 @@ func TestRecommendHandler_Success(t *testing.T) {
 	body := bytes.NewBufferString(
 		`{"Request":"watch drama","Context":"evening"}`,
 	)
-	req := httptest.NewRequest(http.MethodGet, "/recommend", body)
+	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
 	rr := httptest.NewRecorder()
 
 	h(rr, req)
@@ -256,7 +256,7 @@ func TestRecommendHandler_ContextCancel(t *testing.T) {
 	body := bytes.NewBufferString(
 		`{"Request":"watch","Context":"later"}`,
 	)
-	req := httptest.NewRequest(http.MethodGet, "/recommend", body)
+	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	req = req.WithContext(ctx)

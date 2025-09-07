@@ -43,6 +43,10 @@ func (m *mockStore) ListHandlerFunc() http.HandlerFunc {
 	return nil
 }
 
+func (m *mockStore) Snapshot() []model.Item {
+	return nil
+}
+
 type mockWatcher struct {
 	setup func(ctx context.Context) (<-chan model.Item, <-chan error, error)
 	watch func(ctx context.Context, path string) error
