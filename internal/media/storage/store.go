@@ -83,8 +83,8 @@ func NewStore(opts ...StoreOption) *store {
 	if err != nil {
 		ancli.Warnf("failed to find user config dir: %v", err)
 	}
-	storePath := path.Join(cfgDir, "kinoview", "store")
-	claiPath := path.Join(cfgDir, "kinoview", "clai")
+	kinoviewCfgPath := path.Join(cfgDir, "kinoview")
+	storePath := path.Join(kinoviewCfgPath, "store")
 
 	s := &store{
 		subStreamFinder:    subUtils,
@@ -94,7 +94,7 @@ func NewStore(opts ...StoreOption) *store {
 		cacheMu:            &sync.RWMutex{},
 		classifier: classifier.NewClassifier(models.Configurations{
 			Model:     "gpt-5",
-			ConfigDir: claiPath,
+			ConfigDir: kinoviewCfgPath,
 			InternalTools: []models.ToolName{
 				models.CatTool,
 				models.FindTool,

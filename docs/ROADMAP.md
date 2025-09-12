@@ -14,7 +14,7 @@ Phase 1:
 Phase 2:
 
 2. Media gallery
-   - Metadata
+   - Metadata - DONE, using LLM clasifier via [clai](https://github.com/baalimago/clai)
 3. Media agent
-   - http-handler
-   - suggestions
+   - http-handler - DONE
+   - suggestions - DONE, using LLM clasifier via [clai](https://github.com/baalimago/clai). Called it "recommender"

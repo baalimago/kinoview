@@ -11,7 +11,10 @@ import (
 	"os"
 	"path"
 
+	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents/classifier"
+	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/storage"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
@@ -41,8 +44,9 @@ type command struct {
 	tlsCertPath  *string
 	tlsKeyPath   *string
 
-	generateMetadata *bool
-	textModel        *string
+	generateMetadata    *bool
+	classificationModel *string
+	recommenderModel    *string
 }
 
 func Command() *command {
@@ -95,15 +99,39 @@ func (c *command) Setup(ctx context.Context) error {
 			return fmt.Errorf("could not create config dir: %w", err)
 		}
 	}
+	claiPath := path.Join(c.configDir)
+	storePath := path.Join(c.configDir, "store")
+	classificationModel := "gpt-5"
+	if c.classificationModel != nil {
+		classificationModel = *c.classificationModel
+	}
+	recommenderModel := "gpt-5"
+	if c.recommenderModel != nil {
+		recommenderModel = *c.recommenderModel
+	}
 	indexer, err := media.NewIndexer(
 		media.WithStorage(
 			storage.NewStore(
-				storage.WithStorePath(
-					path.Join(c.configDir, "store"),
-				),
+				storage.WithStorePath(storePath),
 				storage.WithClassificationWorkers(5),
+				storage.WithClassifier(classifier.NewClassifier(models.Configurations{
+					Model:     classificationModel,
+					ConfigDir: claiPath,
+					InternalTools: []models.ToolName{
+						models.CatTool,
+						models.FindTool,
+						models.FFProbeTool,
+						models.WebsiteTextTool,
+						models.RipGrepTool,
+					},
+				})),
 			),
 		),
+		media.WithRecommender(recommender.NewRecommender(models.Configurations{
+			Model:         recommenderModel,
+			ConfigDir:     claiPath,
+			InternalTools: []models.ToolName{},
+		})),
 		media.WithWatchPath(c.watchPath),
 	)
 	if err != nil {
@@ -227,7 +255,8 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.tlsKeyPath = fs.String("tlsKeyPath", "", "set to a path to a key, requires tlsCertPath to be set")
 
 	c.generateMetadata = fs.Bool("generateMetadata", true, "set to true if you want LLM generated metadata using clai")
-	c.textModel = fs.String("textModel", "gpt-5", "set to LLM text model you'd like to use. Supports multiple vendors automatically via clai.")
+	c.classificationModel = fs.String("classificationModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
+	c.recommenderModel = fs.String("recommenderModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
 
 	c.flagset = fs
 	return fs
