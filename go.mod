@@ -15,5 +15,3 @@ require (
 	golang.org/x/sys v0.35.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 )
-
-replace github.com/baalimago/clai v1.8.3 => ../clai/
