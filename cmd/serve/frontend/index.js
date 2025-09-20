@@ -34,7 +34,8 @@ function selectMedia(id) {
 function requestRecommendation() {
   const inp = document.getElementById("recommendInput");
   const status = document.getElementById("recommendationStatus");
-  const req = { Request: inp.value, Context: "" };
+  const req = { Request: inp.value, Context: JSON.stringify(localStorage) };
+  console.info("Sending:", req)
   status.innerText = "Requesting... (this may take a moment)";
   fetch("/gallery/recommend", {
     method: "POST",
@@ -88,8 +89,16 @@ setTimeout(() => {
   const screen = document.getElementById("screen")
   screen.addEventListener("timeupdate", function () {
     localStorage.setItem(
-      "video_play_duration_" + mostRecentID,
+      mostRecentID + "_has_been_played_for_s",
       this.currentTime
+    );
+    localStorage.setItem(
+      mostRecentID + "_was_played_last_at",
+      new Date().toISOString()
+    );
+    localStorage.setItem(
+      "last_played_ID",
+      mostRecentID
     );
   });
 
