@@ -4,7 +4,7 @@
 [![wakatime](https://wakatime.com/badge/user/018cc8d2-3fd9-47ef-81dc-e4ad645d5f34/project/c215f59a-0855-4729-a32e-95eef473ada1.svg)](https://wakatime.com/badge/user/018cc8d2-3fd9-47ef-81dc-e4ad645d5f34/project/c215f59a-0855-4729-a32e-95eef473ada1)
 [![Simple Go Pipeline - validate](https://github.com/baalimago/kinoview/actions/workflows/validate.yml/badge.svg)](https://github.com/baalimago/kinoview/actions/workflows/validate.yml)
 
-Test coverage: 64.280% 😌👏
+Test coverage: 74.877% 😌👏
 
 Host local movies within your private network with mandatory AI!
 
