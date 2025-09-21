@@ -159,6 +159,11 @@ func (i *Indexer) Setup(ctx context.Context) error {
 		return fmt.Errorf("setup watcher: %w", err)
 	}
 
+	recSetupErr := i.recommender.Setup(ctx)
+	if recSetupErr != nil {
+		ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
+	}
+
 	i.fileUpdates = fileUpdates
 	i.registerErrorChannel(ctx, "watcher", watcherErrors)
 	i.registerErrorChannel(ctx, "store", storeErrors)

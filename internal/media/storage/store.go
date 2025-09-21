@@ -160,7 +160,7 @@ func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 	ancli.Noticef("setting up classifier")
 	err = s.classifier.Setup(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup classifier: %w", err)
+		ancli.Errf("failed to setup classifier, classifications wont be possible. Err: %v", err)
 	}
 	s.classifierErrors = make(chan error)
 	return s.classifierErrors, nil
