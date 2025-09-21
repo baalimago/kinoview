@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func Test_Setup(t *testing.T) {
+func TestSetup(t *testing.T) {
 	t.Run("error if flagset is not set", func(t *testing.T) {
 		c := &command{}
 		err := c.Setup(context.Background())
@@ -50,7 +50,7 @@ func Test_Setup(t *testing.T) {
 		c.configDir = path.Join(dir, "doesnotexist")
 		c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
 		if err := c.Setup(context.Background()); err != nil {
-			t.Errorf("unexpected error: %v", err)
+			t.Fatalf("unexpected error: %v", err)
 		}
 		if _, err := os.Stat(c.configDir); err != nil {
 			t.Errorf("configDir not created: %v", err)
@@ -73,7 +73,7 @@ func Test_Setup(t *testing.T) {
 					_ = c.flagset.Parse(tt.args)
 				}
 				if err := c.Setup(context.Background()); err != nil {
-					t.Errorf("fail: %v", err)
+					t.Fatalf("unexpected error: %v", err)
 				}
 			})
 		}
@@ -102,19 +102,21 @@ func Test_Setup(t *testing.T) {
 	})
 }
 
-func Test_Run(t *testing.T) {
+func TestRun(t *testing.T) {
 	t.Run("successful run", func(t *testing.T) {
 		c := Command()
 		c.Flagset()
+		c.configDir = t.TempDir()
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second/2)
 		t.Cleanup(func() {
 			cancel()
 		})
 		err := c.Setup(ctx)
 		if err != nil {
-			t.Fatal(err)
+			t.Fatalf("unexpected error: %v", err)
 		}
 		c.configDir = t.TempDir()
+		c.watchPath = t.TempDir()
 		err = c.Run(ctx)
 		if err != nil {
 			t.Errorf("unexpected error during Run: %v", err)

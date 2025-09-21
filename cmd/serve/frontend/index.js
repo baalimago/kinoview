@@ -45,6 +45,37 @@ function selectMedia(id) {
   loadSubtitles(id);
 }
 
+function requestRecommendation() {
+  const inp = document.getElementById("recommendInput");
+  const status = document.getElementById("recommendationStatus");
+  const req = { Request: inp.value, Context: JSON.stringify(localStorage) };
+  console.info("Sending:", req)
+  status.innerText = "Requesting... (this may take a moment)";
+  fetch("/gallery/recommend", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(req),
+  })
+    .then(r => {
+      if (!r.ok) throw new Error("status " + r.status);
+      return r.json();
+    })
+    .then(item => {
+      if (!item || !item.ID) {
+        status.innerText = "No recommendation";
+        return;
+      }
+      status.innerText = "Recommended: " + (item.Name || item.ID);
+      const sel = document.getElementById("debugMediaSelector");
+      sel.value = item.ID;
+      selectMedia(item.ID);
+    })
+    .catch(err => {
+      console.error("recommend error:", err);
+      status.innerText = "Error";
+    });
+}
+
 function loadSubtitles(id) {
   fetch(`/gallery/subs/${id}`)
     .then(response => response.json())
@@ -72,8 +103,16 @@ setTimeout(() => {
   const screen = document.getElementById("screen")
   screen.addEventListener("timeupdate", function () {
     localStorage.setItem(
-      "video_play_duration_" + mostRecentID,
+      mostRecentID + "_has_been_played_for_s",
       this.currentTime
+    );
+    localStorage.setItem(
+      mostRecentID + "_was_played_last_at",
+      new Date().toISOString()
+    );
+    localStorage.setItem(
+      "last_played_ID",
+      mostRecentID
     );
   });
 

@@ -11,8 +11,12 @@ import (
 	"os"
 	"path"
 
+	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents/classifier"
+	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/media"
+	"github.com/baalimago/kinoview/internal/media/storage"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
@@ -20,7 +24,7 @@ import (
 var frontendFiles embed.FS
 
 type Indexer interface {
-	Setup(ctx context.Context, watchPath, storePath string) error
+	Setup(ctx context.Context) error
 	Start(ctx context.Context) error
 	Handler() http.Handler
 }
@@ -39,6 +43,10 @@ type command struct {
 	cacheControl *string
 	tlsCertPath  *string
 	tlsKeyPath   *string
+
+	generateMetadata    *bool
+	classificationModel *string
+	recommenderModel    *string
 }
 
 func Command() *command {
@@ -48,9 +56,13 @@ func Command() *command {
 	}
 	kinoviewConfigDir := path.Join(configDir, "kinoview")
 	r, _ := os.Executable()
+	if err != nil {
+		ancli.Errf("failed to create indexer: %v", err)
+		return nil
+	}
+
 	return &command{
 		binPath:   r,
-		indexer:   media.NewIndexer(),
 		configDir: kinoviewConfigDir,
 	}
 }
@@ -73,18 +85,63 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 	c.watchPath = path.Clean(relPath)
 
-	if c.configDir != "" {
-		if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
-			ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
-			if err := os.MkdirAll(c.configDir, 0o755); err != nil {
-				return fmt.Errorf("could not create config dir: %w", err)
-			}
+	if c.configDir == "" {
+		userCfgDir, err := os.UserConfigDir()
+		if err != nil {
+			return fmt.Errorf("failed to get config dir: %v", err)
 		}
+		c.configDir = userCfgDir
 	}
 
-	err := c.indexer.Setup(ctx, c.watchPath, c.configDir)
+	if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
+		ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
+		if err := os.MkdirAll(c.configDir, 0o755); err != nil {
+			return fmt.Errorf("could not create config dir: %w", err)
+		}
+	}
+	claiPath := path.Join(c.configDir)
+	storePath := path.Join(c.configDir, "store")
+	classificationModel := "gpt-5"
+	if c.classificationModel != nil {
+		classificationModel = *c.classificationModel
+	}
+	recommenderModel := "gpt-5"
+	if c.recommenderModel != nil {
+		recommenderModel = *c.recommenderModel
+	}
+	indexer, err := media.NewIndexer(
+		media.WithStorage(
+			storage.NewStore(
+				storage.WithStorePath(storePath),
+				storage.WithClassificationWorkers(5),
+				storage.WithClassifier(classifier.NewClassifier(models.Configurations{
+					Model:     classificationModel,
+					ConfigDir: claiPath,
+					InternalTools: []models.ToolName{
+						models.CatTool,
+						models.FindTool,
+						models.FFProbeTool,
+						models.WebsiteTextTool,
+						models.RipGrepTool,
+					},
+				})),
+			),
+		),
+		media.WithRecommender(recommender.NewRecommender(models.Configurations{
+			Model:         recommenderModel,
+			ConfigDir:     claiPath,
+			InternalTools: []models.ToolName{},
+		})),
+		media.WithWatchPath(c.watchPath),
+	)
 	if err != nil {
-		return fmt.Errorf("c.indexer.Setup failed, err: %w", err)
+		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)
+	}
+	c.indexer = indexer
+
+	err = c.indexer.Setup(ctx)
+	if err != nil {
+		return fmt.Errorf("c.indexer.Setup failed to setup Indexer, err: %w", err)
 	}
 
 	return nil
@@ -193,8 +250,14 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.host = fs.String("host", "localhost", "hostname to serve on")
 	c.port = fs.Int("port", 8080, "port to serve on")
 	c.cacheControl = fs.String("cacheControl", "no-cache", "set to configure the cache-control header")
+
 	c.tlsCertPath = fs.String("tlsCertPath", "", "set to a path to a cert, requires tlsKeyPath to be set")
 	c.tlsKeyPath = fs.String("tlsKeyPath", "", "set to a path to a key, requires tlsCertPath to be set")
+
+	c.generateMetadata = fs.Bool("generateMetadata", true, "set to true if you want LLM generated metadata using clai")
+	c.classificationModel = fs.String("classificationModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
+	c.recommenderModel = fs.String("recommenderModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
+
 	c.flagset = fs
 	return fs
 }

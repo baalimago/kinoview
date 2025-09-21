@@ -5,14 +5,27 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path"
 
+	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents"
+	"github.com/baalimago/kinoview/internal/agents/recommender"
+	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
 type storage interface {
-	Setup(ctx context.Context, storePath string) error
-	Store(i model.Item) error
+	// Setup a storage and return a channel for errors if successful or
+	// or an error explaining why it failed
+	Setup(ctx context.Context) (<-chan error, error)
+	// Start any internal routines
+	Start(ctx context.Context)
+	// Store some item, return error on failure
+	Store(ctx context.Context, i model.Item) error
+	// Snapshot of the current item state. Thread safe, returns a copy of cache.
+	Snapshot() []model.Item
 	ListHandlerFunc() http.HandlerFunc
 	VideoHandlerFunc() http.HandlerFunc
 	SubsListHandlerFunc() http.HandlerFunc
@@ -53,25 +66,63 @@ func (el *errorListener) start(ctx context.Context) {
 }
 
 type Indexer struct {
-	watchPath string
-	storePath string
-	watcher   watcher
-	store     storage
+	watchPath   string
+	watcher     watcher
+	store       storage
+	recommender agents.Recommender
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
 	errorUpdates  chan error
 }
 
-func NewIndexer() *Indexer {
-	i := &Indexer{}
-	// Ignore error as this only affects buffered fsnotify.Watchers
-	w, _ := newRecursiveWatcher()
-	i.watcher = w
-	i.store = newJSONStore()
-	i.errorChannels = make(map[string]errorListener)
-	i.errorUpdates = make(chan error, 1000)
-	return i
+type IndexerOption func(*Indexer)
+
+func WithStorage(s storage) IndexerOption {
+	return func(i *Indexer) {
+		i.store = s
+	}
+}
+
+func WithWatchPath(watchPath string) IndexerOption {
+	return func(i *Indexer) {
+		i.watchPath = watchPath
+	}
+}
+
+func WithRecommender(r agents.Recommender) IndexerOption {
+	return func(i *Indexer) {
+		i.recommender = r
+	}
+}
+
+func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
+	w, err := int_watcher.NewRecursiveWatcher()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create recursive watcher: %w", err)
+	}
+	cfgDir, err := os.UserConfigDir()
+	if err != nil {
+		ancli.Warnf("failed to find user config dir: %v", err)
+	}
+	claiPath := path.Join(cfgDir, "kinoview", "clai")
+
+	i := &Indexer{
+		watcher: w,
+		recommender: recommender.NewRecommender(models.Configurations{
+			Model:         "gpt-5",
+			ConfigDir:     claiPath,
+			InternalTools: []models.ToolName{},
+		}),
+		errorChannels: make(map[string]errorListener),
+		errorUpdates:  make(chan error, 1000),
+	}
+
+	for _, opt := range opts {
+		opt(i)
+	}
+
+	return i, nil
 }
 
 func (i *Indexer) registerErrorChannel(ctx context.Context, subRoutineName string, errChan <-chan error) error {
@@ -94,27 +145,45 @@ func (i *Indexer) registerErrorChannel(ctx context.Context, subRoutineName strin
 	return nil
 }
 
-func (i *Indexer) Setup(ctx context.Context, watchPath, storePath string) error {
-	err := i.store.Setup(ctx, storePath)
+func (i *Indexer) Setup(ctx context.Context) error {
+	if i.store == nil {
+		return errors.New("store must be set, please create Indexer with some store")
+	}
+	storeErrors, err := i.store.Setup(ctx)
 	if err != nil {
-		return fmt.Errorf("Setup store: %v", err)
+		return fmt.Errorf("setup store: %w", err)
 	}
 
 	fileUpdates, watcherErrors, err := i.watcher.Setup(ctx)
 	if err != nil {
-		return fmt.Errorf("Setup watcher: %v", err)
+		return fmt.Errorf("setup watcher: %w", err)
+	}
+
+	recSetupErr := i.recommender.Setup(ctx)
+	if recSetupErr != nil {
+		ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
 	}
 
 	i.fileUpdates = fileUpdates
 	i.registerErrorChannel(ctx, "watcher", watcherErrors)
-	i.watchPath = watchPath
-	i.storePath = storePath
+	i.registerErrorChannel(ctx, "store", storeErrors)
 
 	ancli.Okf("indexer.Setup OK")
 	return nil
 }
 
+func (i *Indexer) handleNewItem(ctx context.Context, item model.Item) error {
+	err := i.store.Store(ctx, item)
+	if err != nil {
+		return fmt.Errorf("Indexer failed to handle new item: %w", err)
+	}
+	return nil
+}
+
 func (i *Indexer) Start(ctx context.Context) error {
+	if i.store != nil {
+		i.store.Start(ctx)
+	}
 	if i.fileUpdates == nil {
 		return errors.New("fileUpdates must not be nil. Please run Setup")
 	}
@@ -132,7 +201,7 @@ func (i *Indexer) Start(ctx context.Context) error {
 				close(storeErrChan)
 				return
 			case bareItem := <-i.fileUpdates:
-				err := i.store.Store(bareItem)
+				err := i.handleNewItem(ctx, bareItem)
 				if err != nil {
 					storeErrChan <- err
 				}
@@ -164,5 +233,6 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
 	mux.HandleFunc("/subs/{vid}", i.store.SubsListHandlerFunc())
 	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.SubsHandlerFunc())
+	mux.HandleFunc("/recommend", i.recomendHandler())
 	return mux
 }

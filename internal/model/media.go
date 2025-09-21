@@ -1,4 +1,4 @@
-package media
+package model
 
 type MediaInfo struct {
 	Streams []Stream `json:"streams"`
@@ -35,7 +35,7 @@ type Stream struct {
 	TimeBase           string      `json:"time_base"`
 	StartPts           int         `json:"start_pts"`
 	StartTime          string      `json:"start_time"`
-	DurationTs         int         `json:"duration_ts,omitempty"`
+	DurationTS         int         `json:"duration_ts,omitempty"`
 	Duration           string      `json:"duration,omitempty"`
 	Disposition        Disposition `json:"disposition"`
 	Tags               Tags        `json:"tags"`
