@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"path"
 	"strings"
 	"testing"
 
+	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -166,14 +168,14 @@ func (m *mockExtractor) extract(item model.Item, streamIndex string) (string, er
 }
 
 func Test_store_SubsHandlerFunc(t *testing.T) {
-	js := newTestStore(t)
+	s := newTestStore(t)
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)
 		req.SetPathValue("vid", "1")
 		req.SetPathValue("sub_idx", "0")
 		rr := httptest.NewRecorder()
-		handler := js.SubsHandlerFunc()
+		handler := s.SubsHandlerFunc()
 		handler.ServeHTTP(rr, req)
 		if rr.Result().StatusCode != http.StatusNotFound {
 			t.Errorf("expected 404 on nil cache, got %d", rr.Result().StatusCode)
@@ -181,10 +183,10 @@ func Test_store_SubsHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("missing video ID returns bad request", func(t *testing.T) {
-		js.cache = map[string]model.Item{}
+		s.cache = map[string]model.Item{}
 		req := httptest.NewRequest(http.MethodGet, "/subs", nil)
 		rr := httptest.NewRecorder()
-		handler := js.SubsHandlerFunc()
+		handler := s.SubsHandlerFunc()
 		handler.ServeHTTP(rr, req)
 		if rr.Result().StatusCode != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d", rr.Result().StatusCode)
@@ -192,8 +194,8 @@ func Test_store_SubsHandlerFunc(t *testing.T) {
 	})
 
 	t.Run("respond with 500 on extract failure", func(t *testing.T) {
-		js := NewStore(WithStorePath(t.TempDir()))
-		js.classifier = &mockClassifier{
+		s := NewStore(WithStorePath(t.TempDir()))
+		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error {
 				return nil
 			},
@@ -202,17 +204,61 @@ func Test_store_SubsHandlerFunc(t *testing.T) {
 			},
 		}
 
-		js.cache = map[string]model.Item{"1": {ID: "1", Path: "dummy"}}
+		s.cache = map[string]model.Item{"1": {ID: "1", Path: "dummy"}}
 
-		js.subStreamExtractor = &mockExtractor{}
+		s.subStreamExtractor = &mockExtractor{}
 		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)
 		req.SetPathValue("vid", "1")
 		req.SetPathValue("sub_idx", "0")
 		rr := httptest.NewRecorder()
-		handler := js.SubsHandlerFunc()
+		handler := s.SubsHandlerFunc()
 		handler.ServeHTTP(rr, req)
 		if rr.Result().StatusCode != http.StatusInternalServerError {
 			t.Errorf("expected 500 on extractor fail, got %d", rr.Result().StatusCode)
 		}
+	})
+}
+
+func Test_store_SubsListHandlerFunc(t *testing.T) {
+	s := NewStore(WithStorePath(t.TempDir()))
+	s.cacheMu.Lock()
+	s.cache["withMime"] = model.Item{
+		ID:       "withMime",
+		Name:     "With Mimé - A french story",
+		MIMEType: "video/mp4",
+	}
+	s.cache["withOutMime"] = model.Item{
+		ID:       "withMime",
+		Name:     "With O-ute Mimé - An Kenyan story",
+		MIMEType: "image/mpeg",
+	}
+	s.cacheMu.Unlock()
+
+	t.Run("missing vid path responds 400", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/", nil)
+		rr := httptest.NewRecorder()
+		s.SubsListHandlerFunc().ServeHTTP(rr, req)
+		testboil.FailTestIfDiff(t, rr.Result().StatusCode, http.StatusBadRequest)
+	})
+
+	t.Run("missing video responds 404", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/subs/", nil)
+		req.SetPathValue("vid", "doesntExist")
+		rr := httptest.NewRecorder()
+		s.SubsListHandlerFunc().ServeHTTP(rr, req)
+		testboil.FailTestIfDiff(t, rr.Result().StatusCode, http.StatusNotFound)
+	})
+
+	t.Run("wrong mimetype responds not found", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/subs/", nil)
+		req.SetPathValue("vid", "withOutMime")
+		rr := httptest.NewRecorder()
+		s.SubsListHandlerFunc().ServeHTTP(rr, req)
+		testboil.FailTestIfDiff(t, rr.Result().StatusCode, http.StatusNotFound)
+		bodyBytes, err := io.ReadAll(rr.Body)
+		testboil.FailTestIfDiff(t, err, nil)
+		got := string(bodyBytes)
+		want := "media found, but its not a video\n"
+		testboil.FailTestIfDiff(t, got, want)
 	})
 }

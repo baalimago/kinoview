@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baalimago/go_away_boilerplate/pkg/debug"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -570,7 +571,7 @@ func Test_store_Store(t *testing.T) {
 			t.Fatalf("unmarshal: %v", err)
 		}
 		if !reflect.DeepEqual(item, onDisk) {
-			t.Fatalf("want %+v got %+v", item, onDisk)
+			t.Fatalf("want %+v got %+v, gotjson: %v", item, onDisk, debug.IndentedJsonFmt(onDisk))
 		}
 	})
 
