@@ -125,7 +125,9 @@ func (rw *recursiveWatcher) Watch(ctx context.Context, path string) error {
 
 	err = filepath.WalkDir(path, rw.walkDo)
 	if err != nil {
-		return fmt.Errorf("filepath.WalkDir error: %w", err)
+		if !errors.Is(err, io.EOF) {
+			return fmt.Errorf("filepath.WalkDir error: %w", err)
+		}
 	}
 	defer rw.watcher.Close()
 	for {
