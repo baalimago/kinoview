@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -71,6 +72,11 @@ func (rw *recursiveWatcher) checkFile(p string) error {
 
 func (rw *recursiveWatcher) walkDo(p string, info os.DirEntry, err error) error {
 	if err != nil {
+		// Simply skip EOF errors
+		if errors.Is(err, io.EOF) {
+			ancli.Warnf("skipping: '%v', got EOF error", p)
+			return nil
+		}
 		return err
 	}
 	if info.IsDir() {
