@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -126,6 +128,65 @@ func Test_recursiveWatcher_Watch(t *testing.T) {
 				t.Errorf("un expected error: %v", err)
 			}
 		}, time.Millisecond*100)
+	})
+
+	t.Run("fails with non-existent path", func(t *testing.T) {
+		rw, err := NewRecursiveWatcher()
+		if err != nil {
+			t.Fatalf("newRecursiveWatcher() failed: %v", err)
+		}
+		t.Cleanup(func() {
+			if rw != nil && rw.watcher != nil {
+				rw.watcher.Close()
+			}
+		})
+
+		nonExistentPath := filepath.Join(os.TempDir(), fmt.Sprintf("non_existent_dir_for_test_%d", time.Now().UnixNano()))
+		err = rw.Watch(context.Background(), nonExistentPath)
+		if err == nil {
+			t.Errorf("expected an error for non-existent path, but got none")
+		}
+		expectedErrMsgPart1 := fmt.Sprintf("failed to get file info for path '%s'", nonExistentPath)
+		if !strings.Contains(err.Error(), expectedErrMsgPart1) {
+			t.Errorf("error message did not contain '%s', got: %v", expectedErrMsgPart1, err)
+		}
+		expectedErrMsgPart2 := "no such file or directory"
+		if !strings.Contains(err.Error(), expectedErrMsgPart2) {
+			t.Errorf("error message did not contain '%s', got: %v", expectedErrMsgPart2, err)
+		}
+	})
+
+	t.Run("fails when path is a regular file, not a directory", func(t *testing.T) {
+		rw, err := NewRecursiveWatcher()
+		if err != nil {
+			t.Fatalf("newRecursiveWatcher() failed: %v", err)
+		}
+		t.Cleanup(func() {
+			if rw != nil && rw.watcher != nil {
+				rw.watcher.Close()
+			}
+		})
+
+		tempFile, err := os.CreateTemp("", "regular_file_for_test_*.txt")
+		if err != nil {
+			t.Fatalf("os.CreateTemp() failed: %v", err)
+		}
+		tempFilePath := tempFile.Name()
+		if err := tempFile.Close(); err != nil {
+			t.Errorf("tempFile.Close() failed: %v", err)
+		}
+		t.Cleanup(func() {
+			os.Remove(tempFilePath)
+		})
+
+		err = rw.Watch(context.Background(), tempFilePath)
+		if err == nil {
+			t.Errorf("expected an error for regular file path, but got none")
+		}
+		expectedErrMsgPart := fmt.Sprintf("path '%s' is not a directory", tempFilePath)
+		if !strings.Contains(err.Error(), expectedErrMsgPart) {
+			t.Errorf("error message did not contain '%s', got: %v", expectedErrMsgPart, err)
+		}
 	})
 }
 

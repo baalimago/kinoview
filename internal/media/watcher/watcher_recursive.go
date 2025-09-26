@@ -114,7 +114,20 @@ func (rw *recursiveWatcher) handleEvent(ev fsnotify.Event) error {
 }
 
 func (rw *recursiveWatcher) Watch(ctx context.Context, path string) error {
-	err := filepath.WalkDir(path, rw.walkDo)
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("failed to get file info for path '%s': %w", path, err)
+	}
+	if !fileInfo.IsDir() {
+		return fmt.Errorf("path '%s' is not a directory", path)
+	}
+
+	err = filepath.WalkDir(path, rw.walkDo)
+	if err != nil {
+		return fmt.Errorf("filepath.WalkDir error: %w", err)
+	}
+
+	err = filepath.WalkDir(path, rw.walkDo)
 	if err != nil {
 		return fmt.Errorf("filepath.WalkDir error: %w", err)
 	}
