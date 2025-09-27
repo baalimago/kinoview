@@ -12,6 +12,7 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
+	"github.com/baalimago/kinoview/internal/loghandler"
 	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -234,5 +235,6 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/subs/{vid}", i.store.SubsListHandlerFunc())
 	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.SubsHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
+	mux.HandleFunc("/log", loghandler.Func())
 	return mux
 }

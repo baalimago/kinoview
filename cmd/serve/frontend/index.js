@@ -1,5 +1,43 @@
 const media = {}
 
+const ogConsoleLog = console.log
+const ogConsoleError = console.error
+
+console.log = postInfo
+console.error = postErr
+
+function postLogMsg(level, data) {
+  fetch('/gallery/log', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      "level": level,
+      "message": data,
+    }),
+  })
+    .then(response => {
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+      return response.json();
+    })
+    .catch(error => {
+      ogConsoleError("Error posting log:", error);
+    });
+}
+
+function postErr(data) {
+  postLogMsg("error", data)
+  ogConsoleError(data)
+}
+
+function postInfo(data) {
+  postLogMsg("info", data)
+  ogConsoleLog(data)
+}
+
 function videoNameWithProgress(vID, vidName) {
   let name = vidName;
   const playTime = localStorage.getItem(
@@ -80,6 +118,7 @@ function loadSubtitles(id) {
   fetch(`/gallery/subs/${id}`)
     .then(response => response.json())
     .then(data => {
+      console.log(`Attempting to load subs for: ${id}`)
       const options = document.getElementById("debugSubsSelector")
       for (const i of data.streams) {
         if (!i.tags.language) {
@@ -96,6 +135,7 @@ function loadSubtitles(id) {
 
 function selectSubtitle(id) {
   const track = document.getElementById("subs");
+  console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
   track.src = `/gallery/subs/${mostRecentID}/${id}`;
 }
 
