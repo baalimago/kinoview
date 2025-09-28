@@ -120,6 +120,7 @@ function loadSubtitles(id) {
     .then(data => {
       console.log(`Attempting to load subs for: ${id}`)
       const options = document.getElementById("debugSubsSelector")
+      options.length = 0;
       for (const i of data.streams) {
         if (!i.tags.language) {
           continue
