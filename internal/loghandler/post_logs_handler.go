@@ -34,9 +34,25 @@ func (l *LogLevel) UnmarshalText(text []byte) error {
 	return nil
 }
 
+func (l LogLevel) MarshalText() ([]byte, error) {
+	switch l {
+	case DEBUG:
+		return []byte("debug"), nil
+	case INFO:
+		return []byte("info"), nil
+	case WARNING:
+		return []byte("warning"), nil
+	case ERROR:
+		return []byte("error"), nil
+	default:
+		return nil, errors.New("invalid log level")
+	}
+}
+
 type LogMessage struct {
 	Level   LogLevel `json:"level"`
 	Message string   `json:"message"`
+	Logger  string   `json:"logger"`
 }
 
 // Func will log the messages using ancli depending on the log level
@@ -50,7 +66,12 @@ func Func() http.HandlerFunc {
 			return
 		}
 
-		msg := fmt.Sprintf("[client]: %v", logMessage.Message)
+		loggerName := logMessage.Logger
+		if loggerName == "" {
+			loggerName = "client"
+		}
+
+		msg := fmt.Sprintf("[%v]: %v", loggerName, logMessage.Message)
 
 		// Log the message based on the log level
 		switch logMessage.Level {
