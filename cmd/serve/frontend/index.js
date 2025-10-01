@@ -155,6 +155,7 @@ setTimeout(() => {
       "last_played_ID",
       mostRecentID
     );
+    console.log(`Updating time for: ${mostRecentID}, to time: ${this.currentTime}s`)
   });
 
 
