@@ -1,5 +1,7 @@
 const media = {}
 
+const played_for_key = (id) => `${id} has been played for (seconds)`
+
 const ogConsoleLog = console.log
 const ogConsoleError = console.error
 
@@ -41,7 +43,7 @@ function postInfo(data) {
 function videoNameWithProgress(vID, vidName) {
   let name = vidName;
   const playTime = localStorage.getItem(
-    vID + "_has_been_played_for_s"
+    played_for_key(vID)
   );
   if (playTime) {
     const asSec = playTime.split(".")[0];
@@ -144,7 +146,7 @@ setTimeout(() => {
   const screen = document.getElementById("screen")
   screen.addEventListener("timeupdate", function () {
     localStorage.setItem(
-      mostRecentID + "_has_been_played_for_s",
+      played_for_key(mostRecentID),
       this.currentTime
     );
     localStorage.setItem(
@@ -160,7 +162,7 @@ setTimeout(() => {
 
   screen.addEventListener("loadeddata", function () {
     const playTime = localStorage.getItem(
-      mostRecentID + "_has_been_played_for_s",
+      played_for_key(mostRecentID),
     );
     if (playTime) {
       screen.currentTime = playTime
