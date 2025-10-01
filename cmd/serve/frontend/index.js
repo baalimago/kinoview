@@ -43,6 +43,7 @@ function videoNameWithProgress(vID, vidName) {
   const playTime = localStorage.getItem(
     "video_play_duration_" + vID
   );
+  console.log(`Finding duration for: ${vID}, playtime: ${playTime}`)
   if (playTime) {
     const asSec = playTime.split(".")[0];
     const asMin = (asSec / 60).toFixed(3);
