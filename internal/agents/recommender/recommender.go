@@ -54,22 +54,21 @@ func (r *recommender) Recommend(
 ) (model.Item, error) {
 	var itemsStr string
 	for _, it := range items {
-		metadataJSONStr := ""
-		if it.Metadata != nil {
-			metadataJSON, err := it.Metadata.MarshalJSON()
-			if err != nil {
-				ancli.Warnf("failed to encode metadata for %v. Continuing without it, error: %v", it.Name, err)
-			} else {
-				metadataJSONStr = string(metadataJSON)
-			}
-		}
+		// metadataJSONStr := ""
+		// if it.Metadata != nil {
+		// 	metadataJSON, err := it.Metadata.MarshalJSON()
+		// 	if err != nil {
+		// 		ancli.Warnf("failed to encode metadata for %v. Continuing without it, error: %v", it.Name, err)
+		// 	} else {
+		// 		metadataJSONStr = string(metadataJSON)
+		// 	}
+		// }
 
 		itemsStr += fmt.Sprintf(
-			"- id: %s, name: %s, type: %s, metadata: %v\n",
+			"- id: %s, name: %s, type: %s\n",
 			it.ID,
 			it.Name,
 			it.MIMEType,
-			metadataJSONStr,
 		)
 	}
 	chat := models.Chat{

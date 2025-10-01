@@ -42,7 +42,7 @@ func (i *Indexer) recomendHandler() http.HandlerFunc {
 			return
 		}
 		goCtx := r.Context()
-		combined := strings.TrimSpace(req.Request + " " + req.Context)
+		combined := strings.TrimSpace(req.Request + "\n\n User usage context:" + req.Context)
 		items := i.store.Snapshot()
 		it, err := i.recommender.Recommend(goCtx, combined, items)
 		if err != nil {
