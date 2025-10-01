@@ -21,7 +21,7 @@ function postLogMsg(level, data) {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      return response.json();
+      return response.text();
     })
     .catch(error => {
       ogConsoleError("Error posting log:", error);
@@ -141,6 +141,7 @@ function selectSubtitle(id) {
 }
 
 setTimeout(() => {
+  console.log("Setting up eventlisteners")
   const screen = document.getElementById("screen")
   screen.addEventListener("timeupdate", function () {
     localStorage.setItem(
@@ -163,6 +164,7 @@ setTimeout(() => {
     const playTime = localStorage.getItem(
       "video_play_duration_" + mostRecentID
     );
+    console.log(`Loading time for: ${mostRecentID}`)
     if (playTime) {
       screen.currentTime = playTime
     }
