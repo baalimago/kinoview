@@ -41,9 +41,8 @@ function postInfo(data) {
 function videoNameWithProgress(vID, vidName) {
   let name = vidName;
   const playTime = localStorage.getItem(
-    "video_play_duration_" + vID
+    vID + "_has_been_played_for_s"
   );
-  console.log(`Finding duration for: ${vID}, playtime: ${playTime}`)
   if (playTime) {
     const asSec = playTime.split(".")[0];
     const asMin = (asSec / 60).toFixed(3);
@@ -142,7 +141,6 @@ function selectSubtitle(id) {
 }
 
 setTimeout(() => {
-  console.log("Setting up eventlisteners")
   const screen = document.getElementById("screen")
   screen.addEventListener("timeupdate", function () {
     localStorage.setItem(
@@ -157,15 +155,13 @@ setTimeout(() => {
       "last_played_ID",
       mostRecentID
     );
-    console.log(`Updating time for: ${mostRecentID}, to time: ${this.currentTime}s`)
   });
 
 
   screen.addEventListener("loadeddata", function () {
     const playTime = localStorage.getItem(
-      "video_play_duration_" + mostRecentID
+      mostRecentID + "_has_been_played_for_s",
     );
-    console.log(`Loading time for: ${mostRecentID}`)
     if (playTime) {
       screen.currentTime = playTime
     }
