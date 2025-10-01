@@ -3,10 +3,13 @@ package recommender
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/baalimago/clai/pkg/text"
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/debug"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -80,6 +83,9 @@ func (r *recommender) Recommend(
 				),
 			},
 		},
+	}
+	if misc.Truthy(os.Getenv("DEBUG")) {
+		ancli.Noticef("Recommendation prompt:\n%v", debug.IndentedJsonFmt(chat))
 	}
 	resp, err := r.llm.Query(ctx, chat)
 	if err != nil {
