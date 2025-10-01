@@ -22,7 +22,8 @@ const systemPrompt = `You are a media picker. You will be given request by a use
 
 Respond with json in this format:
 {
-  "mediaId": "<ID_FROM_MEDIA>"
+  "mediaId": "<ID_FROM_MEDIA>",
+  "motivation": "<Motivation for why specific item was selected>"
 }
 
 Request: '%v'
