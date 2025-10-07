@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -327,47 +326,6 @@ func Test_walkDo(t *testing.T) {
 			t.Fatal("expected error, got nil")
 		}
 	})
-}
-
-// Mock types for testing
-type mockWatcher struct {
-	addError error
-}
-
-func (m *mockWatcher) Add(path string) error {
-	return m.addError
-}
-
-type mockDirEntry struct {
-	isDir bool
-}
-
-func (m mockDirEntry) IsDir() bool {
-	return m.isDir
-}
-
-func (m mockDirEntry) Type() fs.FileMode {
-	if m.isDir {
-		return fs.ModeDir
-	}
-	return 0
-}
-
-func (m mockDirEntry) Name() string {
-	return "testentry"
-}
-
-func (m mockDirEntry) Info() (fs.FileInfo, error) {
-	return nil, nil
-}
-
-type mockRecursiveWatcher struct {
-	watcher      *mockWatcher
-	checkFileErr error
-}
-
-func (m *mockRecursiveWatcher) checkFile(p string) error {
-	return m.checkFileErr
 }
 
 func Test_walkDo_ErrorManagement(t *testing.T) {
