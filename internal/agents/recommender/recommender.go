@@ -3,10 +3,13 @@ package recommender
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/baalimago/clai/pkg/text"
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/debug"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -19,7 +22,8 @@ const systemPrompt = `You are a media picker. You will be given request by a use
 
 Respond with json in this format:
 {
-  "mediaId": "<ID_FROM_MEDIA>"
+  "mediaId": "<ID_FROM_MEDIA>",
+  "motivation": "<Motivation for why specific item was selected>"
 }
 
 Request: '%v'
@@ -51,22 +55,21 @@ func (r *recommender) Recommend(
 ) (model.Item, error) {
 	var itemsStr string
 	for _, it := range items {
-		metadataJSONStr := ""
-		if it.Metadata != nil {
-			metadataJSON, err := it.Metadata.MarshalJSON()
-			if err != nil {
-				ancli.Warnf("failed to encode metadata for %v. Continuing without it, error: %v", it.Name, err)
-			} else {
-				metadataJSONStr = string(metadataJSON)
-			}
-		}
+		// metadataJSONStr := ""
+		// if it.Metadata != nil {
+		// 	metadataJSON, err := it.Metadata.MarshalJSON()
+		// 	if err != nil {
+		// 		ancli.Warnf("failed to encode metadata for %v. Continuing without it, error: %v", it.Name, err)
+		// 	} else {
+		// 		metadataJSONStr = string(metadataJSON)
+		// 	}
+		// }
 
 		itemsStr += fmt.Sprintf(
-			"- id: %s, name: %s, type: %s, metadata: %v\n",
+			"- id: %s, name: %s, type: %s\n",
 			it.ID,
 			it.Name,
 			it.MIMEType,
-			metadataJSONStr,
 		)
 	}
 	chat := models.Chat{
@@ -80,6 +83,9 @@ func (r *recommender) Recommend(
 				),
 			},
 		},
+	}
+	if misc.Truthy(os.Getenv("DEBUG")) {
+		ancli.Noticef("Recommendation prompt:\n%v", debug.IndentedJsonFmt(chat))
 	}
 	resp, err := r.llm.Query(ctx, chat)
 	if err != nil {

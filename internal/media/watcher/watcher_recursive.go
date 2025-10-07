@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"path"
@@ -18,6 +19,7 @@ type recursiveWatcher struct {
 	watcher *fsnotify.Watcher
 	updates chan model.Item
 	errChan chan error
+	warnlog func(msg string, a ...any)
 }
 
 func NewRecursiveWatcher() (*recursiveWatcher, error) {
@@ -29,6 +31,7 @@ func NewRecursiveWatcher() (*recursiveWatcher, error) {
 		w,
 		make(chan model.Item),
 		make(chan error),
+		ancli.Warnf,
 	}, nil
 }
 
@@ -71,6 +74,11 @@ func (rw *recursiveWatcher) checkFile(p string) error {
 
 func (rw *recursiveWatcher) walkDo(p string, info os.DirEntry, err error) error {
 	if err != nil {
+		// Simply skip EOF errors
+		if errors.Is(err, io.EOF) {
+			rw.warnlog("skipping: '%v', got EOF error", p)
+			return nil
+		}
 		return err
 	}
 	if info.IsDir() {
@@ -90,7 +98,7 @@ func (rw *recursiveWatcher) handleError(err error) {
 		select {
 		case rw.errChan <- err:
 		default:
-			ancli.Warnf("Error channel full or unavailable: %v", err)
+			rw.warnlog("Error channel full or unavailable: %v", err)
 		}
 	}
 }
@@ -107,10 +115,28 @@ func (rw *recursiveWatcher) handleEvent(ev fsnotify.Event) error {
 	return nil
 }
 
-func (rw *recursiveWatcher) Watch(ctx context.Context, path string) error {
-	err := filepath.WalkDir(path, rw.walkDo)
+func (rw recursiveWatcher) checkPath(path string) error {
+	fileInfo, err := os.Stat(path)
 	if err != nil {
-		return fmt.Errorf("filepath.WalkDir error: %w", err)
+		return fmt.Errorf("failed to get file info for path '%s': %w", path, err)
+	}
+
+	if !fileInfo.IsDir() {
+		return fmt.Errorf("path '%s' is not a directory", path)
+	}
+	return nil
+}
+
+func (rw *recursiveWatcher) Watch(ctx context.Context, path string) error {
+	err := rw.checkPath(path)
+	if err != nil {
+		return fmt.Errorf("recursiveWatcher pathCheck failed: %v", err)
+	}
+	err = filepath.WalkDir(path, rw.walkDo)
+	if err != nil {
+		if !errors.Is(err, io.EOF) {
+			return fmt.Errorf("filepath.WalkDir error: %w", err)
+		}
 	}
 	defer rw.watcher.Close()
 	for {

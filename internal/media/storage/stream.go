@@ -193,5 +193,6 @@ func (f *ffmpegSubsUtil) extract(item model.Item, streamIndex string) (pathToSub
 	}
 
 	pathToSubs = subs.Name()
+	ancli.Noticef("extractd subs at: %v", pathToSubs)
 	return
 }

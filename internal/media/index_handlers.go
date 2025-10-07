@@ -8,15 +8,9 @@ import (
 	"strings"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/debug"
+	"github.com/baalimago/kinoview/internal/model"
 )
-
-type UserRequest struct {
-	// Request from user, explicitly stated
-	Request string
-	// Context from user, containing things such as view-duration of media,
-	// time of day, usage trends etc
-	Context string
-}
 
 // recomendHandler which returns a media recommendation from the store based
 // on the user request
@@ -32,9 +26,11 @@ func (i *Indexer) recomendHandler() http.HandlerFunc {
 		lr := io.LimitReader(r.Body, 1<<20)
 		dec := json.NewDecoder(lr)
 		dec.DisallowUnknownFields()
-		var req UserRequest
+		var req model.UserRequest
 		if err := dec.Decode(&req); err != nil {
-			http.Error(w, fmt.Sprintf("invalid json, err: %v", err), http.StatusBadRequest)
+			http.Error(w,
+				fmt.Sprintf("invalid json: %v, err: %v", debug.IndentedJsonFmt(req), err),
+				http.StatusBadRequest)
 			return
 		}
 		if strings.TrimSpace(req.Request) == "" {
@@ -42,9 +38,8 @@ func (i *Indexer) recomendHandler() http.HandlerFunc {
 			return
 		}
 		goCtx := r.Context()
-		combined := strings.TrimSpace(req.Request + " " + req.Context)
 		items := i.store.Snapshot()
-		it, err := i.recommender.Recommend(goCtx, combined, items)
+		it, err := i.recommender.Recommend(goCtx, debug.IndentedJsonFmt(req), items)
 		if err != nil {
 			ancli.Errf("recommender failed: %v", err)
 			http.Error(w, err.Error(), http.StatusInternalServerError)

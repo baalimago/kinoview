@@ -28,16 +28,20 @@ either view the media files as is, or enable LLM categorization.
 Commands:
 %v`
 
-func main() {
+func run(args []string) int {
 	ancli.Newline = true
 	ancli.SetupSlog()
 	version.Name = "Kinoview"
 	ctx, cancel := context.WithCancel(context.Background())
 	exitCodeChan := make(chan int, 1)
 	go func() {
-		exitCodeChan <- cmd.Run(ctx, os.Args, commands, usage)
+		exitCodeChan <- cmd.Run(ctx, args, commands, usage)
 		cancel()
 	}()
 	shutdown.MonitorV2(ctx, cancel)
-	os.Exit(<-exitCodeChan)
+	return <-exitCodeChan
+}
+
+func main() {
+	os.Exit(run(os.Args))
 }
