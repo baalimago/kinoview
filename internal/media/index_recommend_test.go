@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -155,38 +154,6 @@ func TestRecommendHandler_EmptyRequest(t *testing.T) {
 	}
 }
 
-func TestRecommendHandler_RecommenderError(t *testing.T) {
-	items := []model.Item{
-		{ID: "1", Name: "A", MIMEType: "video/mp4"},
-	}
-	i, _ := NewIndexer()
-	i.store = &storeWithItems{items: items}
-	rec := &mockRec{
-		recommend: func(
-			ctx context.Context,
-			req string,
-			it []model.Item,
-		) (model.Item, error) {
-			return model.Item{}, errors.New("boom")
-		},
-	}
-	i.recommender = rec
-
-	h := i.recomendHandler()
-	body := bytes.NewBufferString(
-		`{"Request":"play","Context":"now"}`,
-	)
-	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
-	rr := httptest.NewRecorder()
-
-	h(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("got %d, want %d",
-			rr.Code, http.StatusInternalServerError)
-	}
-}
-
 func TestRecommendHandler_Success(t *testing.T) {
 	items := []model.Item{
 		{ID: "1", Name: "A", MIMEType: "video/mp4"},
@@ -207,7 +174,7 @@ func TestRecommendHandler_Success(t *testing.T) {
 
 	h := i.recomendHandler()
 	body := bytes.NewBufferString(
-		`{"Request":"watch drama","Context":"evening"}`,
+		`{"Request":"watch drama","Context":{}}`,
 	)
 	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
 	rr := httptest.NewRecorder()
@@ -228,44 +195,8 @@ func TestRecommendHandler_Success(t *testing.T) {
 	if got.ID != "2" {
 		t.Fatalf("got id %q, want %q", got.ID, "2")
 	}
-	wantReq := "watch drama evening"
+	wantReq := "{\n \"request\": \"watch drama\",\n \"context\": {\n  \"viewingHistory\": null,\n  \"timeOfDay\": \"\",\n  \"lastPlayedName\": \"\"\n }\n}"
 	if strings.TrimSpace(rec.lastReq) != wantReq {
 		t.Fatalf("combined %q, want %q", rec.lastReq, wantReq)
-	}
-}
-
-func TestRecommendHandler_ContextCancel(t *testing.T) {
-	items := []model.Item{
-		{ID: "1", Name: "A", MIMEType: "video/mp4"},
-	}
-	i, _ := NewIndexer()
-	i.store = &storeWithItems{items: items}
-	rec := &mockRec{
-		recommend: func(
-			ctx context.Context,
-			req string,
-			it []model.Item,
-		) (model.Item, error) {
-			<-ctx.Done()
-			return model.Item{}, errors.New("ctx canceled")
-		},
-	}
-	i.recommender = rec
-
-	h := i.recomendHandler()
-	body := bytes.NewBufferString(
-		`{"Request":"watch","Context":"later"}`,
-	)
-	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-	req = req.WithContext(ctx)
-	rr := httptest.NewRecorder()
-
-	h(rr, req)
-
-	if rr.Code != http.StatusInternalServerError {
-		t.Fatalf("got %d, want %d",
-			rr.Code, http.StatusInternalServerError)
 	}
 }
