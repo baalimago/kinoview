@@ -2,15 +2,26 @@ package model
 
 import (
 	"encoding/json"
+	"image"
 	"time"
 )
 
-type Item struct {
+type Image struct {
 	ID       string
 	Path     string
-	Name     string
-	MIMEType string
-	Metadata *json.RawMessage
+	Encoding string
+	Width    int
+	Height   int
+	Raw      image.Image `json:"-"`
+}
+
+type Item struct {
+	ID        string
+	Path      string
+	Thumbnail Image
+	Name      string
+	MIMEType  string
+	Metadata  *json.RawMessage
 }
 
 type ViewMetadata struct {

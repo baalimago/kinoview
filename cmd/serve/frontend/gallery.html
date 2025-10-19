@@ -3,7 +3,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title></title>
-    <link href="style.css" rel="stylesheet" />
+    <link href="gallery.css" rel="stylesheet" />
   </head>
   <body>
     <div id="gallery"></div>
@@ -14,8 +14,15 @@
         .then((medias) => {
           const imagePaths = [];
           for (const m of medias) {
-            if (m.MIMEType.includes("image")) {
-              imagePaths.push(`/gallery/image/${m.ID}`);
+            if (
+              m.MIMEType.includes("image") &&
+              !m.Name.includes("thumb") &&
+              m.Thumbnail.ID != ""
+            ) {
+              imagePaths.push({
+                src: `/gallery/image/${m.ID}`,
+                thumb: `/gallery/image/${m.Thumbnail.ID}`,
+              });
             }
           }
           console.log(imagePaths);

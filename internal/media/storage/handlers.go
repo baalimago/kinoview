@@ -8,8 +8,39 @@ import (
 	"strings"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/media/utils"
 	"github.com/baalimago/kinoview/internal/model"
 )
+
+// handleImageItem by:
+// 1. Checking if thumbnail exists
+// 2. Adding thumbnail if it does
+// 3. Creating thumbnail if it doesnt
+func (s *store) handleImageItem(i *model.Item) error {
+	potentialThumbPath := utils.GetThumbnailPath(i.Path)
+	potentialThumb, err := utils.LoadImage(potentialThumbPath)
+	if err != nil {
+		if !utils.IsThumbnail(i.Path) {
+			ancli.Warnf("failed to find thumbnail for: '%v', error was: '%v'", i.Name, err)
+		} else {
+			return fmt.Errorf("failed to load potential thumbnail: %v", err)
+		}
+	} else {
+		i.Thumbnail = potentialThumb
+		return nil
+	}
+	thumb, err := utils.CreateThumbnail(*i)
+	if err != nil {
+		return fmt.Errorf("store.handleImageItem failed to create thumbnail: %v", err)
+	}
+	i.Thumbnail = thumb
+	return nil
+}
+
+func (s *store) handleVideoItem(i model.Item) error {
+	s.addToClassificationQueue(i)
+	return nil
+}
 
 // ListHandlerFunc returns a list of all available items in the gallery
 func (s *store) ListHandlerFunc() http.HandlerFunc {

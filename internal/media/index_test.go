@@ -14,6 +14,7 @@ import (
 type mockStore struct {
 	setup func() error
 	store func() error
+	items []model.Item
 }
 
 func (m *mockStore) Setup(ctx context.Context) (<-chan error, error) {
@@ -43,8 +44,12 @@ func (m *mockStore) ListHandlerFunc() http.HandlerFunc {
 	return nil
 }
 
-func (m *mockStore) Snapshot() []model.Item {
+func (m *mockStore) ImageHandlerFunc() http.HandlerFunc {
 	return nil
+}
+
+func (m *mockStore) Snapshot() []model.Item {
+	return m.items
 }
 
 type mockWatcher struct {

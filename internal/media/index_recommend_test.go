@@ -12,45 +12,6 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-type storeWithItems struct {
-	items []model.Item
-}
-
-func (s *storeWithItems) Setup(
-	ctx context.Context,
-) (<-chan error, error) {
-	return nil, nil
-}
-
-func (s *storeWithItems) Start(ctx context.Context) {}
-
-func (s *storeWithItems) Store(
-	ctx context.Context,
-	i model.Item,
-) error {
-	return nil
-}
-
-func (s *storeWithItems) ListHandlerFunc() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {}
-}
-
-func (s *storeWithItems) VideoHandlerFunc() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {}
-}
-
-func (s *storeWithItems) SubsListHandlerFunc() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {}
-}
-
-func (s *storeWithItems) SubsHandlerFunc() http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {}
-}
-
-func (s *storeWithItems) Snapshot() []model.Item {
-	return s.items
-}
-
 type mockRec struct {
 	lastReq   string
 	recommend func(
@@ -78,7 +39,7 @@ func (m *mockRec) Recommend(
 
 func TestRecommendHandler_MethodNotAllowed(t *testing.T) {
 	i, _ := NewIndexer()
-	i.store = &storeWithItems{}
+	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
 	h := i.recomendHandler()
@@ -98,7 +59,7 @@ func TestRecommendHandler_MethodNotAllowed(t *testing.T) {
 
 func TestRecommendHandler_BadJSON(t *testing.T) {
 	i, _ := NewIndexer()
-	i.store = &storeWithItems{}
+	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
 	h := i.recomendHandler()
@@ -116,7 +77,7 @@ func TestRecommendHandler_BadJSON(t *testing.T) {
 
 func TestRecommendHandler_UnknownFields(t *testing.T) {
 	i, _ := NewIndexer()
-	i.store = &storeWithItems{}
+	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
 	h := i.recomendHandler()
@@ -136,7 +97,7 @@ func TestRecommendHandler_UnknownFields(t *testing.T) {
 
 func TestRecommendHandler_EmptyRequest(t *testing.T) {
 	i, _ := NewIndexer()
-	i.store = &storeWithItems{}
+	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
 	h := i.recomendHandler()
@@ -160,7 +121,7 @@ func TestRecommendHandler_Success(t *testing.T) {
 		{ID: "2", Name: "B", MIMEType: "video/mp4"},
 	}
 	i, _ := NewIndexer()
-	i.store = &storeWithItems{items: items}
+	i.store = &mockStore{items: items}
 	rec := &mockRec{
 		recommend: func(
 			ctx context.Context,

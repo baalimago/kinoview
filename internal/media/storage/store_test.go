@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/debug"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
@@ -30,7 +31,7 @@ func Test_store_Setup(t *testing.T) {
 		s := newTestStore(t)
 
 		key := "an-id"
-		want := model.Item{Name: "a", ID: key}
+		want := model.Item{Name: "a", ID: key, Path: path.Join(s.storePath, key)}
 		wantBytes, err := json.Marshal(want)
 		if err != nil {
 			t.Fatalf("failed to marshal want: %v", err)
@@ -67,6 +68,7 @@ func Test_store_Setup(t *testing.T) {
 }
 
 func TestJSONStore_Store(t *testing.T) {
+	ancli.Silent = true
 	t.Run("store item successfully", func(t *testing.T) {
 		s := newTestStore(t)
 
@@ -115,7 +117,7 @@ func TestJSONStore_Store(t *testing.T) {
 		post.WriteString(largeIshString)
 		want := json.RawMessage(`{"This":  "should stay"}`)
 		has := model.Item{Name: "with_ID", Path: pre.Name(), Metadata: &want}
-		id := generateID(has)
+		id := generateID(has.Path)
 		has.ID = id
 
 		s.cacheMu.Lock()
@@ -259,6 +261,7 @@ func Test_Stream_store_ffmpegSubsUtil_extract(t *testing.T) {
 }
 
 func Test_Stream_store_ffmpegSubsUtil_find(t *testing.T) {
+	ancli.Silent = true
 	t.Run("find uses mediaCache hit", func(t *testing.T) {
 		wantIdx := 404
 		util := &ffmpegSubsUtil{
@@ -690,6 +693,7 @@ func Test_store_Store(t *testing.T) {
 	})
 
 	t.Run("concurrent stores are safe and complete", func(t *testing.T) {
+		ancli.Silent = true
 		dir := t.TempDir()
 		s := NewStore(WithStorePath(dir))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -748,6 +752,119 @@ func Test_store_Store(t *testing.T) {
 		}
 		if !reflect.DeepEqual(item, onDisk) {
 			t.Fatalf("want %+v got %+v", item, onDisk)
+		}
+	})
+}
+
+func Test_loadPersistedItems(t *testing.T) {
+	t.Run("loads valid item into cache", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+
+		uf, err := os.CreateTemp(dir, "u")
+		if err != nil {
+			t.Fatalf("tmp file: %v", err)
+		}
+		defer uf.Close()
+
+		it := model.Item{
+			ID:   "id1",
+			Name: "n",
+			Path: uf.Name(),
+		}
+		b, err := json.Marshal(it)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		idx := path.Join(dir, "idx1")
+		if err := os.WriteFile(idx, b, 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		if err := s.loadPersistedItems(dir); err != nil {
+			t.Fatalf("load: %v", err)
+		}
+
+		s.cacheMu.RLock()
+		_, ok := s.cache["id1"]
+		s.cacheMu.RUnlock()
+		if !ok {
+			t.Fatal("expected cache hit for id1")
+		}
+	})
+
+	t.Run("ignores directories in store dir", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+
+		if err := os.Mkdir(path.Join(dir, "sub"), 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		if err := s.loadPersistedItems(dir); err != nil {
+			t.Fatalf("load: %v", err)
+		}
+	})
+
+	t.Run("skips invalid json files", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+
+		idx := path.Join(dir, "bad")
+		if err := os.WriteFile(idx, []byte("{notjson"), 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		if err := s.loadPersistedItems(dir); err != nil {
+			t.Fatalf("load: %v", err)
+		}
+
+		s.cacheMu.RLock()
+		l := len(s.cache)
+		s.cacheMu.RUnlock()
+		if l != 0 {
+			t.Fatalf("cache len = %d want 0", l)
+		}
+	})
+
+	t.Run("removes index when underlying missing", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir))
+
+		it := model.Item{
+			ID:   "gone",
+			Name: "n",
+			Path: path.Join(dir, "nope"),
+		}
+		b, err := json.Marshal(it)
+		if err != nil {
+			t.Fatalf("marshal: %v", err)
+		}
+		idx := path.Join(dir, "idx-gone")
+		if err := os.WriteFile(idx, b, 0o644); err != nil {
+			t.Fatalf("write: %v", err)
+		}
+
+		if err := s.loadPersistedItems(dir); err != nil {
+			t.Fatalf("load: %v", err)
+		}
+
+		if _, err := os.Stat(idx); !os.IsNotExist(err) {
+			t.Fatalf("index file not removed")
+		}
+		s.cacheMu.RLock()
+		_, ok := s.cache["gone"]
+		s.cacheMu.RUnlock()
+		if ok {
+			t.Fatal("should not cache missing underlying")
+		}
+	})
+
+	t.Run("errors when directory cannot be read", func(t *testing.T) {
+		s := NewStore()
+		bad := path.Join(t.TempDir(), "missing")
+		if err := s.loadPersistedItems(bad); err == nil {
+			t.Fatal("expected error on ReadDir")
 		}
 	})
 }

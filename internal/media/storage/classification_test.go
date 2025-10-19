@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -24,6 +25,7 @@ func waitUntil(t *testing.T, d time.Duration, f func() bool) {
 }
 
 func Test_startClassificationStation_success(t *testing.T) {
+	ancli.Silent = true
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -81,6 +83,7 @@ func Test_startClassificationStation_success(t *testing.T) {
 }
 
 func Test_startClassificationStation_error(t *testing.T) {
+	ancli.Silent = true
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -167,6 +170,7 @@ DONE:
 }
 
 func Test_startClassificationStation_concurrency(t *testing.T) {
+	ancli.Silent = true
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -230,6 +234,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 }
 
 func Test_startClassificationStation_context(t *testing.T) {
+	ancli.Silent = true
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
