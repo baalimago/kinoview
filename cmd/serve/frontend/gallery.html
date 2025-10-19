@@ -1,0 +1,29 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title></title>
+    <link href="style.css" rel="stylesheet" />
+  </head>
+  <body>
+    <div id="gallery"></div>
+    <script src="minigallery.js"></script>
+    <script>
+      fetch("/gallery")
+        .then((res) => res.json())
+        .then((medias) => {
+          const imagePaths = [];
+          for (const m of medias) {
+            if (m.MIMEType.includes("image")) {
+              imagePaths.push(`/gallery/image/${m.ID}`);
+            }
+          }
+          console.log(imagePaths);
+          MiniGallery.mount("#gallery", imagePaths, {
+            gap: 10,
+            minThumb: 160,
+          });
+        });
+    </script>
+  </body>
+</html>

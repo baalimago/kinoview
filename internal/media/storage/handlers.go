@@ -144,3 +144,44 @@ func (s *store) SubsHandlerFunc() http.HandlerFunc {
 		http.ServeFile(w, r, subs)
 	}
 }
+
+func (s *store) ImageHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			http.Error(w, "missing id", http.StatusBadRequest)
+			return
+		}
+		s.cacheMu.RLock()
+		item, ok := s.cache[id]
+		s.cacheMu.RUnlock()
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		pathToMedia := item.Path
+		mimeType := item.MIMEType
+
+		if !strings.Contains(mimeType, "image") {
+			http.Error(w, "media found, but its not an image", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", mimeType)
+		file, err := os.Open(pathToMedia)
+		if err != nil {
+			http.Error(w, "media not found", http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+
+		info, err := os.Stat(pathToMedia)
+		if err != nil {
+			http.Error(w, "media not found", http.StatusNotFound)
+			return
+		}
+
+		modTime := info.ModTime()
+		http.ServeContent(w, r, item.Name, modTime, file)
+	}
+}
