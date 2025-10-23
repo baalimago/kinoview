@@ -4,14 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"image"
+	"image/color"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path"
 	"strings"
 	"testing"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
+	"github.com/baalimago/kinoview/internal/media/thumbnail"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -260,5 +264,116 @@ func Test_store_SubsListHandlerFunc(t *testing.T) {
 		got := string(bodyBytes)
 		want := "media found, but its not a video\n"
 		testboil.FailTestIfDiff(t, got, want)
+	})
+}
+
+func writePNG(t *testing.T, p string, w, h int) {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, w, h))
+	for y := 0; y < h; y++ {
+		for x := 0; x < w; x++ {
+			img.Set(x, y, color.RGBA{255, 0, 0, 255})
+		}
+	}
+	if err := thumbnail.SaveImage(img, "png", p); err != nil {
+		t.Fatalf("SaveImage: %v", err)
+	}
+}
+
+func Test_store_handleImageItem(t *testing.T) {
+	t.Run("uses existing thumb", func(t *testing.T) {
+		s := newTestStore(t)
+		dir := t.TempDir()
+
+		src := path.Join(dir, "a.png")
+		writePNG(t, src, 10, 10)
+
+		thumb := thumbnail.GetThumbnailPath(src)
+		writePNG(t, thumb, 5, 5)
+
+		i := model.Item{
+			Name:     "a.png",
+			Path:     src,
+			MIMEType: "image/png",
+		}
+
+		if err := s.handleImageItem(&i); err != nil {
+			t.Fatalf("handleImageItem: %v", err)
+		}
+
+		if i.Thumbnail.Path != thumb {
+			t.Fatalf("thumb path = %q, want %q", i.Thumbnail.Path, thumb)
+		}
+		if i.Thumbnail.Width == 0 || i.Thumbnail.Height == 0 {
+			t.Fatalf("thumb dims not set")
+		}
+	})
+
+	t.Run("creates thumbnail when missing", func(t *testing.T) {
+		s := newTestStore(t)
+		dir := t.TempDir()
+
+		src := path.Join(dir, "b.png")
+		writePNG(t, src, 16, 9)
+
+		i := model.Item{
+			Name:     "b.png",
+			Path:     src,
+			MIMEType: "image/png",
+		}
+
+		if err := s.handleImageItem(&i); err != nil {
+			t.Fatalf("handleImageItem: %v", err)
+		}
+
+		want := thumbnail.GetThumbnailPath(src)
+		if i.Thumbnail.Path != want {
+			t.Fatalf("thumb path = %q, want %q", i.Thumbnail.Path, want)
+		}
+		if _, err := os.Stat(want); err != nil {
+			t.Fatalf("thumb not created: %v", err)
+		}
+		if i.Thumbnail.Width != thumbnail.ThumbnailWidth {
+			t.Fatalf("width = %d", i.Thumbnail.Width)
+		}
+		if i.Thumbnail.Height != thumbnail.ThumbnailHeight {
+			t.Fatalf("height = %d", i.Thumbnail.Height)
+		}
+	})
+
+	t.Run("errors on thumbnail input", func(t *testing.T) {
+		s := newTestStore(t)
+		dir := t.TempDir()
+
+		thumbLike := path.Join(dir, "c_thumb.png")
+		// Do not create any files to force LoadImage fail
+
+		i := &model.Item{
+			Name:     "c_thumb.png",
+			Path:     thumbLike,
+			MIMEType: "image/png",
+		}
+
+		if err := s.handleImageItem(i); err == nil {
+			t.Fatal("expected error when input is a thumbnail")
+		}
+	})
+
+	t.Run("errors on unspupported MIME", func(t *testing.T) {
+		s := newTestStore(t)
+		dir := t.TempDir()
+
+		src := path.Join(dir, "d.png")
+		writePNG(t, src, 10, 10)
+
+		i := &model.Item{
+			Name:     "d.png",
+			Path:     src,
+			MIMEType: "application/octet-stream",
+		}
+
+		if err := s.handleImageItem(i); err == nil {
+			t.Fatal("expected error for unsupported mime")
+		}
 	})
 }

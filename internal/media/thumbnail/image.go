@@ -1,4 +1,4 @@
-package utils
+package thumbnail
 
 import (
 	"fmt"

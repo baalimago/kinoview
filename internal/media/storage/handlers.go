@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
-	"github.com/baalimago/kinoview/internal/media/utils"
+	"github.com/baalimago/kinoview/internal/media/thumbnail"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -16,24 +16,36 @@ import (
 // 1. Checking if thumbnail exists
 // 2. Adding thumbnail if it does
 // 3. Creating thumbnail if it doesnt
+//
+// Exceptions: If the image is a thumbnail itself, then
+// set the thumbnail to itself and return
 func (s *store) handleImageItem(i *model.Item) error {
-	potentialThumbPath := utils.GetThumbnailPath(i.Path)
-	potentialThumb, err := utils.LoadImage(potentialThumbPath)
-	if err != nil {
-		if !utils.IsThumbnail(i.Path) {
-			ancli.Warnf("failed to find thumbnail for: '%v', error was: '%v'", i.Name, err)
-		} else {
-			return fmt.Errorf("failed to load potential thumbnail: %v", err)
+	if thumbnail.IsThumbnail(i.Path) {
+		img, err := thumbnail.LoadImage(i.Path)
+		if err != nil {
+			return fmt.Errorf("load existing thumb: %w", err)
 		}
-	} else {
-		i.Thumbnail = potentialThumb
+		i.Thumbnail = img
 		return nil
 	}
-	thumb, err := utils.CreateThumbnail(*i)
-	if err != nil {
-		return fmt.Errorf("store.handleImageItem failed to create thumbnail: %v", err)
+
+	thumbPath := thumbnail.GetThumbnailPath(i.Path)
+	if _, err := os.Stat(thumbPath); err == nil {
+		img, thumbErr := thumbnail.LoadImage(thumbPath)
+		if thumbErr != nil {
+			return fmt.Errorf("load existing thumb: %w", thumbErr)
+		}
+		i.Thumbnail = img
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat thumb: %w", err)
 	}
-	i.Thumbnail = thumb
+
+	img, err := thumbnail.CreateThumbnail(*i)
+	if err != nil {
+		return fmt.Errorf("create thumb: %w", err)
+	}
+	i.Thumbnail = img
 	return nil
 }
 
