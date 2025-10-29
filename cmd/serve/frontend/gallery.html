@@ -9,11 +9,11 @@
     <div id="gallery"></div>
     <script src="minigallery.js"></script>
     <script>
-      fetch("/gallery")
+      fetch("/gallery?start=0&am=50&mime=image")
         .then((res) => res.json())
         .then((medias) => {
           const imagePaths = [];
-          for (const m of medias) {
+          for (const m of medias.items) {
             if (
               m.MIMEType.includes("image") &&
               !m.Name.includes("thumb") &&

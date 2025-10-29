@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+type PaginatedRequest struct {
+	Start    int    `json:"start"`
+	Am       int    `json:"amount"`
+	MIMEType string `json:"MIMEType"`
+}
+
+type PaginatedResponse[T any] struct {
+	Total int `json:"total"`
+	Start int `json:"start"`
+	End   int `json:"end"`
+	Items []T `json:"items"`
+}
+
 type Image struct {
 	ID       string
 	Path     string

@@ -79,13 +79,14 @@ function videoNameWithProgress(vID, vidName) {
   return name;
 }
 
-fetch('/gallery')
+fetch('/gallery?start=0&am=1000&mime=video')
   .then(response => response.json())
   .then(data => {
     const options = document.getElementById("debugMediaSelector")
-    data.sort((a, b) => a.Name.localeCompare(b.Name))
+    items = data.items
+    items.sort((a, b) => a.Name.localeCompare(b.Name))
     const persistedMedia = getPersistedMedia()
-    for (const i of data) {
+    for (const i of items) {
       if (!i.MIMEType.includes("video")) {
         continue
       }

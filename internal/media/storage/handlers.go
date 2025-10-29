@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
@@ -54,6 +56,50 @@ func (s *store) handleVideoItem(i model.Item) error {
 	return nil
 }
 
+// handlePaginatedRequest by:
+// 1. Verifying that Start is a positive number less than totalAm
+// 2. Read start, am, mime from URL path parameters
+// 3. Verify that start is a positive number less than totalAm
+// 4. Set requested am to totalAm if it's larger
+// 5. Unarshal into model.PaginatedRequest
+func handlePaginatedRequest(
+	totalAm int,
+	r *http.Request,
+) (model.PaginatedRequest, error) {
+	if r == nil {
+		return model.PaginatedRequest{}, fmt.Errorf("nil request")
+	}
+	startStr := r.URL.Query().Get("start")
+	amStr := r.URL.Query().Get("am")
+	if startStr == "" || amStr == "" {
+		return model.PaginatedRequest{}, fmt.Errorf("missing start: '%v', or am: '%v'", startStr, amStr)
+	}
+	start, err := strconv.Atoi(startStr)
+	if err != nil {
+		return model.PaginatedRequest{},
+			fmt.Errorf("invalid start: '%v', err is %w", startStr, err)
+	}
+	am, err := strconv.Atoi(amStr)
+	if err != nil {
+		return model.PaginatedRequest{},
+			fmt.Errorf("invalid am: %w", err)
+	}
+	if start < 0 || start >= totalAm {
+		return model.PaginatedRequest{},
+			fmt.Errorf("invalid start: '%v'", startStr)
+	}
+	mime := r.URL.Query().Get("mime")
+	retAm := start + am
+	if retAm >= totalAm {
+		retAm = totalAm
+	}
+	return model.PaginatedRequest{
+		Start:    start,
+		Am:       retAm,
+		MIMEType: mime,
+	}, nil
+}
+
 // ListHandlerFunc returns a list of all available items in the gallery
 func (s *store) ListHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -63,12 +109,34 @@ func (s *store) ListHandlerFunc() http.HandlerFunc {
 			http.Error(w, "store not initialized", http.StatusInternalServerError)
 			return
 		}
-		items := make([]model.Item, 0, len(s.cache))
-		for _, v := range s.cache {
-			items = append(items, v)
+		paginatedRequest, err := handlePaginatedRequest(len(s.cache), r)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to handle paginated request: %v", err), http.StatusBadRequest)
+		}
+		items := make([]model.Item, 0, paginatedRequest.Am)
+		keys := make([]string, 0, len(s.cache))
+		for key, v := range s.cache {
+			if paginatedRequest.MIMEType != "" && !strings.Contains(v.MIMEType, paginatedRequest.MIMEType) {
+				continue
+			}
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		i := paginatedRequest.Start
+		end := paginatedRequest.Am
+		if len(keys) < end {
+			end = len(keys)
+		}
+		for ; i < end; i++ {
+			items = append(items, s.cache[keys[i]])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(items); err != nil {
+		if err := json.NewEncoder(w).Encode(model.PaginatedResponse[model.Item]{
+			Total: len(keys),
+			Start: paginatedRequest.Start,
+			End:   i,
+			Items: items,
+		}); err != nil {
 			http.Error(w, "failed to encode items", http.StatusInternalServerError)
 		}
 	}
