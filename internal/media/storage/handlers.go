@@ -5,11 +5,100 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/media/thumbnail"
 	"github.com/baalimago/kinoview/internal/model"
 )
+
+// handleImageItem by:
+// 1. Checking if thumbnail exists
+// 2. Adding thumbnail if it does
+// 3. Creating thumbnail if it doesnt
+//
+// Exceptions: If the image is a thumbnail itself, then
+// set the thumbnail to itself and return
+func (s *store) handleImageItem(i *model.Item) error {
+	if thumbnail.IsThumbnail(i.Path) {
+		img, err := thumbnail.LoadImage(i.Path)
+		if err != nil {
+			return fmt.Errorf("load existing thumb: %w", err)
+		}
+		i.Thumbnail = img
+		return nil
+	}
+
+	thumbPath := thumbnail.GetThumbnailPath(i.Path)
+	if _, err := os.Stat(thumbPath); err == nil {
+		img, thumbErr := thumbnail.LoadImage(thumbPath)
+		if thumbErr != nil {
+			return fmt.Errorf("load existing thumb: %w", thumbErr)
+		}
+		i.Thumbnail = img
+		return nil
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("stat thumb: %w", err)
+	}
+
+	img, err := thumbnail.CreateThumbnail(*i)
+	if err != nil {
+		return fmt.Errorf("create thumb: %w", err)
+	}
+	i.Thumbnail = img
+	return nil
+}
+
+func (s *store) handleVideoItem(i model.Item) error {
+	s.addToClassificationQueue(i)
+	return nil
+}
+
+// handlePaginatedRequest by:
+// 1. Verifying that Start is a positive number less than totalAm
+// 2. Read start, am, mime from URL path parameters
+// 3. Verify that start is a positive number less than totalAm
+// 4. Set requested am to totalAm if it's larger
+// 5. Unarshal into model.PaginatedRequest
+func handlePaginatedRequest(
+	totalAm int,
+	r *http.Request,
+) (model.PaginatedRequest, error) {
+	if r == nil {
+		return model.PaginatedRequest{}, fmt.Errorf("nil request")
+	}
+	startStr := r.URL.Query().Get("start")
+	amStr := r.URL.Query().Get("am")
+	if startStr == "" || amStr == "" {
+		return model.PaginatedRequest{}, fmt.Errorf("missing start: '%v', or am: '%v'", startStr, amStr)
+	}
+	start, err := strconv.Atoi(startStr)
+	if err != nil {
+		return model.PaginatedRequest{},
+			fmt.Errorf("invalid start: '%v', err is %w", startStr, err)
+	}
+	am, err := strconv.Atoi(amStr)
+	if err != nil {
+		return model.PaginatedRequest{},
+			fmt.Errorf("invalid am: %w", err)
+	}
+	if start < 0 || start >= totalAm {
+		return model.PaginatedRequest{},
+			fmt.Errorf("invalid start: '%v'", startStr)
+	}
+	mime := r.URL.Query().Get("mime")
+	retAm := start + am
+	if retAm >= totalAm {
+		retAm = totalAm
+	}
+	return model.PaginatedRequest{
+		Start:    start,
+		Am:       retAm,
+		MIMEType: mime,
+	}, nil
+}
 
 // ListHandlerFunc returns a list of all available items in the gallery
 func (s *store) ListHandlerFunc() http.HandlerFunc {
@@ -20,12 +109,34 @@ func (s *store) ListHandlerFunc() http.HandlerFunc {
 			http.Error(w, "store not initialized", http.StatusInternalServerError)
 			return
 		}
-		items := make([]model.Item, 0, len(s.cache))
-		for _, v := range s.cache {
-			items = append(items, v)
+		paginatedRequest, err := handlePaginatedRequest(len(s.cache), r)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to handle paginated request: %v", err), http.StatusBadRequest)
+		}
+		items := make([]model.Item, 0, paginatedRequest.Am)
+		keys := make([]string, 0, len(s.cache))
+		for key, v := range s.cache {
+			if paginatedRequest.MIMEType != "" && !strings.Contains(v.MIMEType, paginatedRequest.MIMEType) {
+				continue
+			}
+			keys = append(keys, key)
+		}
+		slices.Sort(keys)
+		i := paginatedRequest.Start
+		end := paginatedRequest.Am
+		if len(keys) < end {
+			end = len(keys)
+		}
+		for ; i < end; i++ {
+			items = append(items, s.cache[keys[i]])
 		}
 		w.Header().Set("Content-Type", "application/json")
-		if err := json.NewEncoder(w).Encode(items); err != nil {
+		if err := json.NewEncoder(w).Encode(model.PaginatedResponse[model.Item]{
+			Total: len(keys),
+			Start: paginatedRequest.Start,
+			End:   i,
+			Items: items,
+		}); err != nil {
 			http.Error(w, "failed to encode items", http.StatusInternalServerError)
 		}
 	}
@@ -142,5 +253,46 @@ func (s *store) SubsHandlerFunc() http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
 		http.ServeFile(w, r, subs)
+	}
+}
+
+func (s *store) ImageHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if id == "" {
+			http.Error(w, "missing id", http.StatusBadRequest)
+			return
+		}
+		s.cacheMu.RLock()
+		item, ok := s.cache[id]
+		s.cacheMu.RUnlock()
+		if !ok {
+			http.NotFound(w, r)
+			return
+		}
+		pathToMedia := item.Path
+		mimeType := item.MIMEType
+
+		if !strings.Contains(mimeType, "image") {
+			http.Error(w, "media found, but its not an image", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", mimeType)
+		file, err := os.Open(pathToMedia)
+		if err != nil {
+			http.Error(w, "media not found", http.StatusNotFound)
+			return
+		}
+		defer file.Close()
+
+		info, err := os.Stat(pathToMedia)
+		if err != nil {
+			http.Error(w, "media not found", http.StatusNotFound)
+			return
+		}
+
+		modTime := info.ModTime()
+		http.ServeContent(w, r, item.Name, modTime, file)
 	}
 }

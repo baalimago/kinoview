@@ -4,7 +4,7 @@ go 1.24.3
 
 require (
 	github.com/baalimago/clai v1.8.3
-	github.com/baalimago/go_away_boilerplate v1.3.3337
+	github.com/baalimago/go_away_boilerplate v1.3.33337
 	github.com/baalimago/wd-41 v1.0.1
 	github.com/fsnotify/fsnotify v1.7.0
 	golang.org/x/exp v0.0.0-20240119083558-1b970713d09a

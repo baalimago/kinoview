@@ -12,6 +12,8 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/debug"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/classifier"
 	"github.com/baalimago/kinoview/internal/model"
@@ -40,6 +42,8 @@ type store struct {
 	classificationWorkers int
 	classifierErrors      chan error
 	classificationRequest chan classificationCandidate
+
+	debug bool
 }
 
 type StoreOption func(*store)
@@ -87,6 +91,7 @@ func NewStore(opts ...StoreOption) *store {
 	storePath := path.Join(kinoviewCfgPath, "store")
 
 	s := &store{
+		debug:              misc.Truthy(os.Getenv("DEBUG")),
 		subStreamFinder:    subUtils,
 		subStreamExtractor: subUtils,
 		storePath:          storePath,
@@ -137,6 +142,14 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 			continue
 		}
 		f.Close()
+		underlyingFilePath := item.Path
+
+		if _, err := os.Stat(underlyingFilePath); os.IsNotExist(err) {
+			ancli.Warnf("couldnt find underlying file: '%v', removing index: '%v'", underlyingFilePath, filePath)
+			os.Remove(filePath)
+			continue
+		}
+
 		s.cacheMu.Lock()
 		s.cache[item.ID] = item
 		s.cacheMu.Unlock()
@@ -176,8 +189,8 @@ func (s *store) Start(ctx context.Context) {
 }
 
 // generateID by creating a hash using sha256 on the contents of item.Path
-func generateID(i model.Item) string {
-	f, err := os.Open(i.Path)
+func generateID(path string) string {
+	f, err := os.Open(path)
 	if err != nil {
 		return ""
 	}
@@ -213,15 +226,40 @@ func (s *store) store(i model.Item) error {
 	defer s.cacheMu.Unlock()
 	s.cache[i.ID] = i
 	storePath := path.Join(s.storePath, i.ID)
-	f, err := os.OpenFile(storePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+	f, err := os.OpenFile(storePath, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
 		return fmt.Errorf("failed to open store: %w", err)
 	}
 	defer f.Close()
+	dec := json.NewDecoder(f)
+	var stored model.Item
+	err = dec.Decode(&stored)
+	if err != nil {
+		ancli.Warnf(
+			"failed to decode existing item: '%v', err: '%v'", i.Path, err)
+	} else {
+		newJSON := debug.IndentedJsonFmt(i)
+		storedJSON := debug.IndentedJsonFmt(stored)
+		if newJSON == storedJSON {
+			return nil
+		} else {
+			if s.debug {
+				ancli.Noticef("new: %v", newJSON)
+				ancli.Noticef("stored: %v", storedJSON)
+			}
+			// Close and reopen so that file is properly truncated
+			f.Close()
+			f, err = os.OpenFile(storePath, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o644)
+			if err != nil {
+				return fmt.Errorf("failed to open store: %w", err)
+			}
+		}
+	}
+
 	if err := json.NewEncoder(f).Encode(i); err != nil {
 		return fmt.Errorf("failed to encode items: %w", err)
 	}
-	ancli.Noticef("updated store: '%v'", storePath)
+	ancli.Noticef("updated store for '%v', path: '%v'", i.Name, storePath)
 	return nil
 }
 
@@ -229,7 +267,7 @@ func (s *store) store(i model.Item) error {
 func (s *store) Store(ctx context.Context, i model.Item) error {
 	hadID := i.ID != ""
 	if i.ID == "" {
-		i.ID = generateID(i)
+		i.ID = generateID(i.Path)
 	}
 	s.cacheMu.RLock()
 	existingItem, exists := s.cache[i.ID]
@@ -253,8 +291,23 @@ func (s *store) Store(ctx context.Context, i model.Item) error {
 	}
 
 	if i.Metadata == nil && strings.Contains(i.MIMEType, "video") {
-		s.addToClassificationQueue(i)
+		if strings.Contains(i.MIMEType, "video") {
+			err := s.handleVideoItem(i)
+			if err != nil {
+				ancli.Errf("failed to handle video item, continuing. Error is: %v", err)
+			}
+		}
 	}
+	if strings.Contains(i.MIMEType, "image") {
+		err := s.handleImageItem(&i)
+		if err != nil {
+			ancli.Errf("failed to handle image item, continuing. Error is: %v", err)
+		}
+		// Slight hack here, ideally thumbnail should be an models.Item and
+		// thumbnail properties should be flattned into the same struct
+		i.Thumbnail.ID = generateID(i.Thumbnail.Path)
+	}
+
 	return s.store(i)
 }
 
