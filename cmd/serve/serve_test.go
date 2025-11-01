@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"flag"
+	"math/rand/v2"
 	"os"
 	"path"
 	"testing"
@@ -111,6 +112,8 @@ func TestRun(t *testing.T) {
 		t.Cleanup(func() {
 			cancel()
 		})
+		randPort := 1000 + rand.IntN(40000)
+		c.port = &randPort
 		err := c.Setup(ctx)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
