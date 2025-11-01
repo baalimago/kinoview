@@ -9,28 +9,39 @@
     <div id="gallery"></div>
     <script src="minigallery.js"></script>
     <script>
-      fetch("/gallery?start=0&am=50&mime=image")
-        .then((res) => res.json())
-        .then((medias) => {
-          const imagePaths = [];
-          for (const m of medias.items) {
-            if (
-              m.MIMEType.includes("image") &&
-              !m.Name.includes("thumb") &&
-              m.Thumbnail.ID != ""
-            ) {
-              imagePaths.push({
-                src: `/gallery/image/${m.ID}`,
-                thumb: `/gallery/image/${m.Thumbnail.ID}`,
-              });
-            }
+      const PAGE = 50;
+      async function fetchImages(start) {
+        const res = await fetch(`/gallery?start=${start}&am=${PAGE}&mime=image`);
+        const medias = await res.json();
+        const imagePaths = [];
+        for (const m of medias.items) {
+          if (
+            m.MIMEType.includes("image") &&
+            !m.Name.includes("thumb") &&
+            m.Thumbnail && m.Thumbnail.ID
+          ) {
+            imagePaths.push({
+              src: `/gallery/image/${m.ID}`,
+              thumb: `/gallery/image/${m.Thumbnail.ID}`,
+            });
           }
-          console.log(imagePaths);
-          MiniGallery.mount("#gallery", imagePaths, {
-            gap: 10,
-            minThumb: 160,
-          });
+        }
+        return imagePaths;
+      }
+
+      (async () => {
+        const initial = await fetchImages(0);
+        let nextStart = PAGE; // advance by API page size, not by filtered count
+        MiniGallery.mount('#gallery', initial, {
+          gap: 10,
+          minThumb: 160,
+          loadMore: async () => {
+            const more = await fetchImages(nextStart);
+            nextStart += PAGE;
+            return more;
+          },
         });
+      })();
     </script>
   </body>
 </html>

@@ -1,10 +1,11 @@
-/*!
-  MiniGallery v1.0.0 — single-file, no-deps image grid + lightbox
+/**!
+  MiniGallery v1.1.0 — image grid + lightbox with optional infinite scroll
   Usage:
-    const gallery = MiniGallery.mount('#app', [
-      'img1.jpg',
-      { src: 'img2_large.jpg', thumb: 'img2_thumb.jpg', alt: 'Alt', caption: 'Caption' }
-    ], { gap: 8, minThumb: 140 });
+    const gallery = MiniGallery.mount('#app', initialItems, {
+      gap: 8, minThumb: 140,
+      loadMore: async (offset) => { /* return array of items / }
+    });
+    // items: string | { src, thumb?, alt?, caption? }
 */
 (function (global) {
   const STYLE_ID = 'mg-styles';
@@ -27,6 +28,7 @@
 .mg-prev{left:16px}
 .mg-next{right:16px}
 .mg-visually-hidden{position:absolute!important;height:1px;width:1px;overflow:hidden;clip:rect(1px,1px,1px,1px);white-space:nowrap}
+.mg-sentinel{height:1px}
     `.trim();
     const style = document.createElement('style');
     style.id = STYLE_ID;
@@ -78,7 +80,7 @@
     const options = Object.assign({ gap: 8, minThumb: 140 }, opts || {});
     const root = typeof container === 'string' ? document.querySelector(container) : container;
     if (!root) throw new Error('MiniGallery: container not found');
-    const data = normalizeItems(items);
+    const data = [];
     root.style.setProperty('--mg-gap', options.gap + 'px');
     root.style.setProperty('--mg-min', options.minThumb + 'px');
 
@@ -86,19 +88,6 @@
     grid.className = 'mg-grid';
     root.innerHTML = '';
     root.appendChild(grid);
-
-    // Build thumbnails
-    data.forEach((item, idx) => {
-      const btn = document.createElement('button');
-      const img = document.createElement('img');
-      img.className = 'mg-thumb';
-      img.loading = 'lazy';
-      img.src = item.thumb;
-      img.alt = item.alt || '';
-      btn.appendChild(img);
-      btn.addEventListener('click', () => open(idx));
-      grid.appendChild(btn);
-    });
 
     // Lightbox
     const lb = createLightbox();
@@ -108,6 +97,7 @@
 
     function render(i) {
       const it = data[i];
+      if (!it) return;
       lb.img.src = it.src;
       lb.img.alt = it.alt || '';
       lb.cap.textContent = it.caption || '';
@@ -139,7 +129,7 @@
     function prev() { go(-1); }
     function next() { go(1); }
     function go(delta) {
-      if (!openState) return;
+      if (!openState || !data.length) return;
       index = (index + delta + data.length) % data.length;
       render(index);
     }
@@ -153,7 +143,6 @@
       }
     }
     function onBackdrop(e) {
-      // Close if clicking black backdrop area
       if (e.target === lb.el) close();
     }
 
@@ -161,13 +150,107 @@
     lb.prevBtn.addEventListener('click', prev);
     lb.nextBtn.addEventListener('click', next);
 
+    // Build thumbnails (support dynamic append)
+    let sentinel = null;
+    let io = null;
+    let loading = false;
+    let done = false;
+    let cleanupInfinite = null;
+
+    function addThumb(item, idx) {
+      const btn = document.createElement('button');
+      const img = document.createElement('img');
+      img.className = 'mg-thumb';
+      img.loading = 'lazy';
+      img.src = item.thumb;
+      img.alt = item.alt || '';
+      btn.appendChild(img);
+      btn.addEventListener('click', () => open(idx));
+      if (sentinel && sentinel.parentNode === grid) grid.insertBefore(btn, sentinel); else grid.appendChild(btn);
+    }
+
+    function appendItems(newItems) {
+      const norm = normalizeItems(newItems);
+      const base = data.length;
+      for (let i = 0; i < norm.length; i++) {
+        data.push(norm[i]);
+        addThumb(norm[i], base + i);
+      }
+      return norm.length;
+    }
+
+    function setupInfinite() {
+      if (typeof options.loadMore !== 'function') return;
+      sentinel = document.createElement('div');
+      sentinel.className = 'mg-sentinel';
+      sentinel.setAttribute('aria-hidden', 'true');
+      grid.appendChild(sentinel);
+
+      async function loadMoreNow() {
+        if (loading || done) return;
+        loading = true;
+        try {
+          const more = await options.loadMore(data.length);
+          const added = appendItems(more || []);
+          if (!added) done = true;
+        } catch (_) {
+          done = true;
+        } finally {
+          loading = false;
+        }
+      }
+
+      function maybeKick() {
+        if (done) return;
+        const rect = sentinel.getBoundingClientRect();
+        if (rect.top <= (window.innerHeight + 200)) loadMoreNow();
+      }
+
+      io = new IntersectionObserver((entries) => {
+        if (!entries[0].isIntersecting) return;
+        loadMoreNow();
+      }, { root: null, rootMargin: '200px 0px', threshold: 0 });
+      io.observe(sentinel);
+
+      function pumpUntilScrollable(attempt = 0) {
+        if (done || attempt > 5) return;
+        const rootEl = document.scrollingElement || document.documentElement;
+        if (rootEl.scrollHeight <= window.innerHeight + 4) {
+          loadMoreNow().then(() => setTimeout(() => pumpUntilScrollable(attempt + 1), 50));
+        }
+      }
+
+      const onResize = () => { maybeKick(); pumpUntilScrollable(); };
+      const onOrient = () => { maybeKick(); pumpUntilScrollable(); };
+      const onScroll = maybeKick;
+
+      window.addEventListener('resize', onResize, { passive: true });
+      window.addEventListener('orientationchange', onOrient, { passive: true });
+      window.addEventListener('scroll', onScroll, { passive: true });
+      setTimeout(() => { maybeKick(); pumpUntilScrollable(); }, 0);
+
+      cleanupInfinite = () => {
+        if (io) io.disconnect();
+        window.removeEventListener('resize', onResize);
+        window.removeEventListener('orientationchange', onOrient);
+        window.removeEventListener('scroll', onScroll);
+      };
+
+    }
+
+    // initial
+    appendItems(items);
+    setupInfinite();
+
     return {
       open,
       close,
       next,
       prev,
+      append: appendItems,
       destroy() {
         close();
+        if (cleanupInfinite) cleanupInfinite();
         root.innerHTML = '';
         lb.el.remove();
       }
