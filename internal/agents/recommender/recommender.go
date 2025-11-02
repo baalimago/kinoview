@@ -20,6 +20,9 @@ type recommender struct {
 
 const systemPrompt = `You are a media picker. You will be given request by a user, user context and a list of media. Your task is to determine the right piece of media for the user, based on the request and context.
 
+Be smart. Avoid picking media which has already been seen. When queried to continue something, doublecheck the existing duration since there may be some minutes left.
+But also think about how there's end credits taking up final 5 percent of movies/series.
+
 Respond with json in this format:
 {
   "mediaId": "<ID_FROM_MEDIA>",
@@ -55,21 +58,22 @@ func (r *recommender) Recommend(
 ) (model.Item, error) {
 	var itemsStr string
 	for _, it := range items {
-		// metadataJSONStr := ""
-		// if it.Metadata != nil {
-		// 	metadataJSON, err := it.Metadata.MarshalJSON()
-		// 	if err != nil {
-		// 		ancli.Warnf("failed to encode metadata for %v. Continuing without it, error: %v", it.Name, err)
-		// 	} else {
-		// 		metadataJSONStr = string(metadataJSON)
-		// 	}
-		// }
+		metadataJSONStr := ""
+		if it.Metadata != nil {
+			metadataJSON, err := it.Metadata.MarshalJSON()
+			if err != nil {
+				ancli.Warnf("failed to encode metadata for %v. Continuing without it, error: %v", it.Name, err)
+			} else {
+				metadataJSONStr = string(metadataJSON)
+			}
+		}
 
 		itemsStr += fmt.Sprintf(
-			"- id: %s, name: %s, type: %s\n",
+			"- id: %s, name: %s, type: %s, metadata: %s\n",
 			it.ID,
 			it.Name,
 			it.MIMEType,
+			metadataJSONStr,
 		)
 	}
 	chat := models.Chat{
