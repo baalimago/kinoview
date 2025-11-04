@@ -61,9 +61,12 @@ func Command() *command {
 		return nil
 	}
 
+	defaultModel := "gpt-5"
 	return &command{
-		binPath:   r,
-		configDir: kinoviewConfigDir,
+		binPath:             r,
+		configDir:           kinoviewConfigDir,
+		classificationModel: &defaultModel,
+		recommenderModel:    &defaultModel,
 	}
 }
 
@@ -99,24 +102,15 @@ func (c *command) Setup(ctx context.Context) error {
 			return fmt.Errorf("could not create config dir: %w", err)
 		}
 	}
-	claiPath := path.Join(c.configDir)
 	storePath := path.Join(c.configDir, "store")
-	classificationModel := "gpt-5"
-	if c.classificationModel != nil {
-		classificationModel = *c.classificationModel
-	}
-	recommenderModel := "gpt-5"
-	if c.recommenderModel != nil {
-		recommenderModel = *c.recommenderModel
-	}
 	indexer, err := media.NewIndexer(
 		media.WithStorage(
 			storage.NewStore(
 				storage.WithStorePath(storePath),
 				storage.WithClassificationWorkers(5),
 				storage.WithClassifier(classifier.NewClassifier(models.Configurations{
-					Model:     classificationModel,
-					ConfigDir: claiPath,
+					Model:     *c.classificationModel,
+					ConfigDir: c.configDir,
 					InternalTools: []models.ToolName{
 						models.CatTool,
 						models.FindTool,
@@ -128,8 +122,8 @@ func (c *command) Setup(ctx context.Context) error {
 			),
 		),
 		media.WithRecommender(recommender.NewRecommender(models.Configurations{
-			Model:         recommenderModel,
-			ConfigDir:     claiPath,
+			Model:         *c.recommenderModel,
+			ConfigDir:     c.configDir,
 			InternalTools: []models.ToolName{},
 		})),
 		media.WithWatchPath(c.watchPath),

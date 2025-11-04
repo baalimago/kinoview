@@ -28,7 +28,7 @@ OUTPUT ONLY IN THE FOLLOWING FORMAT:
 	"alt_name": "<ALTERNATIVE NAME (if there were multiple titles)>",
 	"actors": [ "ACTOR FULLNAME 0", "ACTOR FULLNAME 1", ... ],
 	"year": <RELEASE YEAR OF MEDIA>,
-	"description": "<DESCRIPTION OF MEDIA (max 300 words)>",
+	"description": "<DESCRIPTION OF MEDIA (max 100 words)>",
 	"langugae": "<LANGUAGE (primarily spoken language)>"
 	"duration_min": <DURATION OF MEDIA IN IN>,
 	"season": <SEASON (if series)>,

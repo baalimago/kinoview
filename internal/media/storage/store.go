@@ -181,7 +181,7 @@ func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 
 func (s *store) Start(ctx context.Context) {
 	go func() {
-		err := s.startClassificationStation(ctx)
+		err := s.StartClassificationStation(ctx)
 		if err != nil {
 			s.classifierErrors <- err
 		}

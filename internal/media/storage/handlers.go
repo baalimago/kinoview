@@ -52,7 +52,7 @@ func (s *store) handleImageItem(i *model.Item) error {
 }
 
 func (s *store) handleVideoItem(i model.Item) error {
-	s.addToClassificationQueue(i)
+	s.AddToClassificationQueue(i)
 	return nil
 }
 
