@@ -12,6 +12,7 @@ import (
 
 type ClassificationStation interface {
 	StartClassificationStation(ctx context.Context) error
+	Ready() <-chan struct{}
 	AddToClassificationQueue(i model.Item)
 }
 
