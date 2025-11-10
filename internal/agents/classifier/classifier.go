@@ -30,7 +30,7 @@ OUTPUT ONLY IN THE FOLLOWING FORMAT:
 	"year": <RELEASE YEAR OF MEDIA>,
 	"description": "<DESCRIPTION OF MEDIA (max 100 words)>",
 	"langugae": "<LANGUAGE (primarily spoken language)>"
-	"duration_min": <DURATION OF MEDIA IN IN>,
+	"duration_min": <DURATION OF MEDIA IN MINUTES>,
 	"season": <SEASON (if series)>,
 	"episode": <EPISODE NUMBER (if series)>,
 	"extra_to": "<MAIN MEDIA NAME (if extras, such as behind the scenes)>"
