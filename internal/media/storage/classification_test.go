@@ -44,7 +44,7 @@ func Test_startClassificationStation_success(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -55,7 +55,7 @@ func Test_startClassificationStation_success(t *testing.T) {
 			Name:     fmt.Sprintf("ok-%d", i),
 			MIMEType: "video/mp4",
 		}
-		s.addToClassificationQueue(it)
+		s.AddToClassificationQueue(it)
 	}
 
 	waitUntil(t, 2*time.Second, func() bool {
@@ -105,7 +105,7 @@ func Test_startClassificationStation_error(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -124,7 +124,7 @@ func Test_startClassificationStation_error(t *testing.T) {
 			Name:     name,
 			MIMEType: "video/mp4",
 		}
-		s.addToClassificationQueue(it)
+		s.AddToClassificationQueue(it)
 	}
 
 	waitUntil(t, 2*time.Second, func() bool {
@@ -203,7 +203,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -215,7 +215,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 			Name:     fmt.Sprintf("c-%d", i),
 			MIMEType: "video/mp4",
 		}
-		s.addToClassificationQueue(it)
+		s.AddToClassificationQueue(it)
 	}
 
 	waitUntil(t, 3*time.Second, func() bool {
@@ -255,7 +255,7 @@ func Test_startClassificationStation_context(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -264,7 +264,7 @@ func Test_startClassificationStation_context(t *testing.T) {
 		Name:     "ctx-1",
 		MIMEType: "video/mp4",
 	}
-	s.addToClassificationQueue(it)
+	s.AddToClassificationQueue(it)
 
 	waitUntil(t, 2*time.Second, func() bool {
 		s.cacheMu.RLock()
@@ -301,7 +301,7 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -311,7 +311,7 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 			Name:     fmt.Sprintf("k-%d", i),
 			MIMEType: "video/mp4",
 		}
-		s.addToClassificationQueue(it)
+		s.AddToClassificationQueue(it)
 	}
 
 	time.Sleep(50 * time.Millisecond)
@@ -354,7 +354,7 @@ func Test_startClassificationStation_backpressure(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -365,7 +365,7 @@ func Test_startClassificationStation_backpressure(t *testing.T) {
 			Name:     fmt.Sprintf("bp-%d", i),
 			MIMEType: "video/mp4",
 		}
-		s.addToClassificationQueue(it)
+		s.AddToClassificationQueue(it)
 	}
 
 	waitUntil(t, time.Second, func() bool {
@@ -398,7 +398,7 @@ func Test_startClassificationStation_corr_id_in_error(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -407,7 +407,7 @@ func Test_startClassificationStation_corr_id_in_error(t *testing.T) {
 		Name:     "cid-1",
 		MIMEType: "video/mp4",
 	}
-	s.addToClassificationQueue(it)
+	s.AddToClassificationQueue(it)
 
 	var got string
 	waitUntil(t, 2*time.Second, func() bool {
@@ -447,7 +447,7 @@ func Test_startClassificationStation_large_volume(t *testing.T) {
 		},
 	}
 
-	if err := s.startClassificationStation(ctx); err != nil {
+	if err := s.StartClassificationStation(ctx); err != nil {
 		t.Fatalf("start failed: %v", err)
 	}
 
@@ -458,7 +458,7 @@ func Test_startClassificationStation_large_volume(t *testing.T) {
 			Name:     fmt.Sprintf("big-%d", i),
 			MIMEType: "video/mp4",
 		}
-		s.addToClassificationQueue(it)
+		s.AddToClassificationQueue(it)
 	}
 
 	waitUntil(t, 5*time.Second, func() bool {

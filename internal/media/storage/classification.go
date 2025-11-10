@@ -10,6 +10,12 @@ import (
 	"golang.org/x/exp/rand"
 )
 
+type ClassificationStation interface {
+	StartClassificationStation(ctx context.Context) error
+	Ready() <-chan struct{}
+	AddToClassificationQueue(i model.Item)
+}
+
 type classificationCandidate struct {
 	correlationID string
 	item          model.Item
@@ -32,8 +38,8 @@ func randString(n int) string {
 	return string(out)
 }
 
-// addToClassificationQueue by pushing the item to the back of the queue
-func (s *store) addToClassificationQueue(i model.Item) {
+// AddToClassificationQueue by pushing the item to the back of the queue
+func (s *store) AddToClassificationQueue(i model.Item) {
 	s.classificationRequest <- classificationCandidate{
 		correlationID: randString(10),
 		item:          i,
@@ -58,10 +64,10 @@ func (s *store) startClassificationRoutine(ctx context.Context, workerID int, wo
 	}
 }
 
-// startClassificationStation and return an error if the startup failed, or a
+// StartClassificationStation and return an error if the startup failed, or a
 // chan error if the routine successfully started. Closing of chan error indicates
 // shutdown of routine
-func (s *store) startClassificationStation(ctx context.Context) error {
+func (s *store) StartClassificationStation(ctx context.Context) error {
 	resChan := make(chan classificationResult, 1000)
 	workChan := make(chan classificationCandidate, 1000)
 	for i := range s.classificationWorkers {
@@ -79,8 +85,8 @@ func (s *store) startClassificationStation(ctx context.Context) error {
 				ancli.Noticef("[%v] New classification request: %v, total: %v", c.correlationID, c.item.Name, amToClassify)
 				workChan <- c
 			case r := <-resChan:
-				ancli.Noticef("[%v] Work done", r.correlationID)
 				amToClassify--
+				ancli.Noticef("[%v] Work done, am in queue: %v", r.correlationID, amToClassify)
 				if r.classifierErr == nil {
 					s.store(r.item)
 				} else {

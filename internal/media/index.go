@@ -17,7 +17,7 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-type storage interface {
+type Storage interface {
 	// Setup a storage and return a channel for errors if successful or
 	// or an error explaining why it failed
 	Setup(ctx context.Context) (<-chan error, error)
@@ -70,7 +70,7 @@ func (el *errorListener) start(ctx context.Context) {
 type Indexer struct {
 	watchPath   string
 	watcher     watcher
-	store       storage
+	store       Storage
 	recommender agents.Recommender
 
 	fileUpdates   <-chan model.Item
@@ -80,7 +80,7 @@ type Indexer struct {
 
 type IndexerOption func(*Indexer)
 
-func WithStorage(s storage) IndexerOption {
+func WithStorage(s Storage) IndexerOption {
 	return func(i *Indexer) {
 		i.store = s
 	}

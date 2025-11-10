@@ -43,6 +43,8 @@ type store struct {
 	classifierErrors      chan error
 	classificationRequest chan classificationCandidate
 
+	readyChan chan struct{}
+
 	debug bool
 }
 
@@ -111,6 +113,10 @@ func NewStore(opts ...StoreOption) *store {
 		classificationRequest: make(chan classificationCandidate),
 		classifierErrors:      make(chan error),
 		classificationWorkers: 2,
+
+		// Buffered chanel to not cause regression since it's currently only used in classify
+		// Large enough buffre to ever cause congestion due to waiting for it to be ready
+		readyChan: make(chan struct{}, 10000),
 	}
 
 	for _, opt := range opts {
@@ -118,6 +124,10 @@ func NewStore(opts ...StoreOption) *store {
 	}
 
 	return s
+}
+
+func (s *store) Ready() <-chan struct{} {
+	return s.readyChan
 }
 
 func (s *store) loadPersistedItems(storeDirPath string) error {
@@ -176,12 +186,13 @@ func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 		ancli.Errf("failed to setup classifier, classifications wont be possible. Err: %v", err)
 	}
 	s.classifierErrors = make(chan error)
+	s.readyChan <- struct{}{}
 	return s.classifierErrors, nil
 }
 
 func (s *store) Start(ctx context.Context) {
 	go func() {
-		err := s.startClassificationStation(ctx)
+		err := s.StartClassificationStation(ctx)
 		if err != nil {
 			s.classifierErrors <- err
 		}

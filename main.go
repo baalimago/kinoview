@@ -6,14 +6,16 @@ import (
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/shutdown"
+	"github.com/baalimago/kinoview/cmd/classify"
 	"github.com/baalimago/kinoview/cmd/serve"
 	"github.com/baalimago/wd-41/cmd"
 	"github.com/baalimago/wd-41/cmd/version"
 )
 
 var commands = map[string]cmd.Command{
-	"s|serve":   serve.Command(),
-	"v|version": version.Command(),
+	"s|serve":    serve.Command(),
+	"c|classify": classify.Command(),
+	"v|version":  version.Command(),
 }
 
 const usage = `== Kinoview ==

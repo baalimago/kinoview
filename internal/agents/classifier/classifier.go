@@ -20,15 +20,20 @@ You may need to use tools to find information about a certain media, do so at wi
 
 The following format will have parenthases. These are to describe the fields to you, the media classifier.
 
-If the media item appears to be some extras, such as behind the scenes etc, you may skip non relevant fields.
+Some of the fields may be omitted if they aren't relevant for the media. "season" is for instance not relevant for a movie. 
 
 OUTPUT ONLY IN THE FOLLOWING FORMAT:
 {
 	"name": "<NAME>",
-	"alt_name": "<ALTERNATIVE_NAME>" (if there were multiple titles),
-	"actors": ["ACTOR_FULLNAME_0", "ACTOR_FULLNAME_1", ...],
-	"year": <RELEASE_YEAR_OF_MEDIA>,
-	"description": <DESCRIPTION_OF_MEDIA>, (max 300 words),
+	"alt_name": "<ALTERNATIVE NAME (if there were multiple titles)>",
+	"actors": [ "ACTOR FULLNAME 0", "ACTOR FULLNAME 1", ... ],
+	"year": <RELEASE YEAR OF MEDIA>,
+	"description": "<DESCRIPTION OF MEDIA (max 100 words)>",
+	"langugae": "<LANGUAGE (primarily spoken language)>"
+	"duration_min": <DURATION OF MEDIA IN MINUTES>,
+	"season": <SEASON (if series)>,
+	"episode": <EPISODE NUMBER (if series)>,
+	"extra_to": "<MAIN MEDIA NAME (if extras, such as behind the scenes)>"
 }`
 
 const userPrompt = `Information about the media to classify: %v`
