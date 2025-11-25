@@ -217,10 +217,7 @@ function loadSuggestions() {
         // rec includes Item fields (Name, MIMEType, etc) + Motivation + SubtitleID
         const itemDiv = document.createElement("div");
         itemDiv.className = "suggestion-item";
-        itemDiv.style.cursor = "pointer";
-        itemDiv.style.border = "1px solid #ccc";
-        itemDiv.style.padding = "10px";
-        itemDiv.style.margin = "5px 0";
+        
         itemDiv.onclick = () => {
              selectMedia(rec.ID);
              if (rec.subtitleID) {
@@ -238,8 +235,7 @@ function loadSuggestions() {
         
         const motivation = document.createElement("p");
         motivation.innerText = rec.motivation;
-        motivation.style.fontStyle = "italic";
-
+        
         itemDiv.appendChild(title);
         itemDiv.appendChild(motivation);
 
@@ -279,4 +275,3 @@ setTimeout(() => {
     }
   });
 }, 10)
-
