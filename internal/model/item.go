@@ -56,3 +56,9 @@ type UserRequest struct {
 	// time of day, usage trends etc
 	Context ClientContext `json:"context"`
 }
+
+type Recommendation struct {
+	Item
+	Motivation string `json:"motivation"`
+	SubtitleID string `json:"subtitleID"`
+}

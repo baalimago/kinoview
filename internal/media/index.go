@@ -8,6 +8,8 @@ import (
 	"os"
 	"path"
 
+	"sync"
+
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
@@ -72,6 +74,13 @@ type Indexer struct {
 	watcher     watcher
 	store       Storage
 	recommender agents.Recommender
+	butler      agents.Butler
+
+	clientCtxMu       sync.Mutex
+	lastClientContext model.ClientContext
+
+	clientRecsMu          sync.Mutex
+	clientRecommendations []model.Recommendation
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
@@ -95,6 +104,12 @@ func WithWatchPath(watchPath string) IndexerOption {
 func WithRecommender(r agents.Recommender) IndexerOption {
 	return func(i *Indexer) {
 		i.recommender = r
+	}
+}
+
+func WithButler(b agents.Butler) IndexerOption {
+	return func(i *Indexer) {
+		i.butler = b
 	}
 }
 
@@ -164,6 +179,13 @@ func (i *Indexer) Setup(ctx context.Context) error {
 	recSetupErr := i.recommender.Setup(ctx)
 	if recSetupErr != nil {
 		ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
+	}
+
+	if i.butler != nil {
+		butlerSetupErr := i.butler.Setup(ctx)
+		if butlerSetupErr != nil {
+			ancli.Errf("failed to setup butler: %v", butlerSetupErr)
+		}
 	}
 
 	i.fileUpdates = fileUpdates
@@ -237,6 +259,8 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.SubsHandlerFunc())
 	mux.HandleFunc("/image/{id}", i.store.ImageHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
+	mux.HandleFunc("/suggestions", i.suggestionsHandler())
 	mux.HandleFunc("/log", loghandler.Func())
+	mux.HandleFunc("/ws", i.eventStream())
 	return mux
 }

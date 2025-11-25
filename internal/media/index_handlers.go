@@ -1,15 +1,18 @@
 package media
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/debug"
 	"github.com/baalimago/kinoview/internal/model"
+	"golang.org/x/net/websocket"
 )
 
 // recomendHandler which returns a media recommendation from the store based
@@ -48,6 +51,66 @@ func (i *Indexer) recomendHandler() http.HandlerFunc {
 		if err := json.NewEncoder(w).Encode(it); err != nil {
 			http.Error(w, "failed to encode json", http.StatusInternalServerError)
 			return
+		}
+	}
+}
+
+// eventStream is bidirectional via websocket sending events
+func (i *Indexer) eventStream() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		s := websocket.Server{
+			Handler: websocket.Handler(i.handleWebsocketConnection),
+		}
+		s.ServeHTTP(w, r)
+	}
+}
+
+func (i *Indexer) handleDisconnect() {
+	if i.butler == nil {
+		return
+	}
+	i.clientCtxMu.Lock()
+	clientCtx := i.lastClientContext
+	i.clientCtxMu.Unlock()
+
+	// Use background context as the request context is dead/dying
+	// Use a detached thread to not block the handler return
+	go func() {
+		ancli.Okf("butler triggered by disconnect, prepping suggestions")
+		// 1 minute timeout for butler work
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		defer cancel()
+
+		recs, err := i.butler.PrepSuggestions(ctx, clientCtx, i.store.Snapshot())
+		if err != nil {
+			ancli.Warnf("Butler failed to prep suggestions: %v", err)
+		} else {
+			i.clientRecsMu.Lock()
+			i.clientRecommendations = recs
+			i.clientRecsMu.Unlock()
+			ancli.Okf("Stored %d suggestions from Butler", len(recs))
+		}
+	}()
+}
+
+func (i *Indexer) suggestionsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		i.clientRecsMu.Lock()
+		recs := i.clientRecommendations
+		i.clientRecsMu.Unlock()
+
+		if recs == nil {
+			recs = []model.Recommendation{}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(recs); err != nil {
+			ancli.Errf("failed to encode recommendations: %v", err)
 		}
 	}
 }

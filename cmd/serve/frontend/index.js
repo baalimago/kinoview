@@ -189,6 +189,68 @@ function loadSubtitles(id) {
 
 }
 
+// Integrate events.js
+(function() {
+    const script = document.createElement("script");
+    script.src = "events.js";
+    script.async = true; 
+    document.head.appendChild(script);
+
+    loadSuggestions();
+})();
+
+function loadSuggestions() {
+  fetch("/gallery/suggestions")
+    .then(response => {
+      if (!response.ok) throw new Error("status " + response.status);
+      return response.json();
+    })
+    .then(suggestions => {
+      if (!suggestions || suggestions.length === 0) return;
+
+      const container = document.getElementById("butler-suggestions");
+      const list = document.getElementById("suggestions-list");
+      container.style.display = "block";
+      list.innerHTML = ""; // clear
+
+      suggestions.forEach(rec => {
+        // rec includes Item fields (Name, MIMEType, etc) + Motivation + SubtitleID
+        const itemDiv = document.createElement("div");
+        itemDiv.className = "suggestion-item";
+        itemDiv.style.cursor = "pointer";
+        itemDiv.style.border = "1px solid #ccc";
+        itemDiv.style.padding = "10px";
+        itemDiv.style.margin = "5px 0";
+        itemDiv.onclick = () => {
+             selectMedia(rec.ID);
+             if (rec.subtitleID) {
+                // Wait small delay for subs to load/options to populate if needed
+                setTimeout(() => {
+                    const subSel = document.getElementById("debugSubsSelector");
+                    subSel.value = rec.subtitleID;
+                    selectSubtitle(rec.subtitleID);
+                }, 500); 
+             }
+        };
+
+        const title = document.createElement("strong");
+        title.innerText = rec.Name;
+        
+        const motivation = document.createElement("p");
+        motivation.innerText = rec.motivation;
+        motivation.style.fontStyle = "italic";
+
+        itemDiv.appendChild(title);
+        itemDiv.appendChild(motivation);
+
+        list.appendChild(itemDiv);
+      });
+    })
+    .catch(err => {
+      console.error("Failed to load suggestions:", err);
+    });
+}
+
 function selectSubtitle(id) {
   const track = document.getElementById("subs");
   console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
