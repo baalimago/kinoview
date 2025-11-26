@@ -81,7 +81,14 @@ func (i *Indexer) handleDisconnect() {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 		defer cancel()
 
-		recs, err := i.butler.PrepSuggestions(ctx, clientCtx, i.store.Snapshot())
+		allItmes := i.store.Snapshot()
+		var videos []model.Item
+		for _, i := range allItmes {
+			if strings.Contains(i.MIMEType, "video") {
+				videos = append(videos, i)
+			}
+		}
+		recs, err := i.butler.PrepSuggestions(ctx, clientCtx, videos)
 		if err != nil {
 			ancli.Warnf("Butler failed to prep suggestions: %v", err)
 		} else {
