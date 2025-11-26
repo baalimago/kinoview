@@ -34,6 +34,12 @@ Analyze the patterns and suggest suitable items from the library.
 Do not suggest items that are clearly not in the provided media list.
 Be concise in your motivation.
 
+Hints, in order of importance:
+	1. Users prefer to watch series sequentially. If previous episode was 3, the next should be 4, of the same season.
+	2. If a user has stopped a movie or series mid-way, there's a high chance the user wish to continue
+	3. Have a variety of options, sometimes suggest new series
+	4. Anticipate weekly trends. Example: user stops watching Thursday night, then a Friday movie would be likely a good candidate.
+
 Respond ONLY with a JSON array in the following format:
 [
   {
@@ -54,17 +60,6 @@ func NewButler(c models.Configurations, subs Subtitler) agents.Butler {
 }
 
 func (b *butler) Setup(ctx context.Context) error {
-	// Setup is usually for the main agent, but if selector has Setup method we might need to call it.
-	// Currently Selector relies on clai, which uses Setup. 
-	// However the interface defined in selector.go doesn't have Setup.
-	// We might need to cast or add Setup to interface?
-	// The current Selector implementation uses NewFullResponseQuerier which doesn't strictly require Setup if used with clai's standard flow, 
-	// but text.FullResponse has a Setup method.
-	// Let's Assume Selector doesn't need explicit Setup exposed via interface for now, 
-	// or assume the main LLM Setup covers it if they share resources (they don't).
-	// Actually, Selector creates its own querier.
-	// Ideally the interface should have Setup(ctx) as well.
-	
 	err := b.llm.Setup(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup querier: %w", err)
@@ -140,7 +135,7 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 					ancli.Warnf("failed to find subtitles for %s: %v", item.Name, err)
 				} else {
 					var selectedIdx string
-					
+
 					// Use selector if available
 					if b.selector != nil {
 						idx, err := b.selector.SelectEnglish(ctx, info.Streams)
@@ -185,7 +180,6 @@ func formatItems(items []model.Item) string {
 	for _, it := range items {
 		metadataJSONStr := ""
 		if it.Metadata != nil {
-			// We can limit metadata length or fields if needed, but for now dump it
 			metadataJSONStr = string(*it.Metadata)
 		}
 		sb.WriteString(fmt.Sprintf("- id: %s, name: %s, type: %s, metadata: %s\n", it.ID, it.Name, it.MIMEType, metadataJSONStr))
