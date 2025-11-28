@@ -43,8 +43,8 @@ Hints, in order of importance:
 Respond ONLY with a JSON array in the following format:
 [
   {
-    "index": "<INDEX_IN_LIST>",
-    "motivation": "<Short motivation>"
+    "index": <INDEX_IN_LIST> (int),
+    "motivation": "<Short motivation>" (string)
   }
 ]
 `
@@ -142,7 +142,11 @@ func (b *butler) prepSuggestion(ctx context.Context, sug suggestionResponse, ite
 	if b.subs == nil {
 		return rec, nil
 	}
-	return rec, b.preloadSubs(ctx, item, &rec)
+	err := b.preloadSubs(ctx, item, &rec)
+	if err != nil {
+		return model.Recommendation{}, fmt.Errorf("failed to preloadSubs: %w", err)
+	}
+	return rec, nil
 }
 
 func (b *butler) preloadSubs(ctx context.Context, item model.Item, rec *model.Recommendation) error {
