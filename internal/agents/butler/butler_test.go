@@ -28,10 +28,10 @@ func (f *fakeLLM) Query(
 }
 
 type fakeSubtitler struct {
-	findInfo    model.MediaInfo
-	findErr     error
-	extractPath string
-	extractErr  error
+	findInfo     model.MediaInfo
+	findErr      error
+	extractPath  string
+	extractErr   error
 	extractedIdx string
 }
 
@@ -59,13 +59,13 @@ func TestPrepSuggestions_OK(t *testing.T) {
 			Messages: []models.Message{
 				{
 					Role:    "assistant",
-					Content: `[{"mediaId":"1", "motivation": "Because you like it"}, {"mediaId":"2", "motivation": "Trending"}]`,
+					Content: `[{"index":0, "motivation": "Because you like it"}, {"index":1, "motivation": "Trending"}]`,
 				},
 			},
 		},
 	}
 	b := &butler{llm: f}
-	
+
 	items := []model.Item{
 		{ID: "1", Name: "One"},
 		{ID: "2", Name: "Two"},
@@ -73,9 +73,9 @@ func TestPrepSuggestions_OK(t *testing.T) {
 	}
 	ctxCtx := model.ClientContext{
 		TimeOfDay: "Evening",
-        ViewingHistory: []model.ViewMetadata{
-            {Name: "One", ViewedAt: time.Now().Add(-time.Hour)},
-        },
+		ViewingHistory: []model.ViewMetadata{
+			{Name: "One", ViewedAt: time.Now().Add(-time.Hour)},
+		},
 	}
 
 	recs, err := b.PrepSuggestions(context.Background(), ctxCtx, items)
@@ -112,23 +112,23 @@ func TestPrepSuggestions_OK(t *testing.T) {
 	if !strings.Contains(user.Content, "Available Media:") {
 		t.Error("prompt missing available media header")
 	}
-    if !strings.Contains(user.Content, "Evening") {
-        t.Error("prompt missing time of day")
-    }
-    if !strings.Contains(user.Content, "- id: 1") {
-        t.Error("prompt missing item 1")
-    }
+	if !strings.Contains(user.Content, "Evening") {
+		t.Error("prompt missing time of day")
+	}
+	if !strings.Contains(user.Content, "- index: 0") {
+		t.Error("prompt missing item index 0")
+	}
 }
 
 func TestPrepSuggestions_WithSubtitles(t *testing.T) {
 	f := &fakeLLM{
 		resp: models.Chat{
 			Messages: []models.Message{
-				{Role: "assistant", Content: `[{"mediaId":"1", "motivation": "Good movie"}]`},
+				{Role: "assistant", Content: `[{"index":0, "motivation": "Good movie"}]`},
 			},
 		},
 	}
-	
+
 	s := &fakeSubtitler{
 		findInfo: model.MediaInfo{
 			Streams: []model.Stream{
@@ -158,24 +158,24 @@ func TestPrepSuggestions_WithSubtitles(t *testing.T) {
 	if recs[0].SubtitleID != "3" {
 		t.Errorf("expected SubtitleID 3, got %q", recs[0].SubtitleID)
 	}
-	
-	// Case 2: Selector Fails, Fallback to first
+
+	// Case 2: Selector Fails
 	sel.err = errors.New("no subs")
 	// Reset subtitle mock state if needed, but basic struct reused is fine as it's just return values
-	
-	// We need to query again. 
+
+	// We need to query again.
 	// Since fakeLLM returns static response, it works.
 	// But we need to reset fakeSubtitler extractedIdx
 	s.extractedIdx = ""
-	
+
 	recs2, err := b.PrepSuggestions(context.Background(), model.ClientContext{}, items)
 	if err != nil {
 		t.Fatalf("unexpected error case 2: %v", err)
 	}
-	
-	// Should fallback to first subtitle (index 2)
-	if recs2[0].SubtitleID != "2" {
-		t.Errorf("fallback: expected SubtitleID 2, got %q", recs2[0].SubtitleID)
+
+	// If selector fails, we drop the recommendation
+	if len(recs2) != 0 {
+		t.Errorf("expected 0 recommendations, got %d", len(recs2))
 	}
 }
 
@@ -217,7 +217,7 @@ func TestPrepSuggestions_UnknownItem(t *testing.T) {
 			Messages: []models.Message{
 				{
 					Role:    "assistant",
-					Content: `[{"mediaId":"999", "motivation": "Does not exist"}]`,
+					Content: `[{"index":999, "motivation": "Does not exist"}]`,
 				},
 			},
 		},
@@ -238,35 +238,35 @@ func TestParseSuggestions(t *testing.T) {
 	tests := []struct {
 		name    string
 		content string
-		wantIDs []string
+		wantIDs []int
 		wantErr bool
 	}{
 		{
 			name:    "simple json",
-			content: `[{"mediaId": "1", "motivation": "a"}]`,
-			wantIDs: []string{"1"},
+			content: `[{"index": 1, "motivation": "a"}]`,
+			wantIDs: []int{1},
 			wantErr: false,
 		},
 		{
-			name: "markdown json",
-			content: "Here is the list:\n```json\n[\n  {\"mediaId\": " + "\"2\", \"motivation\": \"b\"}\n]\n```",
-			wantIDs: []string{"2"},
+			name:    "markdown json",
+			content: "Here is the list:\n```json\n[\n  {\"index\": " + "2, \"motivation\": \"b\"}\n]\n```",
+			wantIDs: []int{2},
 			wantErr: false,
 		},
-        {
-            name: "surrounding text",
-            content: "Sure! [{\"mediaId\":\"3\",\"motivation\":\"c\"}] Hope this helps.",
-            wantIDs: []string{"3"},
-            wantErr: false,
-        },
+		{
+			name:    "surrounding text",
+			content: "Sure! [{\"index\":3,\"motivation\":\"c\"}] Hope this helps.",
+			wantIDs: []int{3},
+			wantErr: false,
+		},
 		{
 			name:    "invalid json",
-			content: `[{"mediaId": "1", "motivation": "a"`,
+			content: `[{"index": 1, "motivation": "a"`,
 			wantErr: true,
 		},
 		{
 			name:    "no array",
-			content: `{"mediaId": "1"}`,
+			content: `{"index": 1}`,
 			wantErr: true,
 		},
 	}
@@ -282,12 +282,348 @@ func TestParseSuggestions(t *testing.T) {
 				if len(got) != len(tc.wantIDs) {
 					t.Errorf("expected %d items, got %d", len(tc.wantIDs), len(got))
 				}
-                for i, id := range tc.wantIDs {
-                    if got[i].MediaID != id {
-                        t.Errorf("expected ID %s, got %s", id, got[i].MediaID)
-                    }
-                }
+				for i, id := range tc.wantIDs {
+					if got[i].IndexInList != id {
+						t.Errorf("expected index %d, got %d", id, got[i].IndexInList)
+					}
+				}
 			}
 		})
+	}
+}
+
+// ... other tests kept as is
+func TestPreloadSubs_Success(t *testing.T) {
+	s := &fakeSubtitler{
+		findInfo: model.MediaInfo{
+			Streams: []model.Stream{
+				{Index: 0, CodecType: "subtitle"},
+				{Index: 1, CodecType: "subtitle"},
+			},
+		},
+		extractPath: "/tmp/subs.vtt",
+	}
+
+	sel := &fakeSelector{idx: 1}
+	b := &butler{subs: s, selector: sel}
+
+	item := model.Item{ID: "1", Name: "Test"}
+	rec := &model.Recommendation{}
+
+	err := b.preloadSubs(context.Background(), item, rec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.SubtitleID != "1" {
+		t.Errorf("expected SubtitleID 1, got %q", rec.SubtitleID)
+	}
+
+	if s.extractedIdx != "1" {
+		t.Errorf("expected extracted idx 1, got %q", s.extractedIdx)
+	}
+}
+
+func TestPreloadSubs_NoSelector(t *testing.T) {
+	s := &fakeSubtitler{
+		findInfo: model.MediaInfo{
+			Streams: []model.Stream{
+				{Index: 0, CodecType: "subtitle"},
+			},
+		},
+		extractPath: "/tmp/subs.vtt",
+	}
+
+	b := &butler{subs: s}
+
+	item := model.Item{ID: "1", Name: "Test"}
+	rec := &model.Recommendation{}
+
+	err := b.preloadSubs(context.Background(), item, rec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.SubtitleID != "" {
+		t.Errorf("expected empty SubtitleID, got %q", rec.SubtitleID)
+	}
+
+	if s.extractedIdx != "" {
+		t.Errorf("expected empty extracted idx, got %q", s.extractedIdx)
+	}
+}
+
+func TestPreloadSubs_FindError(t *testing.T) {
+	s := &fakeSubtitler{
+		findErr: errors.New("find failed"),
+	}
+
+	b := &butler{subs: s}
+
+	item := model.Item{ID: "1", Name: "TestMovie"}
+	rec := &model.Recommendation{}
+
+	err := b.preloadSubs(context.Background(), item, rec)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to find subtitles") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "TestMovie") {
+		t.Errorf("error should contain item name")
+	}
+}
+
+func TestPreloadSubs_SelectorError(t *testing.T) {
+	s := &fakeSubtitler{
+		findInfo: model.MediaInfo{
+			Streams: []model.Stream{
+				{Index: 0, CodecType: "subtitle"},
+			},
+		},
+	}
+
+	sel := &fakeSelector{
+		err: errors.New("selection failed"),
+	}
+	b := &butler{subs: s, selector: sel}
+
+	item := model.Item{ID: "1", Name: "TestMovie"}
+	rec := &model.Recommendation{}
+
+	err := b.preloadSubs(context.Background(), item, rec)
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to select english") {
+		t.Errorf("unexpected error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "TestMovie") {
+		t.Errorf("error should contain item name")
+	}
+}
+
+func TestPreloadSubs_ExtractError(t *testing.T) {
+	s := &fakeSubtitler{
+		findInfo: model.MediaInfo{
+			Streams: []model.Stream{
+				{Index: 0, CodecType: "subtitle"},
+			},
+		},
+		extractErr: errors.New("extract failed"),
+	}
+
+	sel := &fakeSelector{idx: 0}
+	b := &butler{subs: s, selector: sel}
+
+	item := model.Item{ID: "1", Name: "Test"}
+	rec := &model.Recommendation{}
+
+	err := b.preloadSubs(context.Background(), item, rec)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.SubtitleID != "0" {
+		t.Errorf("expected SubtitleID 0, got %q", rec.SubtitleID)
+	}
+}
+
+func TestPrepSuggestion_Success(t *testing.T) {
+	item := model.Item{
+		ID:       "1",
+		Name:     "Movie One",
+		MIMEType: "video/mp4",
+	}
+	items := []model.Item{item}
+	sug := suggestionResponse{
+		IndexInList: 0,
+		Motivation:  "Good choice",
+	}
+
+	b := &butler{}
+	rec, err := b.prepSuggestion(
+		context.Background(),
+		sug,
+		items,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.Item.ID != "1" {
+		t.Errorf("expected ID 1, got %q", rec.Item.ID)
+	}
+	if rec.Motivation != "Good choice" {
+		t.Errorf("expected motivation, got %q", rec.Motivation)
+	}
+}
+
+func TestPrepSuggestion_WithSubtitles(t *testing.T) {
+	item := model.Item{ID: "1", Name: "Movie"}
+	items := []model.Item{item}
+	sug := suggestionResponse{
+		IndexInList: 0,
+		Motivation:  "Nice",
+	}
+
+	s := &fakeSubtitler{
+		findInfo: model.MediaInfo{
+			Streams: []model.Stream{
+				{Index: 0, CodecType: "subtitle"},
+			},
+		},
+		extractPath: "/tmp/subs.vtt",
+	}
+
+	sel := &fakeSelector{idx: 0}
+	b := &butler{subs: s, selector: sel}
+
+	rec, err := b.prepSuggestion(
+		context.Background(),
+		sug,
+		items,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.SubtitleID != "0" {
+		t.Errorf("expected SubtitleID 0, got %q",
+			rec.SubtitleID)
+	}
+}
+
+func TestPrepSuggestion_NoSubtitler(t *testing.T) {
+	item := model.Item{ID: "1", Name: "Movie"}
+	items := []model.Item{item}
+	sug := suggestionResponse{
+		IndexInList: 0,
+		Motivation:  "Nice",
+	}
+
+	b := &butler{subs: nil}
+
+	rec, err := b.prepSuggestion(
+		context.Background(),
+		sug,
+		items,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.SubtitleID != "" {
+		t.Errorf("expected empty SubtitleID, got %q",
+			rec.SubtitleID)
+	}
+}
+
+func TestPrepSuggestion_IndexOutOfBounds(t *testing.T) {
+	items := []model.Item{
+		{ID: "1", Name: "One"},
+		{ID: "2", Name: "Two"},
+	}
+	sug := suggestionResponse{
+		IndexInList: 5,
+		Motivation:  "Bad index",
+	}
+
+	b := &butler{}
+	_, err := b.prepSuggestion(
+		context.Background(),
+		sug,
+		items,
+	)
+	if err == nil {
+		t.Fatal("expected error for out of bounds index")
+	}
+	if !strings.Contains(err.Error(),
+		"index which isn't in list") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPrepSuggestion_NegativeIndex(t *testing.T) {
+	items := []model.Item{
+		{ID: "1", Name: "One"},
+	}
+	sug := suggestionResponse{
+		IndexInList: -1,
+		Motivation:  "Bad index",
+	}
+
+	b := &butler{}
+	_, err := b.prepSuggestion(
+		context.Background(),
+		sug,
+		items,
+	)
+	if err == nil {
+		t.Fatal("expected error for negative index")
+	}
+	if !strings.Contains(err.Error(),
+		"index which isn't in list") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPrepSuggestion_SubtitlePreloadError(t *testing.T) {
+	item := model.Item{ID: "1", Name: "Movie"}
+	items := []model.Item{item}
+	sug := suggestionResponse{
+		IndexInList: 0,
+		Motivation:  "Nice",
+	}
+
+	s := &fakeSubtitler{
+		findErr: errors.New("find failed"),
+	}
+
+	b := &butler{subs: s}
+
+	_, err := b.prepSuggestion(
+		context.Background(),
+		sug,
+		items,
+	)
+	if err == nil {
+		t.Fatal("expected error from preloadSubs")
+	}
+	if !strings.Contains(err.Error(),
+		"failed to find subtitles") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestPrepSuggestion_MultipleItems(t *testing.T) {
+	items := []model.Item{
+		{ID: "1", Name: "One"},
+		{ID: "2", Name: "Two"},
+		{ID: "3", Name: "Three"},
+	}
+	// Index 2 is "Three"
+	sug := suggestionResponse{
+		IndexInList: 2,
+		Motivation:  "Pick three",
+	}
+
+	b := &butler{}
+	rec, err := b.prepSuggestion(
+		context.Background(),
+		sug,
+		items,
+	)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if rec.Item.ID != "3" {
+		t.Errorf("expected ID 3, got %q", rec.Item.ID)
+	}
+	if rec.Item.Name != "Three" {
+		t.Errorf("expected name Three, got %q",
+			rec.Item.Name)
 	}
 }

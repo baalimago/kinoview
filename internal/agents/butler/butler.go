@@ -43,7 +43,7 @@ Hints, in order of importance:
 Respond ONLY with a JSON array in the following format:
 [
   {
-    "mediaId": "<ID_FROM_MEDIA>",
+    "index": "<INDEX_IN_LIST>",
     "motivation": "<Short motivation>"
   }
 ]
@@ -68,8 +68,8 @@ func (b *butler) Setup(ctx context.Context) error {
 }
 
 type suggestionResponse struct {
-	MediaID    string `json:"mediaId"`
-	Motivation string `json:"motivation"`
+	IndexInList int    `json:"index"`
+	Motivation  string `json:"motivation"`
 }
 
 // PrepSuggestions implementation
@@ -117,72 +117,67 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 	}
 
 	var recommendations []model.Recommendation
-	itemMap := make(map[string]model.Item)
-	for _, it := range items {
-		itemMap[it.ID] = it
-	}
 
 	for _, sug := range suggestions {
-		if item, exists := itemMap[sug.MediaID]; exists {
-			rec := model.Recommendation{
-				Item:       item,
-				Motivation: sug.Motivation,
-			}
-			if b.subs != nil {
-				// Preload subtitles
-				info, err := b.subs.Find(item)
-				if err != nil {
-					ancli.Warnf("failed to find subtitles for %s: %v", item.Name, err)
-				} else {
-					var selectedIdx string
-
-					// Use selector if available
-					if b.selector != nil {
-						idx, err := b.selector.SelectEnglish(ctx, info.Streams)
-						if err == nil {
-							selectedIdx = fmt.Sprintf("%d", idx)
-						} else {
-							ancli.Warnf("failed to select english subtitle for %s: %v", item.Name, err)
-						}
-					}
-
-					// Fallback: pick the first subtitle stream if selector failed or not present
-					if selectedIdx == "" {
-						for _, stream := range info.Streams {
-							if stream.CodecType == "subtitle" {
-								selectedIdx = fmt.Sprintf("%d", stream.Index)
-								break
-							}
-						}
-					}
-
-					if selectedIdx != "" {
-						_, err := b.subs.Extract(item, selectedIdx)
-						if err != nil {
-							ancli.Warnf("failed to extract subtitles for %s: %v", item.Name, err)
-						} else {
-							rec.SubtitleID = selectedIdx
-						}
-					}
-				}
-			}
-			recommendations = append(recommendations, rec)
-		} else {
-			ancli.Warnf("Butler suggested unknown item ID: %s", sug.MediaID)
+		rec, err := b.prepSuggestion(ctx, sug, items)
+		if err != nil {
+			ancli.Warnf("failed to prepare suggestion: %v", err)
+			continue
 		}
+		recommendations = append(recommendations, rec)
 	}
 
 	return recommendations, nil
 }
 
+func (b *butler) prepSuggestion(ctx context.Context, sug suggestionResponse, items []model.Item) (model.Recommendation, error) {
+	if sug.IndexInList < 0 || sug.IndexInList > len(items) {
+		return model.Recommendation{}, fmt.Errorf("llm suggested index which isn't in list: '%v' ", sug.IndexInList)
+	}
+	item := items[sug.IndexInList]
+	rec := model.Recommendation{
+		Item:       item,
+		Motivation: sug.Motivation,
+	}
+	if b.subs == nil {
+		return rec, nil
+	}
+	return rec, b.preloadSubs(ctx, item, &rec)
+}
+
+func (b *butler) preloadSubs(ctx context.Context, item model.Item, rec *model.Recommendation) error {
+	// Preload subtitles
+	info, err := b.subs.Find(item)
+	if err != nil {
+		return fmt.Errorf("failed to find subtitles for %s: %w", item.Name, err)
+	}
+	var selectedIdx string
+
+	// Use selector if available
+	if b.selector != nil {
+		idx, err := b.selector.SelectEnglish(ctx, info.Streams)
+		if err != nil {
+			return fmt.Errorf("failed to select english subtitle for '%s': %w", item.Name, err)
+		}
+		selectedIdx = fmt.Sprintf("%d", idx)
+	}
+
+	_, err = b.subs.Extract(item, selectedIdx)
+	if err != nil {
+		ancli.Warnf("failed to extract subtitles for %s: %v", item.Name, err)
+	}
+	rec.SubtitleID = selectedIdx
+	return nil
+}
+
 func formatItems(items []model.Item) string {
 	var sb strings.Builder
-	for _, it := range items {
+	for idx, it := range items {
 		metadataJSONStr := ""
 		if it.Metadata != nil {
 			metadataJSONStr = string(*it.Metadata)
 		}
-		sb.WriteString(fmt.Sprintf("- id: %s, name: %s, type: %s, metadata: %s\n", it.ID, it.Name, it.MIMEType, metadataJSONStr))
+		sb.WriteString(fmt.Sprintf("- index: %d, name: %s, type: %s, metadata: %s\n", idx, it.Name, it.MIMEType, metadataJSONStr))
 	}
 	return sb.String()
 }
