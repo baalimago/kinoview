@@ -175,15 +175,24 @@ func (b *butler) preloadSubs(ctx context.Context, item model.Item, rec *model.Re
 }
 
 func formatItems(items []model.Item) string {
-	var sb strings.Builder
+	var result []map[string]interface{}
 	for idx, it := range items {
-		metadataJSONStr := ""
-		if it.Metadata != nil {
-			metadataJSONStr = string(*it.Metadata)
+		item := map[string]interface{}{
+			"index": idx,
+			"name":  it.Name,
+			"type":  it.MIMEType,
 		}
-		sb.WriteString(fmt.Sprintf("- index: %d, name: %s, type: %s, metadata: %s\n", idx, it.Name, it.MIMEType, metadataJSONStr))
+		if it.Metadata != nil {
+			var metadata map[string]interface{}
+			err := json.Unmarshal(*it.Metadata, &metadata)
+			if err == nil {
+				item["metadata"] = metadata
+			}
+		}
+		result = append(result, item)
 	}
-	return sb.String()
+	b, _ := json.MarshalIndent(result, "", "  ")
+	return string(b)
 }
 
 func formatContext(c model.ClientContext) string {
