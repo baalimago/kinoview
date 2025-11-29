@@ -3,7 +3,6 @@ package butler
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -151,7 +150,7 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 
 	wg.Wait()
 	if len(errs) > 0 {
-		return nil, errors.Join(errs...)
+		ancli.Errf("got errors trying to prep suggestions: %v", errs)
 	}
 
 	return recommendations, nil
