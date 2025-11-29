@@ -54,6 +54,7 @@ Respond ONLY with a JSON array in the following format:
 The "description" field should be a semantic index most likely to identify the media. Guidelines for "description" field:
 	* Be VERY clear on your choice
 	* ALWAYS formulate the description using your own words
+	* NEVER use a filename as description
 	
 Examples:
 	* "Big Buck Bunny S01E04"
