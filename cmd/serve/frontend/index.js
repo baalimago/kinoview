@@ -126,7 +126,6 @@ function constuctClientContext() {
       if (i.viewedAt) {
         const playedForFloat = i.playedFor
         i.playedFor = `${playedForFloat} seconds`
-        console.log(i)
         viewingHistory.push(i)
       }
     }
@@ -190,13 +189,13 @@ function loadSubtitles(id) {
 }
 
 // Integrate events.js
-(function() {
-    const script = document.createElement("script");
-    script.src = "events.js";
-    script.async = true; 
-    document.head.appendChild(script);
+(function () {
+  const script = document.createElement("script");
+  script.src = "events.js";
+  script.async = true;
+  document.head.appendChild(script);
 
-    loadSuggestions();
+  loadSuggestions();
 })();
 
 function loadSuggestions() {
@@ -217,25 +216,25 @@ function loadSuggestions() {
         // rec includes Item fields (Name, MIMEType, etc) + Motivation + SubtitleID
         const itemDiv = document.createElement("div");
         itemDiv.className = "suggestion-item";
-        
+
         itemDiv.onclick = () => {
-             selectMedia(rec.ID);
-             if (rec.subtitleID) {
-                // Wait small delay for subs to load/options to populate if needed
-                setTimeout(() => {
-                    const subSel = document.getElementById("debugSubsSelector");
-                    subSel.value = rec.subtitleID;
-                    selectSubtitle(rec.subtitleID);
-                }, 500); 
-             }
+          selectMedia(rec.ID);
+          if (rec.subtitleID) {
+            // Wait small delay for subs to load/options to populate if needed
+            setTimeout(() => {
+              const subSel = document.getElementById("debugSubsSelector");
+              subSel.value = rec.subtitleID;
+              selectSubtitle(rec.subtitleID);
+            }, 500);
+          }
         };
 
         const title = document.createElement("strong");
         title.innerText = rec.Name;
-        
+
         const motivation = document.createElement("p");
         motivation.innerText = rec.motivation;
-        
+
         itemDiv.appendChild(title);
         itemDiv.appendChild(motivation);
 
