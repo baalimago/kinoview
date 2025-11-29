@@ -3,9 +3,11 @@ package butler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 
 	"github.com/baalimago/clai/pkg/text"
 	"github.com/baalimago/clai/pkg/text/models"
@@ -27,31 +29,42 @@ type butler struct {
 	selector SubtitleSelector
 }
 
-const systemPrompt = `You are a Butler. Your goal is to anticipate what the user wants to watch next.
+const pickerSystemPrompt = `You are a media Butler. Your goal is to anticipate what the user wants to watch next.
 You will be given the user's context (viewing history, time of day etc) and a list of available media.
 Analyze the patterns and suggest suitable items from the library.
 
 Do not suggest items that are clearly not in the provided media list.
-Be concise in your motivation.
+Be concise.
+Add a posh style to your replies as it will be user facing.
 
 Hints, in order of importance:
 	1. Users prefer to watch series sequentially. If previous episode was 3, the next should be 4, of the same season.
 	2. If a user has stopped a movie or series mid-way, there's a high chance the user wish to continue
-	3. Have a variety of options, sometimes suggest new series
+	3. Have a variety of options, sometimes suggest new media
 	4. Anticipate weekly trends. Example: user stops watching Thursday night, then a Friday movie would be likely a good candidate.
 
 Respond ONLY with a JSON array in the following format:
 [
   {
-    "index": <INDEX_IN_LIST> (int),
+    "description": "<Descripton of item>" (string),
     "motivation": "<Short motivation>" (string)
   }
 ]
+
+The "description" field should be a semantic index most likely to identify the media. Be VERY clear on your choice. Examples:
+	* "Big Buck Bunny S01E04"
+	* "Season 3 Episode 10 Big Buck Bunny"
+	* "Big Buck Bunny"
 `
+
+type suggestionResponse struct {
+	Description string `json:"description"`
+	Motivation  string `json:"motivation"`
+}
 
 // NewButler configured by models.Configurations and a Subtitler
 func NewButler(c models.Configurations, subs Subtitler) agents.Butler {
-	c.SystemPrompt = systemPrompt
+	c.SystemPrompt = pickerSystemPrompt
 	return &butler{
 		llm:      text.NewFullResponseQuerier(c),
 		subs:     subs,
@@ -67,11 +80,6 @@ func (b *butler) Setup(ctx context.Context) error {
 	return nil
 }
 
-type suggestionResponse struct {
-	IndexInList int    `json:"index"`
-	Motivation  string `json:"motivation"`
-}
-
 // PrepSuggestions implementation
 func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientContext, items []model.Item) ([]model.Recommendation, error) {
 	itemsStr := formatItems(items)
@@ -83,7 +91,7 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 		Messages: []models.Message{
 			{
 				Role:    "system",
-				Content: systemPrompt,
+				Content: pickerSystemPrompt,
 			},
 			{
 				Role:    "user",
@@ -117,24 +125,43 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 	}
 
 	var recommendations []model.Recommendation
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var errs []error
 
 	for _, sug := range suggestions {
-		rec, err := b.prepSuggestion(ctx, sug, items)
-		if err != nil {
-			ancli.Warnf("failed to prepare suggestion: %v", err)
-			continue
-		}
-		recommendations = append(recommendations, rec)
+		wg.Add(1)
+		go func(suggestion suggestionResponse) {
+			defer wg.Done()
+			rec, err := b.prepSuggestion(ctx, suggestion,
+				items)
+			if err != nil {
+				ancli.Warnf(
+					"failed to prepare suggestion: %v", err)
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
+				return
+			}
+			mu.Lock()
+			recommendations = append(recommendations, rec)
+			mu.Unlock()
+		}(sug)
+	}
+
+	wg.Wait()
+	if len(errs) > 0 {
+		return nil, errors.Join(errs...)
 	}
 
 	return recommendations, nil
 }
 
 func (b *butler) prepSuggestion(ctx context.Context, sug suggestionResponse, items []model.Item) (model.Recommendation, error) {
-	if sug.IndexInList < 0 || sug.IndexInList > len(items) {
-		return model.Recommendation{}, fmt.Errorf("llm suggested index which isn't in list: '%v' ", sug.IndexInList)
+	item, err := b.semanticIndexerSelect(ctx, sug, items)
+	if err != nil {
+		return model.Recommendation{}, fmt.Errorf("failed to semanticIndexer select: %w", err)
 	}
-	item := items[sug.IndexInList]
 	rec := model.Recommendation{
 		Item:       item,
 		Motivation: sug.Motivation,
@@ -142,7 +169,7 @@ func (b *butler) prepSuggestion(ctx context.Context, sug suggestionResponse, ite
 	if b.subs == nil {
 		return rec, nil
 	}
-	err := b.preloadSubs(ctx, item, &rec)
+	err = b.preloadSubs(ctx, item, &rec)
 	if err != nil {
 		return model.Recommendation{}, fmt.Errorf("failed to preloadSubs: %w", err)
 	}
