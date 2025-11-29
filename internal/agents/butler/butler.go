@@ -3,6 +3,7 @@ package butler
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -135,12 +136,18 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 			rec, err := b.prepSuggestion(ctx, suggestion,
 				items)
 			if err != nil {
-				ancli.Warnf(
-					"failed to prepare suggestion: %v", err)
-				mu.Lock()
-				errs = append(errs, err)
-				mu.Unlock()
-				return
+				var psErr *PreloadSubsError
+				if errors.As(err, &psErr) {
+					ancli.Warnf("preload subs error, keeping recs: %v", err)
+				} else {
+					ancli.Warnf(
+						"failed to prepare suggestion: %v", err)
+					mu.Lock()
+					errs = append(errs, err)
+					mu.Unlock()
+					return
+				}
+
 			}
 			mu.Lock()
 			recommendations = append(recommendations, rec)
@@ -154,50 +161,6 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 	}
 
 	return recommendations, nil
-}
-
-func (b *butler) prepSuggestion(ctx context.Context, sug suggestionResponse, items []model.Item) (model.Recommendation, error) {
-	item, err := b.semanticIndexerSelect(ctx, sug, items)
-	if err != nil {
-		return model.Recommendation{}, fmt.Errorf("failed to semanticIndexer select: %w", err)
-	}
-	rec := model.Recommendation{
-		Item:       item,
-		Motivation: sug.Motivation,
-	}
-	if b.subs == nil {
-		return rec, nil
-	}
-	err = b.preloadSubs(ctx, item, &rec)
-	if err != nil {
-		return model.Recommendation{}, fmt.Errorf("failed to preloadSubs: %w", err)
-	}
-	return rec, nil
-}
-
-func (b *butler) preloadSubs(ctx context.Context, item model.Item, rec *model.Recommendation) error {
-	// Preload subtitles
-	info, err := b.subs.Find(item)
-	if err != nil {
-		return fmt.Errorf("failed to find subtitles for %s: %w", item.Name, err)
-	}
-	var selectedIdx string
-
-	// Use selector if available
-	if b.selector != nil {
-		idx, err := b.selector.SelectEnglish(ctx, info.Streams)
-		if err != nil {
-			return fmt.Errorf("failed to select english subtitle for '%s': %w", item.Name, err)
-		}
-		selectedIdx = fmt.Sprintf("%d", idx)
-	}
-
-	_, err = b.subs.Extract(item, selectedIdx)
-	if err != nil {
-		ancli.Warnf("failed to extract subtitles for %s: %v", item.Name, err)
-	}
-	rec.SubtitleID = selectedIdx
-	return nil
 }
 
 func formatItems(items []model.Item) string {
