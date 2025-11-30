@@ -3,49 +3,73 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title></title>
+    <title>Kinoview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
     <link href="style.css" rel="stylesheet" />
-    <script src="index.js"></script>
+    <script src="index.js" defer></script>
   </head>
 
   <body>
-    <video id="screen" class="screen" controls type="video/mp4">
-      <track default id="subs" kind="subtitles" />
-    </video>
+    <div class="app-container">
+      <header class="header">
+        <h1>Kinoview</h1>
+      </header>
+      
+      <main class="main-content">
+        <video id="screen" class="screen" controls type="video/mp4">
+          <track default id="subs" kind="subtitles" />
+        </video>
 
-    <div id="selection-wrapper">
-      <div>
-        <p>Ask for a recommendation:</p>
-        <input
-          id="recommendInput"
-          class="mediaSelector"
-          type="text"
-          placeholder="Type what you feel like watching"
-          onkeydown="if(event.key==='Enter'){requestRecommendation()}"
-        />
-        <button onclick="requestRecommendation()">Recommend</button>
-        <p id="recommendationStatus"></p>
-      </div>
-      <div>
-        <p>Please select a video:</p>
-        <select
-          id="debugMediaSelector"
-          class="mediaSelector"
-          onchange="selectMedia(this.value)"
-        >
-          <option value="">Select video</option>
-        </select>
-      </div>
-      <div>
-        <p>Please select subtitles:</p>
-        <select
-          id="debugSubsSelector"
-          class="mediaSelector"
-          onchange="selectSubtitle(this.value)"
-        >
-          <option value="">Select subtitles</option>
-        </select>
-      </div>
+        <div id="butler-suggestions" class="suggestions-container" style="display: none;">
+          <h3>Butler Suggestions</h3>
+          <div id="suggestions-list" class="suggestions-list"></div>
+        </div>
+        
+        <div id="selection-wrapper" class="control-panel">
+          <div class="control-group">
+            <label for="recommendInput">Ask for a recommendation</label>
+            <div class="input-with-button">
+              <input
+                id="recommendInput"
+                class="mediaSelector input-field"
+                type="text"
+                placeholder="Type what you feel like watching..."
+                onkeydown="if(event.key==='Enter'){requestRecommendation()}"
+              />
+              <button class="btn-primary" onclick="requestRecommendation()">Recommend</button>
+            </div>
+            <p id="recommendationStatus" class="status-text"></p>
+          </div>
+
+          <div class="control-group">
+            <label for="debugMediaSelector">Select a video</label>
+            <div class="select-wrapper">
+              <select
+                id="debugMediaSelector"
+                class="mediaSelector select-field"
+                onchange="selectMedia(this.value)"
+              >
+                <option value="">Select video</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="control-group">
+            <label for="debugSubsSelector">Select subtitles</label>
+            <div class="select-wrapper">
+              <select
+                id="debugSubsSelector"
+                class="mediaSelector select-field"
+                onchange="selectSubtitle(this.value)"
+              >
+                <option value="">Select subtitles</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </main>
     </div>
   </body>
 </html>

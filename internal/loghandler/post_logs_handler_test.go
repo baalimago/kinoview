@@ -10,37 +10,38 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/loghandler"
+	"github.com/baalimago/kinoview/internal/model"
 )
 
 func TestPostErrorsHandler(t *testing.T) {
 	tests := []struct {
 		name           string
 		message        string
-		logLevel       loghandler.LogLevel
+		logLevel       model.LogLevel
 		expectedOutput string
 	}{
 		{
 			name:           "Debug log",
 			message:        "debug",
-			logLevel:       loghandler.DEBUG,
+			logLevel:       model.DEBUG,
 			expectedOutput: "notice: [client]: Test debug message",
 		},
 		{
 			name:           "Info log",
 			message:        "info",
-			logLevel:       loghandler.INFO,
+			logLevel:       model.INFO,
 			expectedOutput: "ok: [client]: Test info message",
 		},
 		{
 			name:           "Warning log",
 			message:        "warning",
-			logLevel:       loghandler.WARNING,
+			logLevel:       model.WARNING,
 			expectedOutput: "warning: [client]: Test warning message",
 		},
 		{
 			name:           "Error log",
 			message:        "error",
-			logLevel:       loghandler.ERROR,
+			logLevel:       model.ERROR,
 			expectedOutput: "error: [client]: Test error message",
 		},
 	}
@@ -49,7 +50,7 @@ func TestPostErrorsHandler(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ancli.UseColor = false
 			ancli.Newline = false
-			logMessage := loghandler.LogMessage{
+			logMessage := model.LogMessage{
 				Level:   tt.logLevel,
 				Message: "Test " + tt.message + " message",
 			}

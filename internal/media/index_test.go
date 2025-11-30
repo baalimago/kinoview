@@ -29,23 +29,23 @@ func (m *mockStore) Store(ctx context.Context, i model.Item) error {
 }
 
 func (m *mockStore) VideoHandlerFunc() http.HandlerFunc {
-	return nil
+	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
 func (m *mockStore) SubsHandlerFunc() http.HandlerFunc {
-	return nil
+	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
 func (m *mockStore) SubsListHandlerFunc() http.HandlerFunc {
-	return nil
+	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
 func (m *mockStore) ListHandlerFunc() http.HandlerFunc {
-	return nil
+	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
 func (m *mockStore) ImageHandlerFunc() http.HandlerFunc {
-	return nil
+	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
 func (m *mockStore) Snapshot() []model.Item {

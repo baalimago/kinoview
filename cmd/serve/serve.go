@@ -13,10 +13,13 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents"
+	"github.com/baalimago/kinoview/internal/agents/butler"
 	"github.com/baalimago/kinoview/internal/agents/classifier"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/storage"
+	"github.com/baalimago/kinoview/internal/media/subtitles"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
@@ -103,6 +106,21 @@ func (c *command) Setup(ctx context.Context) error {
 		}
 	}
 	storePath := path.Join(c.configDir, "store")
+	subsPath := path.Join(c.configDir, "subtitles")
+	subsManager, err := subtitles.NewManager(subtitles.WithStoragePath(
+		subsPath,
+	))
+	var b agents.Butler
+	if err != nil {
+		ancli.Warnf("failed to setup subsManager, skipping butler setup. subsManager error: %v", err)
+	} else {
+		b = butler.NewButler(models.Configurations{
+			Model:         *c.classificationModel,
+			ConfigDir:     c.configDir,
+			InternalTools: []models.ToolName{},
+		}, subsManager,
+		)
+	}
 	indexer, err := media.NewIndexer(
 		media.WithStorage(
 			storage.NewStore(
@@ -127,6 +145,8 @@ func (c *command) Setup(ctx context.Context) error {
 			InternalTools: []models.ToolName{},
 		})),
 		media.WithWatchPath(c.watchPath),
+		// butler may be nil here, intentionally, if subsManager isnt properly setup
+		media.WithButler(b),
 	)
 	if err != nil {
 		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)
