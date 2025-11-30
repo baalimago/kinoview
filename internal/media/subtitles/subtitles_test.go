@@ -146,7 +146,7 @@ func TestExtract(t *testing.T) {
 		if name == "ffmpeg" {
 			// Find the output file argument (last one)
 			outPath := args[len(args)-1]
-			return os.WriteFile(outPath, []byte("WEBVTT"), 0644)
+			return os.WriteFile(outPath, []byte("WEBVTT"), 0o644)
 		}
 		return nil
 	}
@@ -210,7 +210,7 @@ func TestDefaultRunner(t *testing.T) {
 	if err != nil {
 		t.Logf("echo run failed: %v", err)
 	}
-	
+
 	// Test Failure
 	err = dr.Run(ctx, "nonexistentcommand")
 	if err == nil {

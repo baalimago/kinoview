@@ -92,7 +92,7 @@ func NewManager(opts ...Option) (*Manager, error) {
 	}
 
 	// Ensure storage directory exists
-	if err := os.MkdirAll(m.storePath, 0755); err != nil {
+	if err := os.MkdirAll(m.storePath, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create subtitle storage directory: %w", err)
 	}
 

@@ -43,7 +43,7 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	idx.store = &mockStore{
 		items: []model.Item{},
 	}
-	
+
 	// Use the full handler to test routing to both /ws and /suggestions
 	server := httptest.NewServer(idx.Handler())
 	defer server.Close()
@@ -56,7 +56,7 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dial failed: %v", err)
 	}
-	
+
 	// Send context
 	ctx := model.ClientContext{
 		TimeOfDay: "Evening",

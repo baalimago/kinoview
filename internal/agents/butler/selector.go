@@ -82,7 +82,7 @@ func (s *selector) SelectEnglish(ctx context.Context, streams []model.Stream) (i
 		if lang == "" {
 			lang = "unknown"
 		}
-		sb.WriteString(fmt.Sprintf("- Index: %d, Language: %s, Title: %s, Codec: %s, Default: %d, Forced: %d\n", 
+		sb.WriteString(fmt.Sprintf("- Index: %d, Language: %s, Title: %s, Codec: %s, Default: %d, Forced: %d\n",
 			st.Index, lang, title, st.CodecName, st.Disposition.Default, st.Disposition.Forced))
 	}
 

@@ -347,7 +347,7 @@ func TestSelector_SelectEnglish(t *testing.T) {
 			}, nil
 		},
 	}
-	
+
 	s := &selector{
 		llm: mockLLM,
 	}
@@ -395,199 +395,199 @@ func TestSelector_SelectEnglish(t *testing.T) {
 }
 
 func TestButler_MetadataAndDebug(t *testing.T) {
-    os.Setenv("DEBUG", "true")
-    defer os.Unsetenv("DEBUG")
+	os.Setenv("DEBUG", "true")
+	defer os.Unsetenv("DEBUG")
 
-    ctx := context.Background()
-    rawMeta := json.RawMessage(`{"year": 2023, "season": 1, "episode": 1, "alt_name": "Alt", "name": "Name"}`)
-    items := []model.Item{
-        {Name: "Item 1", Metadata: &rawMeta},
-    }
-    
-    mockLLM := &MockFullResponse{
-        QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-            // Simply return valid JSON for whatever prompt
-            if strings.Contains(chat.Messages[0].Content, "You are a media Butler") {
-                return models.Chat{
-                    Messages: []models.Message{ {Role: "assistant", Content: `[{"description": "Item 1", "motivation": "test"}]`} },
-                }, nil
-            }
-             if strings.Contains(chat.Messages[0].Content, "Your job is to pick") {
-                return models.Chat{
-                    Messages: []models.Message{ {Role: "assistant", Content: `{"index": 0}`} },
-                }, nil
-            }
-             if strings.Contains(chat.Messages[0].Content, "subtitle stream") { // selector prompt
-                 return models.Chat{
-                    Messages: []models.Message{ {Role: "assistant", Content: `{"index": 0}`} },
-                }, nil
-             }
+	ctx := context.Background()
+	rawMeta := json.RawMessage(`{"year": 2023, "season": 1, "episode": 1, "alt_name": "Alt", "name": "Name"}`)
+	items := []model.Item{
+		{Name: "Item 1", Metadata: &rawMeta},
+	}
 
-            return models.Chat{}, nil
-        },
-    }
+	mockLLM := &MockFullResponse{
+		QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
+			// Simply return valid JSON for whatever prompt
+			if strings.Contains(chat.Messages[0].Content, "You are a media Butler") {
+				return models.Chat{
+					Messages: []models.Message{{Role: "assistant", Content: `[{"description": "Item 1", "motivation": "test"}]`}},
+				}, nil
+			}
+			if strings.Contains(chat.Messages[0].Content, "Your job is to pick") {
+				return models.Chat{
+					Messages: []models.Message{{Role: "assistant", Content: `{"index": 0}`}},
+				}, nil
+			}
+			if strings.Contains(chat.Messages[0].Content, "subtitle stream") { // selector prompt
+				return models.Chat{
+					Messages: []models.Message{{Role: "assistant", Content: `{"index": 0}`}},
+				}, nil
+			}
 
-    b := &butler{
-        llm: mockLLM,
-        subs: nil, // skip subs
-        selector: NewSelector(models.Configurations{}), // use real selector structure but injecting mock into it
-    }
-    // Inject mock into selector
-    sel := b.selector.(*selector)
-    sel.llm = mockLLM
+			return models.Chat{}, nil
+		},
+	}
 
-    // Call PrepSuggestions to trigger the debug print
-    _, _ = b.PrepSuggestions(ctx, model.ClientContext{}, items)
+	b := &butler{
+		llm:      mockLLM,
+		subs:     nil,                                  // skip subs
+		selector: NewSelector(models.Configurations{}), // use real selector structure but injecting mock into it
+	}
+	// Inject mock into selector
+	sel := b.selector.(*selector)
+	sel.llm = mockLLM
 
-    // Call Selector english
-    b.selector.SelectEnglish(ctx, []model.Stream{
-        {Index: 0, CodecType: "subtitle"},
-    })
+	// Call PrepSuggestions to trigger the debug print
+	_, _ = b.PrepSuggestions(ctx, model.ClientContext{}, items)
+
+	// Call Selector english
+	b.selector.SelectEnglish(ctx, []model.Stream{
+		{Index: 0, CodecType: "subtitle"},
+	})
 }
 
 func TestUnwrap(t *testing.T) {
-    err := &PreloadSubsError{Err: errors.New("inner")}
-    if err.Unwrap().Error() != "inner" {
-        t.Error("Unwrap failed")
-    }
-    if err.Error() == "" {
-        t.Error("Error() should not be empty")
-    }
+	err := &PreloadSubsError{Err: errors.New("inner")}
+	if err.Unwrap().Error() != "inner" {
+		t.Error("Unwrap failed")
+	}
+	if err.Error() == "" {
+		t.Error("Error() should not be empty")
+	}
 }
 
 func TestParseSuggestionsResponse_NoArray(t *testing.T) {
-    ctx := context.Background()
-    mockLLM := &MockFullResponse{
-        QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-            return models.Chat{
-                Messages: []models.Message{{Role: "assistant", Content: "no array here"}},
-            }, nil
-        },
-    }
-    b := &butler{llm: mockLLM}
-    _, err := b.PrepSuggestions(ctx, model.ClientContext{}, nil)
-     if err == nil {
-        t.Fatal("Expected error when no JSON array")
-    }
-    if !strings.Contains(err.Error(), "no JSON array found") {
-        t.Errorf("Expected 'no JSON array found' error, got %v", err)
-    }
+	ctx := context.Background()
+	mockLLM := &MockFullResponse{
+		QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
+			return models.Chat{
+				Messages: []models.Message{{Role: "assistant", Content: "no array here"}},
+			}, nil
+		},
+	}
+	b := &butler{llm: mockLLM}
+	_, err := b.PrepSuggestions(ctx, model.ClientContext{}, nil)
+	if err == nil {
+		t.Fatal("Expected error when no JSON array")
+	}
+	if !strings.Contains(err.Error(), "no JSON array found") {
+		t.Errorf("Expected 'no JSON array found' error, got %v", err)
+	}
 }
 
 func TestButler_PrepSuggestions_Fallback(t *testing.T) {
-    ctx := context.Background()
-    items := []model.Item{{Name: "fallback"}}
-    mockLLM := &MockFullResponse{
-        QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-            msg := chat.Messages[0].Content
-            if strings.Contains(msg, "You are a media Butler") {
-                // Return NON-assistant role. This tests fallback in PrepSuggestions
-                return models.Chat{
-                    Messages: []models.Message{
-                         {Role: "system", Content: `[{"description":"fallback", "motivation":"test"}]`},
-                    },
-                }, nil
-            }
-             if strings.Contains(msg, "Your job is to pick") {
-                 // Semantic indexer needs valid response. 
-                 // Testing fallback there too: return non-assistant role
-                return models.Chat{
-                    Messages: []models.Message{ {Role: "system", Content: `{"index": 0}`} },
-                }, nil
-            }
-            return models.Chat{}, nil
-        },
-    }
-    b := &butler{llm: mockLLM}
-    recs, err := b.PrepSuggestions(ctx, model.ClientContext{}, items)
-    if err != nil {
-        t.Fatalf("Fallback failed: %v", err)
-    }
-    if len(recs) != 1 {
-        t.Errorf("Expected 1 rec, got %d", len(recs))
-    }
+	ctx := context.Background()
+	items := []model.Item{{Name: "fallback"}}
+	mockLLM := &MockFullResponse{
+		QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
+			msg := chat.Messages[0].Content
+			if strings.Contains(msg, "You are a media Butler") {
+				// Return NON-assistant role. This tests fallback in PrepSuggestions
+				return models.Chat{
+					Messages: []models.Message{
+						{Role: "system", Content: `[{"description":"fallback", "motivation":"test"}]`},
+					},
+				}, nil
+			}
+			if strings.Contains(msg, "Your job is to pick") {
+				// Semantic indexer needs valid response.
+				// Testing fallback there too: return non-assistant role
+				return models.Chat{
+					Messages: []models.Message{{Role: "system", Content: `{"index": 0}`}},
+				}, nil
+			}
+			return models.Chat{}, nil
+		},
+	}
+	b := &butler{llm: mockLLM}
+	recs, err := b.PrepSuggestions(ctx, model.ClientContext{}, items)
+	if err != nil {
+		t.Fatalf("Fallback failed: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Errorf("Expected 1 rec, got %d", len(recs))
+	}
 }
 
 func TestSelector_Fallback(t *testing.T) {
-    ctx := context.Background()
-    mockLLM := &MockFullResponse{
-        QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-             return models.Chat{
-                Messages: []models.Message{ {Role: "system", Content: `{"index": 0}`} },
-            }, nil
-        },
-    }
-    s := &selector{llm: mockLLM}
-    idx, err := s.SelectEnglish(ctx, []model.Stream{
-        {Index: 0, CodecType: "subtitle", Tags: model.Tags{Title: "English"}},
-    })
-    if err != nil {
-        t.Fatalf("Fallback failed: %v", err)
-    }
-    if idx != 0 {
-        t.Errorf("Expected 0, got %d", idx)
-    }
+	ctx := context.Background()
+	mockLLM := &MockFullResponse{
+		QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
+			return models.Chat{
+				Messages: []models.Message{{Role: "system", Content: `{"index": 0}`}},
+			}, nil
+		},
+	}
+	s := &selector{llm: mockLLM}
+	idx, err := s.SelectEnglish(ctx, []model.Stream{
+		{Index: 0, CodecType: "subtitle", Tags: model.Tags{Title: "English"}},
+	})
+	if err != nil {
+		t.Fatalf("Fallback failed: %v", err)
+	}
+	if idx != 0 {
+		t.Errorf("Expected 0, got %d", idx)
+	}
 }
 
 func TestButler_PrepSuggestions_PartialError(t *testing.T) {
-    ctx := context.Background()
-    mockLLM := &MockFullResponse{
-        QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-             var fullMsg string
-             for _, m := range chat.Messages {
-                 fullMsg += m.Content + "\n"
-             }
+	ctx := context.Background()
+	mockLLM := &MockFullResponse{
+		QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
+			var fullMsg string
+			for _, m := range chat.Messages {
+				fullMsg += m.Content + "\n"
+			}
 
-            if strings.Contains(fullMsg, "You are a media Butler") {
-                return models.Chat{
-                    Messages: []models.Message{
-                         {Role: "assistant", Content: `[
+			if strings.Contains(fullMsg, "You are a media Butler") {
+				return models.Chat{
+					Messages: []models.Message{
+						{Role: "assistant", Content: `[
                              {"description":"valid", "motivation":"test"},
                              {"description":"invalid", "motivation":"test"}
                          ]`},
-                    },
-                }, nil
-            }
-             if strings.Contains(fullMsg, "Semantic description: valid") {
-                  return models.Chat{
-                    Messages: []models.Message{ {Role: "assistant", Content: `{"index": 0}`} },
-                }, nil
-             }
-             // For "invalid", return garbage JSON for semantic indexer
-             return models.Chat{
-                Messages: []models.Message{ {Role: "assistant", Content: `not json`} },
-            }, nil
-        },
-    }
-    
-    items := []model.Item{{Name: "Item 1"}}
-     b := &butler{llm: mockLLM}
-    
-    recs, err := b.PrepSuggestions(ctx, model.ClientContext{}, items)
-    if err != nil {
-        t.Errorf("Did not expect error, got %v", err)
-    }
-    if len(recs) != 1 {
-        // One valid, one invalid. 
-        t.Errorf("Expected 1 valid rec, got %d", len(recs))
-    }
+					},
+				}, nil
+			}
+			if strings.Contains(fullMsg, "Semantic description: valid") {
+				return models.Chat{
+					Messages: []models.Message{{Role: "assistant", Content: `{"index": 0}`}},
+				}, nil
+			}
+			// For "invalid", return garbage JSON for semantic indexer
+			return models.Chat{
+				Messages: []models.Message{{Role: "assistant", Content: `not json`}},
+			}, nil
+		},
+	}
+
+	items := []model.Item{{Name: "Item 1"}}
+	b := &butler{llm: mockLLM}
+
+	recs, err := b.PrepSuggestions(ctx, model.ClientContext{}, items)
+	if err != nil {
+		t.Errorf("Did not expect error, got %v", err)
+	}
+	if len(recs) != 1 {
+		// One valid, one invalid.
+		t.Errorf("Expected 1 valid rec, got %d", len(recs))
+	}
 }
 
 func TestSelector_EmptyResponse(t *testing.T) {
-    ctx := context.Background()
-    mockLLM := &MockFullResponse{
-        QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-            return models.Chat{Messages: []models.Message{}}, nil
-        },
-    }
-    s := &selector{llm: mockLLM}
-    // Need at least one subtitle stream
-    streams := []model.Stream{{CodecType: "subtitle", Index: 0}}
-    _, err := s.SelectEnglish(ctx, streams)
-    if err == nil {
-        t.Fatal("Expected error on empty response")
-    }
-    if !strings.Contains(err.Error(), "empty response") {
-        t.Errorf("Expected 'empty response' error, got %v", err)
-    }
+	ctx := context.Background()
+	mockLLM := &MockFullResponse{
+		QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
+			return models.Chat{Messages: []models.Message{}}, nil
+		},
+	}
+	s := &selector{llm: mockLLM}
+	// Need at least one subtitle stream
+	streams := []model.Stream{{CodecType: "subtitle", Index: 0}}
+	_, err := s.SelectEnglish(ctx, streams)
+	if err == nil {
+		t.Fatal("Expected error on empty response")
+	}
+	if !strings.Contains(err.Error(), "empty response") {
+		t.Errorf("Expected 'empty response' error, got %v", err)
+	}
 }

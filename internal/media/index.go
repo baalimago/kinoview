@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"os"
 	"path"
-
 	"sync"
 
 	"github.com/baalimago/clai/pkg/text/models"
