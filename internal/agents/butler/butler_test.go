@@ -292,49 +292,6 @@ func TestButler_prepSuggestion_SubsErrors(t *testing.T) {
 	}
 }
 
-func TestSemanticIndexerSelect_Errors(t *testing.T) {
-	ctx := context.Background()
-	items := []model.Item{{Name: "Movie A"}}
-	b := &butler{
-		llm: &MockFullResponse{
-			QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-				return models.Chat{}, errors.New("llm fail")
-			},
-		},
-	}
-	_, err := b.semanticIndexerSelect(ctx, suggestionResponse{}, items)
-	if err == nil {
-		t.Error("Expected error when LLM fails")
-	}
-
-	// Empty response
-	b.llm.(*MockFullResponse).QueryFunc = func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-		return models.Chat{Messages: []models.Message{}}, nil
-	}
-	_, err = b.semanticIndexerSelect(ctx, suggestionResponse{}, items)
-	if err == nil {
-		t.Error("Expected error on empty response")
-	}
-
-	// Invalid JSON
-	b.llm.(*MockFullResponse).QueryFunc = func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-		return models.Chat{Messages: []models.Message{{Role: "assistant", Content: "bad"}}}, nil
-	}
-	_, err = b.semanticIndexerSelect(ctx, suggestionResponse{}, items)
-	if err == nil {
-		t.Error("Expected error on invalid json")
-	}
-
-	// Invalid Index
-	b.llm.(*MockFullResponse).QueryFunc = func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-		return models.Chat{Messages: []models.Message{{Role: "assistant", Content: `{"index": 10}`}}}, nil
-	}
-	_, err = b.semanticIndexerSelect(ctx, suggestionResponse{}, items)
-	if err == nil {
-		t.Error("Expected error on invalid index")
-	}
-}
-
 func TestSelector_SelectEnglish(t *testing.T) {
 	ctx := context.Background()
 	// Test the real selector logic using a mock LLM

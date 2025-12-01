@@ -172,20 +172,145 @@ function loadSubtitles(id) {
   fetch(`/gallery/subs/${id}`)
     .then(response => response.json())
     .then(data => {
-      console.log(`Attempting to load subs for: ${id}`)
-      const options = document.getElementById("debugSubsSelector")
-      options.length = 0;
-      for (const i of data.streams) {
-        if (!i.tags.language) {
-          continue
+      console.log(`Attempting to load streams for: ${id}`)
+
+      const subMenu = document.getElementById("subsMenu");
+      const audioMenu = document.getElementById("audioMenu");
+      const debugSubs = document.getElementById("debugSubsSelector");
+
+      if (subMenu) subMenu.innerHTML = '';
+      if (audioMenu) audioMenu.innerHTML = '';
+      if (debugSubs) debugSubs.length = 0;
+
+      // Add "Off" option for subtitles
+      if (subMenu) {
+        const offBtn = createDropdownItem("Off", () => {
+          selectSubtitle('off');
+          updateActiveItem(subMenu, offBtn);
+        }, true);
+        subMenu.appendChild(offBtn);
+      }
+
+      if (debugSubs) {
+        const optOff = document.createElement("option");
+        optOff.value = "";
+        optOff.innerText = "Select subtitles";
+        debugSubs.append(optOff);
+      }
+
+      let hasAudio = false;
+      let audioTrackIndex = 0;
+
+      // Check if streams is array, sometimes it might be null if find returned empty
+      if (data.streams) {
+        for (const i of data.streams) {
+          // Audio
+          if (i.codec_type === 'audio') {
+            hasAudio = true;
+            const currentAudioTrackIndex = audioTrackIndex;
+            audioTrackIndex++;
+            const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
+            const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
+
+            const isDefault = i.disposition && i.disposition.default;
+            if (audioMenu) {
+              const btn = createDropdownItem(title, () => {
+                selectAudio(currentAudioTrackIndex);
+                updateActiveItem(audioMenu, btn);
+              }, isDefault);
+              audioMenu.appendChild(btn);
+            }
+          }
+
+          // Subtitles
+          if (i.codec_type === 'subtitle') {
+            // Relaxed check: include even if no language tag
+            const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
+            const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
+
+            if (subMenu) {
+              const btn = createDropdownItem(title, () => {
+                selectSubtitle(i.index);
+                updateActiveItem(subMenu, btn);
+              });
+              subMenu.appendChild(btn);
+            }
+
+            if (debugSubs) {
+              const opt = document.createElement("option");
+              opt.value = i.index;
+              opt.innerText = title;
+              debugSubs.append(opt);
+            }
+          }
         }
-        const opt = document.createElement("option")
-        opt.value = i.index
-        opt.innerText = i.tags.language
-        options.append(opt)
+      }
+
+      if (!hasAudio && audioMenu) {
+        const btn = createDropdownItem("Default Audio", () => { }, true);
+        audioMenu.appendChild(btn);
       }
     })
+}
 
+function toggleMenu(menuId) {
+  const menu = document.getElementById(menuId);
+  if (!menu) return;
+
+  document.querySelectorAll('.dropdown-menu').forEach(m => {
+    if (m.id !== menuId) m.classList.add('hidden');
+  });
+
+  menu.classList.toggle('hidden');
+}
+
+// Close menus when clicking outside
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.dropdown-group')) {
+    document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.add('hidden'));
+  }
+});
+
+function createDropdownItem(text, onClick, isActive = false) {
+  const btn = document.createElement("button");
+  btn.className = "dropdown-item";
+  if (isActive) btn.classList.add("active");
+  btn.innerText = text;
+  btn.onclick = onClick;
+  return btn;
+}
+
+function updateActiveItem(container, activeItem) {
+  container.querySelectorAll('.dropdown-item').forEach(item => item.classList.remove('active'));
+  activeItem.classList.add('active');
+  container.classList.add('hidden');
+}
+
+function selectAudio(index) {
+  const video = document.getElementById("screen");
+  if (video.audioTracks) {
+    for (let i = 0; i < video.audioTracks.length; i++) {
+      video.audioTracks[i].enabled = (i === index);
+    }
+  }
+  console.log(`Selected audio stream: ${index}`);
+}
+
+function selectSubtitle(id) {
+  const track = document.getElementById("subs");
+  const debugSubs = document.getElementById("debugSubsSelector");
+
+  if (id === 'off' || id === "") {
+    console.log("Disabling subtitles");
+    track.src = "";
+    track.removeAttribute("src");
+    if (debugSubs) debugSubs.value = "";
+  } else {
+    console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
+    track.src = `/gallery/subs/${mostRecentID}/${id}`;
+    // Sync debug selector keying off numeric stream index usually
+    if (debugSubs) debugSubs.value = id;
+  }
 }
 
 // Integrate events.js
@@ -244,12 +369,6 @@ function loadSuggestions() {
     .catch(err => {
       console.error("Failed to load suggestions:", err);
     });
-}
-
-function selectSubtitle(id) {
-  const track = document.getElementById("subs");
-  console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
-  track.src = `/gallery/subs/${mostRecentID}/${id}`;
 }
 
 setTimeout(() => {
