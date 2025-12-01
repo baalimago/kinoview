@@ -173,166 +173,143 @@ function loadSubtitles(id) {
     .then(response => response.json())
     .then(data => {
       console.log(`Attempting to load streams for: ${id}`)
-      
+
       const subMenu = document.getElementById("subsMenu");
       const audioMenu = document.getElementById("audioMenu");
       const debugSubs = document.getElementById("debugSubsSelector");
-      
+
       if (subMenu) subMenu.innerHTML = '';
       if (audioMenu) audioMenu.innerHTML = '';
       if (debugSubs) debugSubs.length = 0;
 
       // Add "Off" option for subtitles
       if (subMenu) {
-          const offBtn = createDropdownItem("Off", () => {
-             selectSubtitle('off');
-             updateActiveItem(subMenu, offBtn);
-          }, true);
-          subMenu.appendChild(offBtn);
+        const offBtn = createDropdownItem("Off", () => {
+          selectSubtitle('off');
+          updateActiveItem(subMenu, offBtn);
+        }, true);
+        subMenu.appendChild(offBtn);
       }
-      
+
       if (debugSubs) {
-          const optOff = document.createElement("option");
-          optOff.value = "";
-          optOff.innerText = "Select subtitles";
-          debugSubs.append(optOff);
+        const optOff = document.createElement("option");
+        optOff.value = "";
+        optOff.innerText = "Select subtitles";
+        debugSubs.append(optOff);
       }
 
       let hasAudio = false;
+      let audioTrackIndex = 0;
 
       // Check if streams is array, sometimes it might be null if find returned empty
       if (data.streams) {
-          for (const i of data.streams) {
-            // Audio
-            if (i.codec_type === 'audio') {
-                hasAudio = true;
-                const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
-                const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
-                
-                const isDefault = i.disposition && i.disposition.default;
-                if (audioMenu) {
-                    const btn = createDropdownItem(title, () => {
-                        selectAudio(id, i.index);
-                        updateActiveItem(audioMenu, btn);
-                    }, isDefault);
-                    audioMenu.appendChild(btn);
-                }
-            }
-    
-            // Subtitles
-            if (i.codec_type === 'subtitle') {
-                 // Relaxed check: include even if no language tag
-                const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
-                const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
-                
-                if (subMenu) {
-                    const btn = createDropdownItem(title, () => {
-                        selectSubtitle(i.index);
-                        updateActiveItem(subMenu, btn);
-                    });
-                    subMenu.appendChild(btn);
-                }
-    
-                if (debugSubs) {
-                    const opt = document.createElement("option");
-                    opt.value = i.index;
-                    opt.innerText = title;
-                    debugSubs.append(opt);
-                }
+        for (const i of data.streams) {
+          // Audio
+          if (i.codec_type === 'audio') {
+            hasAudio = true;
+            const currentAudioTrackIndex = audioTrackIndex;
+            audioTrackIndex++;
+            const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
+            const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
+
+            const isDefault = i.disposition && i.disposition.default;
+            if (audioMenu) {
+              const btn = createDropdownItem(title, () => {
+                selectAudio(currentAudioTrackIndex);
+                updateActiveItem(audioMenu, btn);
+              }, isDefault);
+              audioMenu.appendChild(btn);
             }
           }
+
+          // Subtitles
+          if (i.codec_type === 'subtitle') {
+            // Relaxed check: include even if no language tag
+            const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
+            const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
+
+            if (subMenu) {
+              const btn = createDropdownItem(title, () => {
+                selectSubtitle(i.index);
+                updateActiveItem(subMenu, btn);
+              });
+              subMenu.appendChild(btn);
+            }
+
+            if (debugSubs) {
+              const opt = document.createElement("option");
+              opt.value = i.index;
+              opt.innerText = title;
+              debugSubs.append(opt);
+            }
+          }
+        }
       }
-      
+
       if (!hasAudio && audioMenu) {
-           const btn = createDropdownItem("Default Audio", () => {}, true);
-           audioMenu.appendChild(btn);
+        const btn = createDropdownItem("Default Audio", () => { }, true);
+        audioMenu.appendChild(btn);
       }
     })
 }
 
 function toggleMenu(menuId) {
-    const menu = document.getElementById(menuId);
-    if (!menu) return;
-    
-    document.querySelectorAll('.dropdown-menu').forEach(m => {
-        if (m.id !== menuId) m.classList.add('hidden');
-    });
+  const menu = document.getElementById(menuId);
+  if (!menu) return;
 
-    menu.classList.toggle('hidden');
+  document.querySelectorAll('.dropdown-menu').forEach(m => {
+    if (m.id !== menuId) m.classList.add('hidden');
+  });
+
+  menu.classList.toggle('hidden');
 }
 
 // Close menus when clicking outside
 document.addEventListener('click', (e) => {
-    if (!e.target.closest('.dropdown-group')) {
-        document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.add('hidden'));
-    }
+  if (!e.target.closest('.dropdown-group')) {
+    document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.add('hidden'));
+  }
 });
 
 function createDropdownItem(text, onClick, isActive = false) {
-    const btn = document.createElement("button");
-    btn.className = "dropdown-item";
-    if (isActive) btn.classList.add("active");
-    btn.innerText = text;
-    btn.onclick = onClick;
-    return btn;
+  const btn = document.createElement("button");
+  btn.className = "dropdown-item";
+  if (isActive) btn.classList.add("active");
+  btn.innerText = text;
+  btn.onclick = onClick;
+  return btn;
 }
 
 function updateActiveItem(container, activeItem) {
-    container.querySelectorAll('.dropdown-item').forEach(item => item.classList.remove('active'));
-    activeItem.classList.add('active');
-    container.classList.add('hidden'); 
+  container.querySelectorAll('.dropdown-item').forEach(item => item.classList.remove('active'));
+  activeItem.classList.add('active');
+  container.classList.add('hidden');
 }
 
-function selectAudio(vidId, streamIndex) {
-    console.log(`Selected audio stream: ${streamIndex}`);
-    
-    // Attempt experimental audio switching (Chrome/Safari)
-    const video = document.getElementById("screen");
-    if (video.audioTracks) {
-        // Find the index in audioTracks that corresponds to the streamIndex
-        // Note: browser audioTrackList isn't necessarily same index as ffprobe stream index.
-        // We usually iterate.
-        // HOWEVER, since we don't have mapping, we can try by index if we assume sequential order,
-        // or just by language matching. But we'll try something simpler:
-        // iterate audioTracks and set enabled = true for the one we want.
-        
-        // Since we don't know the mapping ID, we'll iterate and try find a match or just guess based on index
-        // Unfortunately standard audioTracks API makes it hard to map to FFmpeg stream indices directly reliably
-        // without more metadata (e.g. language).
-        
-        let found = false;
-        for (let i = 0; i < video.audioTracks.length; i++) {
-           // If language or some ID matches... but we only have FFmpeg index. 
-           // In simple cases, video.audioTracks[0] is first audio stream found.
-           // Let's assume the user selection matches visual order which is FFmpeg order.
-           // However, FFmpeg order includes video/subs. 
-           // audioTracks ONLY includes audio.
-           // So we need to count... 
-        }
-        
-        // This is tricky. Let's just log for now as "Not fully supported".
-        console.warn("Audio switching via experimental API not implemented yet due to mapping complexity.");
-    } else {
-         console.warn("Browser does not support video.audioTracks");
+function selectAudio(index) {
+  const video = document.getElementById("screen");
+  if (video.audioTracks) {
+    for (let i = 0; i < video.audioTracks.length; i++) {
+      video.audioTracks[i].enabled = (i === index);
     }
-    
-    // Future: implement backend transcoding endpoint for audio stream selection
+  }
+  console.log(`Selected audio stream: ${index}`);
 }
 
 function selectSubtitle(id) {
   const track = document.getElementById("subs");
   const debugSubs = document.getElementById("debugSubsSelector");
-  
+
   if (id === 'off' || id === "") {
-      console.log("Disabling subtitles");
-      track.src = "";
-      track.removeAttribute("src");
-      if(debugSubs) debugSubs.value = "";
+    console.log("Disabling subtitles");
+    track.src = "";
+    track.removeAttribute("src");
+    if (debugSubs) debugSubs.value = "";
   } else {
-      console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
-      track.src = `/gallery/subs/${mostRecentID}/${id}`;
-      // Sync debug selector keying off numeric stream index usually
-      if(debugSubs) debugSubs.value = id;
+    console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
+    track.src = `/gallery/subs/${mostRecentID}/${id}`;
+    // Sync debug selector keying off numeric stream index usually
+    if (debugSubs) debugSubs.value = id;
   }
 }
 
