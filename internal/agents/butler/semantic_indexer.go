@@ -72,15 +72,16 @@ type semanticIdexerResponse struct {
 }
 
 type itemMetadata struct {
-	Name     string `json:"name"`
-	AltName  string `json:"alt_name"`
-	Year     int    `json:"year"`
-	Season   int    `json:"season"`
-	Episode  int    `json:"episode"`
+	Name    string `json:"name"`
+	AltName string `json:"alt_name"`
+	Year    int    `json:"year"`
+	Season  int    `json:"season"`
+	Episode int    `json:"episode"`
 }
 
 func unmarshalMetadata(data *json.RawMessage) (
-	itemMetadata, error) {
+	itemMetadata, error,
+) {
 	var meta itemMetadata
 	if data == nil {
 		return meta, nil
@@ -117,14 +118,15 @@ OUTER:
 }
 
 // semanticIndexerSelect by:
-// 1. Building clai chat using semanticIndexerSysPrompt as
-//    system prompt
-// 2. Format items into semanticIndexerSelectFormat
-// 3. Pass the formated items into clai
-// 4. Parse output from LLM into semanticIdexerResponse
+//  1. Building clai chat using semanticIndexerSysPrompt as
+//     system prompt
+//  2. Format items into semanticIndexerSelectFormat
+//  3. Pass the formated items into clai
+//  4. Parse output from LLM into semanticIdexerResponse
 func (b *butler) semanticIndexerSelect(ctx context.Context,
 	sug suggestionResponse,
-	items []model.Item) (model.Item, error) {
+	items []model.Item,
+) (model.Item, error) {
 	// Format items into semanticIndexerSelectFormat
 	var formattedItems []semanticIndexerSelectFormat
 	for idx, item := range items {
@@ -176,8 +178,7 @@ func (b *butler) semanticIndexerSelect(ctx context.Context,
 	lastMsg, _, err := resp.LastOfRole("assistant")
 	if err != nil {
 		if len(resp.Messages) > 0 {
-			lastMsg = resp.Messages[
-				len(resp.Messages)-1]
+			lastMsg = resp.Messages[len(resp.Messages)-1]
 		} else {
 			return model.Item{}, fmt.Errorf(
 				"received empty response from llm")
