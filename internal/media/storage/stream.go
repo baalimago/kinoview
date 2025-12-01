@@ -133,7 +133,7 @@ func (f *ffmpegSubsUtil) find(item model.Item) (info model.MediaInfo, err error)
 		"json",
 		"-show_streams",
 		"-select_streams",
-		"s",
+		"a,s",
 	)
 	tmpStderr, _ := os.CreateTemp("", "ffmpeg_sub_stderr_*.log")
 	cmd.Stderr = tmpStderr
