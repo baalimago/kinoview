@@ -711,3 +711,85 @@ func Test_Watch_CreateDirectory_AddsToWatcherAndIndexesFiles(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func Test_Watch_CreateNestedDirectories_AreWatchedAndIndexed(t *testing.T) {
+	dir := t.TempDir()
+	rw, err := NewRecursiveWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rw.watcher.Close()
+
+	// buffered so we don't block producer
+	rw.updates = make(chan model.Item, 4)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- rw.Watch(ctx, dir) }()
+
+	// give watcher some time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// first-level directory d0
+	d0 := filepath.Join(dir, "d0")
+	if err := os.Mkdir(d0, 0o755); err != nil {
+		t.Fatalf("failed to create d0: %v", err)
+	}
+
+	// wait until d0 is in watch list
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer waitCancel()
+	for {
+		wl := rw.watcher.WatchList()
+		if slices.Contains(wl, d0) {
+			break
+		}
+		select {
+		case <-time.After(20 * time.Millisecond):
+		case <-waitCtx.Done():
+			t.Fatalf("timeout waiting for d0 to be added to watch list; have %v", wl)
+		}
+	}
+
+	// nested directory d0/d1
+	d1 := filepath.Join(d0, "d1")
+	if err := os.Mkdir(d1, 0o755); err != nil {
+		t.Fatalf("failed to create d1: %v", err)
+	}
+
+	// create video-like file inside d1
+	fname2 := filepath.Join(d1, "vid2.mp4")
+	content2 := []byte{
+		0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+		0x6D, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00,
+		0x6D, 0x70, 0x34, 0x31, 0x6D, 0x70, 0x34, 0x32,
+	}
+	if err := os.WriteFile(fname2, content2, 0o644); err != nil {
+		t.Fatalf("failed to create video file in d1: %v", err)
+	}
+
+	// wait for item from d1 to be indexed
+	timeout2 := time.After(2 * time.Second)
+	var gotPath2 string
+	for gotPath2 == "" {
+		select {
+		case item := <-rw.updates:
+			if item.Path == fname2 {
+				gotPath2 = item.Path
+			}
+		case <-timeout2:
+			t.Fatalf("timeout waiting for item from nested directory, got: %q", gotPath2)
+		}
+	}
+
+	// ensure d1 is in watch list too
+	wl2 := rw.watcher.WatchList()
+	if !slices.Contains(wl2, d1) {
+		t.Fatalf("expected watch list %v to contain nested directory %q", wl2, d1)
+	}
+
+	cancel()
+	<-done
+}
