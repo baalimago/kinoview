@@ -654,3 +654,60 @@ func Test_Watch_HandleError_ChannelFull_Warns(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func Test_Watch_CreateDirectory_AddsToWatcherAndIndexesFiles(t *testing.T) {
+	dir := t.TempDir()
+	rw, err := NewRecursiveWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rw.watcher.Close()
+
+	// make updates buffered so we don't block
+	rw.updates = make(chan model.Item, 2)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() { done <- rw.Watch(ctx, dir) }()
+
+	// give watcher some time to start
+	time.Sleep(50 * time.Millisecond)
+
+	// create subdirectory
+	sub := filepath.Join(dir, "subdir")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatalf("failed to create subdir: %v", err)
+	}
+
+	// create a "video-like" file in the subdir
+	fname := filepath.Join(sub, "vid.mp4")
+	content := []byte{0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x6D, 0x70, 0x34, 0x32, 0x00, 0x00, 0x00, 0x00, 0x6D, 0x70, 0x34, 0x31, 0x6D, 0x70, 0x34, 0x32}
+	if err := os.WriteFile(fname, content, 0o644); err != nil {
+		t.Fatalf("failed to create video file: %v", err)
+	}
+
+	// Allow fsnotify to emit both create(dir) and create(file)
+	timeout := time.After(2 * time.Second)
+	var gotPath string
+	for gotPath == "" {
+		select {
+		case item := <-rw.updates:
+			if item.Path == fname {
+				gotPath = item.Path
+			}
+		case <-timeout:
+			t.Fatalf("timeout waiting for item from updates, got: %q", gotPath)
+		}
+	}
+
+	// Ensure new directory is part of watch list
+	wl := rw.watcher.WatchList()
+	if !slices.Contains(wl, sub) {
+		t.Fatalf("expected watch list %v to contain new directory %q", wl, sub)
+	}
+
+	cancel()
+	<-done
+}

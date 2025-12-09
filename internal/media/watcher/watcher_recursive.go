@@ -106,8 +106,47 @@ func (rw *recursiveWatcher) handleError(err error) {
 func (rw *recursiveWatcher) handleEvent(ev fsnotify.Event) error {
 	if ev.Has(fsnotify.Write) || ev.Has(fsnotify.Create) {
 		ancli.Noticef("Got file event: %v", ev)
+
+		// On create, determine whether it's a file or directory
+		if ev.Has(fsnotify.Create) {
+			fi, err := os.Stat(ev.Name)
+			if err != nil {
+				// It might have disappeared, treat as non-fatal
+				return nil
+			}
+			if fi.IsDir() {
+				// Add the new directory itself
+				if err := rw.watcher.Add(ev.Name); err != nil {
+					return fmt.Errorf("failed to add new directory to watcher: %w", err)
+				}
+
+				// Walk it to pick up any existing children
+				return filepath.WalkDir(ev.Name, func(p string, d os.DirEntry, err error) error {
+					if err != nil {
+						if errors.Is(err, io.EOF) {
+							rw.warnlog("skipping: '%v', got EOF error", p)
+							return nil
+						}
+						return err
+					}
+					if d.IsDir() {
+						if err := rw.watcher.Add(p); err != nil {
+							return fmt.Errorf("failed to add recursive path: %v", err)
+						}
+						return nil
+					}
+					return rw.checkFile(p)
+				})
+			}
+
+			// It's a file: check it
+			return rw.checkFile(ev.Name)
+		}
+
+		// Non-create write events: treat as file updates
 		return rw.checkFile(ev.Name)
 	}
+
 	// TODO: Implement this (need to change updates channel)
 	// if ev.Has(fsnotify.Rename) || ev.Has(fsnotify.Remove) {
 	// 	return rw.removeFile(ev.Name)
