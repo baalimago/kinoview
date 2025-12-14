@@ -68,7 +68,7 @@ func (m *MockSubtitleSelector) SelectEnglish(ctx context.Context, streams []mode
 func TestNewButler(t *testing.T) {
 	c := models.Configurations{}
 	subs := &MockSubtitler{}
-	b := NewButler(c, subs)
+	b := New(c, subs)
 	if b == nil {
 		t.Fatal("NewButler returned nil")
 	}

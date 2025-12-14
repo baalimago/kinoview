@@ -73,12 +73,13 @@ func (i *Indexer) handleDisconnect() {
 	clientCtx := i.lastClientContext
 	i.clientCtxMu.Unlock()
 
-	// Use background context as the request context is dead/dying
-	// Use a detached thread to not block the handler return
 	go func() {
-		ancli.Okf("butler triggered by disconnect, prepping suggestions")
+		ancli.Okf("disconnect detected, prepping suggestions")
+
+		// Use background context as the request context is dead/dying
+		// Use a detached routine to not block the handler return
 		// 1 minute timeout for butler work
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 
 		allItmes := i.store.Snapshot()

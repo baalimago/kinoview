@@ -72,7 +72,7 @@ func (c *command) Setup(ctx context.Context) error {
 	c.store = storage.NewStore(
 		storage.WithStorePath(c.storePath),
 		storage.WithClassificationWorkers(5),
-		storage.WithClassifier(classifier.NewClassifier(models.Configurations{
+		storage.WithClassifier(classifier.New(models.Configurations{
 			Model:     *c.model,
 			ConfigDir: c.configDir,
 			InternalTools: []models.ToolName{

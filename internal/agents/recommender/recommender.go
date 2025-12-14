@@ -34,8 +34,8 @@ Request: '%v'
 Media:
 %v`
 
-// NewRecommender configured by models.Configurations
-func NewRecommender(c models.Configurations) agents.Recommender {
+// New configured by models.Configurations
+func New(c models.Configurations) agents.Recommender {
 	c.SystemPrompt = systemPrompt
 	return &recommender{
 		llm: text.NewFullResponseQuerier(c),

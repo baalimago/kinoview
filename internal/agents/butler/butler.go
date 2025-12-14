@@ -67,8 +67,8 @@ type suggestionResponse struct {
 	Motivation  string `json:"motivation"`
 }
 
-// NewButler configured by models.Configurations and a Subtitler
-func NewButler(c models.Configurations, subs Subtitler) agents.Butler {
+// New configured by models.Configurations and a Subtitler
+func New(c models.Configurations, subs Subtitler) agents.Butler {
 	c.SystemPrompt = pickerSystemPrompt
 	return &butler{
 		llm:      text.NewFullResponseQuerier(c),

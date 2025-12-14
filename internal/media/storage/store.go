@@ -99,7 +99,7 @@ func NewStore(opts ...StoreOption) *store {
 		storePath:          storePath,
 		cache:              make(map[string]model.Item),
 		cacheMu:            &sync.RWMutex{},
-		classifier: classifier.NewClassifier(models.Configurations{
+		classifier: classifier.New(models.Configurations{
 			Model:     "gpt-5",
 			ConfigDir: kinoviewCfgPath,
 			InternalTools: []models.ToolName{

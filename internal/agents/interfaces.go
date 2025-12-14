@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"time"
 
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -36,4 +37,20 @@ type Butler interface {
 
 	// PrepSuggestions by analyzing the client context and library
 	PrepSuggestions(context.Context, model.ClientContext, []model.Item) ([]model.Recommendation, error)
+}
+
+// Concierge is a better butler. Butler was an advanced workflow with
+// many tools at its disposal, but ultimately it had a singulra purpose.
+// Concierge will act autonomously and be run at a fixed interval using a set
+// of tools designed to act on the Kinoview media state
+type Concierge interface {
+	// Setup the Concierge, validate config etc. Return a chan err for runtime errors.
+	Setup(context.Context) (chan error, error)
+
+	// Start the Concierge.
+	// On Start error -> returns error
+	// On Runtime error -> passes error into returned chan error
+	// On interval -> Acts, using tools to achieve Conciergy stuff in Kinoview
+	// On context cancel -> Gracefully shuts down operations, closes chan error on defer
+	Start(ctx context.Context, interval time.Duration) error
 }

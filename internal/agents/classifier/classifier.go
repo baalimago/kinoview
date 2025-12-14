@@ -42,8 +42,8 @@ type classifier struct {
 	llm text.FullResponse
 }
 
-// NewClassifier configured by models.Configurations
-func NewClassifier(c models.Configurations) agents.Classifier {
+// New configured by models.Configurations
+func New(c models.Configurations) agents.Classifier {
 	c.SystemPrompt = systemPrompt
 	return &classifier{
 		llm: text.NewFullResponseQuerier(c),

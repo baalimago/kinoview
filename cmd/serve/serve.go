@@ -16,6 +16,7 @@ import (
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/butler"
 	"github.com/baalimago/kinoview/internal/agents/classifier"
+	"github.com/baalimago/kinoview/internal/agents/concierge"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/storage"
@@ -107,6 +108,18 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 	storePath := path.Join(c.configDir, "store")
 	subsPath := path.Join(c.configDir, "subtitles")
+	////////////
+	// Recommender setup
+	////////////
+	recommender := recommender.New(models.Configurations{
+		Model:         *c.recommenderModel,
+		ConfigDir:     c.configDir,
+		InternalTools: []models.ToolName{},
+	})
+
+	////////////
+	// Butler setup
+	////////////
 	subsManager, err := subtitles.NewManager(subtitles.WithStoragePath(
 		subsPath,
 	))
@@ -114,39 +127,48 @@ func (c *command) Setup(ctx context.Context) error {
 	if err != nil {
 		ancli.Warnf("failed to setup subsManager, skipping butler setup. subsManager error: %v", err)
 	} else {
-		b = butler.NewButler(models.Configurations{
+		b = butler.New(models.Configurations{
 			Model:         *c.classificationModel,
 			ConfigDir:     c.configDir,
 			InternalTools: []models.ToolName{},
 		}, subsManager,
 		)
 	}
-	indexer, err := media.NewIndexer(
-		media.WithStorage(
-			storage.NewStore(
-				storage.WithStorePath(storePath),
-				storage.WithClassificationWorkers(5),
-				storage.WithClassifier(classifier.NewClassifier(models.Configurations{
-					Model:     *c.classificationModel,
-					ConfigDir: c.configDir,
-					InternalTools: []models.ToolName{
-						models.CatTool,
-						models.FindTool,
-						models.FFProbeTool,
-						models.WebsiteTextTool,
-						models.RipGrepTool,
-					},
-				})),
-			),
-		),
-		media.WithRecommender(recommender.NewRecommender(models.Configurations{
-			Model:         *c.recommenderModel,
-			ConfigDir:     c.configDir,
-			InternalTools: []models.ToolName{},
+
+	////////////
+	// Storage setup
+	////////////
+	store := storage.NewStore(
+		storage.WithStorePath(storePath),
+		storage.WithClassificationWorkers(5),
+		storage.WithClassifier(classifier.New(models.Configurations{
+			Model:     *c.classificationModel,
+			ConfigDir: c.configDir,
+			InternalTools: []models.ToolName{
+				models.CatTool,
+				models.FindTool,
+				models.FFProbeTool,
+				models.WebsiteTextTool,
+				models.RipGrepTool,
+			},
 		})),
+	)
+
+	////////////
+	// Concierge setup
+	////////////
+	concidonk := concierge.New()
+
+	////////////
+	// Indexer setup
+	////////////
+	indexer, err := media.NewIndexer(
+		media.WithStorage(store),
+		media.WithRecommender(recommender),
 		media.WithWatchPath(c.watchPath),
 		// butler may be nil here, intentionally, if subsManager isnt properly setup
 		media.WithButler(b),
+		media.WithConcierge(concidonk),
 	)
 	if err != nil {
 		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)

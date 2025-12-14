@@ -74,6 +74,7 @@ type Indexer struct {
 	store       Storage
 	recommender agents.Recommender
 	butler      agents.Butler
+	concierge   agents.Concierge
 
 	clientCtxMu       sync.Mutex
 	lastClientContext model.ClientContext
@@ -112,6 +113,12 @@ func WithButler(b agents.Butler) IndexerOption {
 	}
 }
 
+func WithConcierge(c agents.Concierge) IndexerOption {
+	return func(i *Indexer) {
+		i.concierge = c
+	}
+}
+
 func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 	w, err := int_watcher.NewRecursiveWatcher()
 	if err != nil {
@@ -125,7 +132,7 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 
 	i := &Indexer{
 		watcher: w,
-		recommender: recommender.NewRecommender(models.Configurations{
+		recommender: recommender.New(models.Configurations{
 			Model:         "gpt-5",
 			ConfigDir:     claiPath,
 			InternalTools: []models.ToolName{},
@@ -187,9 +194,28 @@ func (i *Indexer) Setup(ctx context.Context) error {
 		}
 	}
 
+	if i.concierge != nil {
+		concRuntimeErrChan, conciergeSetupErr := i.concierge.Setup(ctx)
+		if conciergeSetupErr != nil {
+			ancli.Errf("failed to setup concierge: %v", conciergeSetupErr)
+		} else {
+			err := i.registerErrorChannel(ctx, "concierge", concRuntimeErrChan)
+			if err != nil {
+				return fmt.Errorf("failed to add concierge error chan: %w", err)
+			}
+		}
+	}
+
 	i.fileUpdates = fileUpdates
-	i.registerErrorChannel(ctx, "watcher", watcherErrors)
-	i.registerErrorChannel(ctx, "store", storeErrors)
+	err = i.registerErrorChannel(ctx, "watcher", watcherErrors)
+	if err != nil {
+		return fmt.Errorf("failed to add watcher error chan: %w", err)
+	}
+
+	err = i.registerErrorChannel(ctx, "store", storeErrors)
+	if err != nil {
+		return fmt.Errorf("failed to add store error chan: %w", err)
+	}
 
 	ancli.Okf("indexer.Setup OK")
 	return nil
