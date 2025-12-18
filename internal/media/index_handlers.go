@@ -113,7 +113,7 @@ func (i *Indexer) suggestionsHandler() http.HandlerFunc {
 		i.clientRecsMu.Unlock()
 
 		if recs == nil {
-			recs = []model.Recommendation{}
+			recs = []model.Suggestion{}
 		}
 
 		w.Header().Set("Content-Type", "application/json")

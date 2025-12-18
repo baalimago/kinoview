@@ -10,6 +10,10 @@ type ConciergeOption func(*concierge)
 
 type concierge struct {
 	tools []models.LLMTool
+
+	metadata   agents.MetadataManager
+	suggestion agents.SuggestionManager
+	subtitles  agents.SubtitleManager
 }
 
 // New Concierge, hosting tools:
@@ -18,9 +22,6 @@ type concierge struct {
 // 3. CheckSuggestions
 // 4. RemoveSuggestion
 // 5. AddSuggestion
-// 6. CheckNewMediaRecommendation
-// 7. AddMediaRecommendation
-// 8. RemoveMediaRecommendation
 func New(opts ...ConciergeOption) agents.Concierge {
 	a := agent.New()
 	return &a

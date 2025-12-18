@@ -36,7 +36,7 @@ type Butler interface {
 	Setup(context.Context) error
 
 	// PrepSuggestions by analyzing the client context and library
-	PrepSuggestions(context.Context, model.ClientContext, []model.Item) ([]model.Recommendation, error)
+	PrepSuggestions(context.Context, model.ClientContext, []model.Item) ([]model.Suggestion, error)
 }
 
 // Concierge is a better butler. Butler was an advanced workflow with
@@ -53,4 +53,35 @@ type Concierge interface {
 	// On interval -> Acts, using tools to achieve Conciergy stuff in Kinoview
 	// On context cancel -> Gracefully shuts down operations, closes chan error on defer
 	Start(ctx context.Context, interval time.Duration) error
+}
+
+type MetadataManager interface {
+	Update(model.Item) error
+}
+
+// SuggestionManager manages suggestions. Stores them for whoever wants some suggestions
+type SuggestionManager interface {
+	// List the currently stored suggestions
+	List() ([]model.Suggestion, error)
+	// Remove some suggestion from the store
+	Remove(ID string) error
+	// Add suggestion to the store
+	Add(model.Suggestion) error
+}
+
+// SubtitleManager which handles subtitle extraction and analysis
+type SubtitleManager interface {
+	// Find subtitle information about some item
+	Find(item model.Item) (model.MediaInfo, error)
+
+	// Extract the subtitles, return string to path to the file where the subtitles are extracted
+	Extract(item model.Item, streamIndex string) (string, error)
+
+	// Associate an item with the subtitle at the path
+	Associate(item model.Item, subtitlePath string) error
+}
+
+type SubtitleSelector interface {
+	// Select returns the index of the best english subtitle stream, or error if none found
+	Select(ctx context.Context, streams []model.Stream) (int, error)
 }

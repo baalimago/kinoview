@@ -80,7 +80,7 @@ type Indexer struct {
 	lastClientContext model.ClientContext
 
 	clientRecsMu          sync.Mutex
-	clientRecommendations []model.Recommendation
+	clientRecommendations []model.Suggestion
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener

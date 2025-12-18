@@ -57,7 +57,7 @@ type UserRequest struct {
 	Context ClientContext `json:"context"`
 }
 
-type Recommendation struct {
+type Suggestion struct {
 	Item
 	Motivation string `json:"motivation"`
 	SubtitleID string `json:"subtitleID"`

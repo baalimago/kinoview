@@ -16,14 +16,14 @@ import (
 type mockButler struct {
 	called bool
 	ctx    model.ClientContext
-	recs   []model.Recommendation
+	recs   []model.Suggestion
 }
 
 func (m *mockButler) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockButler) PrepSuggestions(ctx context.Context, c model.ClientContext, items []model.Item) ([]model.Recommendation, error) {
+func (m *mockButler) PrepSuggestions(ctx context.Context, c model.ClientContext, items []model.Item) ([]model.Suggestion, error) {
 	m.called = true
 	m.ctx = c
 	return m.recs, nil
@@ -31,12 +31,12 @@ func (m *mockButler) PrepSuggestions(ctx context.Context, c model.ClientContext,
 
 func TestEventStreamAndSuggestions(t *testing.T) {
 	// Setup
-	expectedRec := model.Recommendation{
+	expectedRec := model.Suggestion{
 		Item:       model.Item{ID: "test-id", Name: "Test Movie"},
 		Motivation: "Because you like tests",
 	}
 	butler := &mockButler{
-		recs: []model.Recommendation{expectedRec},
+		recs: []model.Suggestion{expectedRec},
 	}
 	idx, _ := NewIndexer(WithButler(butler))
 	// Need to initialize store to avoid nil pointer in Snapshot called by disconnect
@@ -105,7 +105,7 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var recs []model.Recommendation
+	var recs []model.Suggestion
 	if err := json.NewDecoder(resp.Body).Decode(&recs); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}

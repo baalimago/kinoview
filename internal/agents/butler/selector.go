@@ -12,13 +12,9 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/debug"
 	"github.com/baalimago/go_away_boilerplate/pkg/misc"
+	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
-
-type SubtitleSelector interface {
-	// SelectEnglish returns the index of the best english subtitle stream, or error if none found
-	SelectEnglish(ctx context.Context, streams []model.Stream) (int, error)
-}
 
 type selector struct {
 	llm text.FullResponse
@@ -27,7 +23,7 @@ type selector struct {
 const selectorSystemPrompt = `You are a media stream analyzer. Your task is to select the most appropriate English subtitle stream from a list of streams.
 
 Priorities:
-1. Standard English subtitles (often tagged "eng", "en", "English").
+1. Standard subtitles (often tagged "eng", "en", "English").
 2. English SDH (Subtitles for the Deaf and Hard-of-hearing) if no standard English is available.
 3. Forced English subtitles (only if strictly necessary or no others exist, though these are usually for foreign parts).
 
@@ -49,7 +45,7 @@ OR
 }
 `
 
-func NewSelector(c models.Configurations) SubtitleSelector {
+func NewSelector(c models.Configurations) agents.SubtitleSelector {
 	c.SystemPrompt = selectorSystemPrompt
 	return &selector{
 		llm: text.NewFullResponseQuerier(c),
@@ -61,7 +57,7 @@ type selectorResponse struct {
 	Error *string `json:"error,omitempty"`
 }
 
-func (s *selector) SelectEnglish(ctx context.Context, streams []model.Stream) (int, error) {
+func (s *selector) Select(ctx context.Context, streams []model.Stream) (int, error) {
 	// Filter for subtitle streams only before sending to LLM to reduce noise
 	var subStreams []model.Stream
 	for _, st := range streams {
