@@ -21,6 +21,8 @@ import (
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/storage"
 	"github.com/baalimago/kinoview/internal/media/subtitles"
+	"github.com/baalimago/kinoview/internal/media/suggestions"
+	"github.com/baalimago/kinoview/internal/media/usercontext"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
@@ -51,6 +53,7 @@ type command struct {
 	generateMetadata    *bool
 	classificationModel *string
 	recommenderModel    *string
+	conciergeModel      *string
 }
 
 func Command() *command {
@@ -108,6 +111,15 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 	storePath := path.Join(c.configDir, "store")
 	subsPath := path.Join(c.configDir, "subtitles")
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		ancli.Warnf("failed to get user cache dir: %v", err)
+	}
+	suggestionsManager, err := suggestions.NewManager(cacheDir)
+	if err != nil {
+		return fmt.Errorf("failed to create suggestions manager: %w", err)
+	}
+
 	////////////
 	// Recommender setup
 	////////////
@@ -155,9 +167,36 @@ func (c *command) Setup(ctx context.Context) error {
 	)
 
 	////////////
+	// User context setup
+	////////////
+	userContextMgr, err := usercontext.New(cacheDir)
+	if err != nil {
+		ancli.Warnf("failed to create user context manager: %v", err)
+	}
+
+	////////////
 	// Concierge setup
 	////////////
-	concidonk := concierge.New()
+	concidonk, err := concierge.New(
+		concierge.WithItemGetter(store),
+		concierge.WithMetadataManager(store),
+		concierge.WithSubtitleManager(subsManager),
+		concierge.WithSuggestionManager(suggestionsManager),
+		concierge.WithSubtitleSelector(butler.NewSelector(models.Configurations{
+			Model:     *c.classificationModel,
+			ConfigDir: c.configDir,
+		})),
+		concierge.WithConfigDir(c.configDir),
+		concierge.WithStoreDir(storePath),
+		concierge.WithCacheDir(cacheDir),
+		concierge.WithUserContextManager(userContextMgr),
+		concierge.WithModel("gpt-5.2"),
+	)
+	if err != nil {
+		ancli.Errf("failed to create concierge. His services will not be available: %v", err)
+	} else {
+		ancli.Noticef("concierge setup OK")
+	}
 
 	////////////
 	// Indexer setup
@@ -166,9 +205,11 @@ func (c *command) Setup(ctx context.Context) error {
 		media.WithStorage(store),
 		media.WithRecommender(recommender),
 		media.WithWatchPath(c.watchPath),
+		media.WithSuggestionsManager(suggestionsManager),
 		// butler may be nil here, intentionally, if subsManager isnt properly setup
 		media.WithButler(b),
 		media.WithConcierge(concidonk),
+		media.WithUserContextManager(userContextMgr),
 	)
 	if err != nil {
 		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)
@@ -293,6 +334,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.generateMetadata = fs.Bool("generateMetadata", true, "set to true if you want LLM generated metadata using clai")
 	c.classificationModel = fs.String("classificationModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
 	c.recommenderModel = fs.String("recommenderModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
+	c.conciergeModel = fs.String("conciergeModel", "gpt-5.2", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai.")
 
 	c.flagset = fs
 	return fs

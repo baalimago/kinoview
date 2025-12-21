@@ -53,6 +53,10 @@ func (m *MockSubtitler) Extract(item model.Item, streamIndex string) (string, er
 	return "", nil
 }
 
+func (m *MockSubtitler) Associate(item model.Item, path string) error {
+	return nil
+}
+
 // MockSubtitleSelector mocks the SubtitleSelector interface
 type MockSubtitleSelector struct {
 	SelectEnglishFunc func(ctx context.Context, streams []model.Stream) (int, error)

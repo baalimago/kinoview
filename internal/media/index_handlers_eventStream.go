@@ -52,10 +52,15 @@ func (i *Indexer) handleIncomingEvent(eventType model.EventType, payload json.Ra
 			ancli.Warnf("failed to unmarshal context: %v", err)
 			return
 		}
-		i.clientCtxMu.Lock()
-		i.lastClientContext = ctx
-		i.clientCtxMu.Unlock()
-		ancli.Okf("updated client context")
+		if i.userContextMgr == nil {
+			ancli.Warnf("user context manager not set; dropping client context")
+			return
+		}
+		if err := i.userContextMgr.StoreClientContext(ctx); err != nil {
+			ancli.Warnf("failed to store client context: %v", err)
+			return
+		}
+		ancli.Okf("stored client context")
 	}
 }
 

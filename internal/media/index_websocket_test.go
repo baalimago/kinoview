@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"sync"
+
 	"github.com/baalimago/kinoview/internal/model"
 	"golang.org/x/net/websocket"
 )
@@ -29,6 +31,52 @@ func (m *mockButler) PrepSuggestions(ctx context.Context, c model.ClientContext,
 	return m.recs, nil
 }
 
+type mockUserContextMgr struct {
+	mu    sync.Mutex
+	store []model.ClientContext
+	ch    chan struct{}
+}
+
+func newMockUserContextMgr() *mockUserContextMgr {
+	return &mockUserContextMgr{ch: make(chan struct{}, 100)}
+}
+
+func (m *mockUserContextMgr) AllClientContexts() []model.ClientContext {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]model.ClientContext(nil), m.store...)
+}
+
+func (m *mockUserContextMgr) StoreClientContext(ctx model.ClientContext) error {
+	m.mu.Lock()
+	m.store = append(m.store, ctx)
+	m.mu.Unlock()
+	select {
+	case m.ch <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (m *mockUserContextMgr) waitForAtLeast(n int, timeout time.Duration) bool {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+	m.mu.Lock()
+	l := len(m.store)
+	m.mu.Unlock()
+	if l >= n {
+	return true
+	}
+	select {
+	case <-m.ch:
+		// try again
+	case <-deadline.C:
+		return false
+	}
+	}
+}
+
 func TestEventStreamAndSuggestions(t *testing.T) {
 	// Setup
 	expectedRec := model.Suggestion{
@@ -38,7 +86,8 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	butler := &mockButler{
 		recs: []model.Suggestion{expectedRec},
 	}
-	idx, _ := NewIndexer(WithButler(butler))
+	ucm := newMockUserContextMgr()
+	idx, _ := NewIndexer(WithButler(butler), WithUserContextManager(ucm))
 	// Need to initialize store to avoid nil pointer in Snapshot called by disconnect
 	idx.store = &mockStore{
 		items: []model.Item{},
@@ -70,13 +119,14 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Fatalf("Send failed: %v", err)
 	}
 
-	// Wait a bit for server to process
-	time.Sleep(100 * time.Millisecond)
+	// Wait for server to process and store context
+	if ok := ucm.waitForAtLeast(1, time.Second); !ok {
+		t.Fatalf("timeout waiting for stored context")
+	}
 
-	// Verify context updated
-	idx.clientCtxMu.Lock()
-	got := idx.lastClientContext
-	idx.clientCtxMu.Unlock()
+	// Verify context stored
+	all := ucm.AllClientContexts()
+	got := all[len(all)-1]
 	if got.TimeOfDay != "Evening" {
 		t.Errorf("Want Evening, got %s", got.TimeOfDay)
 	}

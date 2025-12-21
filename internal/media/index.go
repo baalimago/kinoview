@@ -7,13 +7,14 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"sync"
+	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/loghandler"
+	"github.com/baalimago/kinoview/internal/media/suggestions"
 	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -76,11 +77,9 @@ type Indexer struct {
 	butler      agents.Butler
 	concierge   agents.Concierge
 
-	clientCtxMu       sync.Mutex
-	lastClientContext model.ClientContext
+	userContextMgr agents.UserContextManager
 
-	clientRecsMu          sync.Mutex
-	clientRecommendations []model.Suggestion
+	suggestions *suggestions.Manager
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
@@ -119,6 +118,12 @@ func WithConcierge(c agents.Concierge) IndexerOption {
 	}
 }
 
+func WithSuggestionsManager(s *suggestions.Manager) IndexerOption {
+	return func(i *Indexer) {
+		i.suggestions = s
+	}
+}
+
 func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 	w, err := int_watcher.NewRecursiveWatcher()
 	if err != nil {
@@ -143,6 +148,14 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 
 	for _, opt := range opts {
 		opt(i)
+	}
+
+	if i.suggestions == nil {
+		sm, err := suggestions.NewManager("")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create suggestions manager: %w", err)
+		}
+		i.suggestions = sm
 	}
 
 	return i, nil
@@ -195,14 +208,9 @@ func (i *Indexer) Setup(ctx context.Context) error {
 	}
 
 	if i.concierge != nil {
-		concRuntimeErrChan, conciergeSetupErr := i.concierge.Setup(ctx)
+		conciergeSetupErr := i.concierge.Setup(ctx)
 		if conciergeSetupErr != nil {
 			ancli.Errf("failed to setup concierge: %v", conciergeSetupErr)
-		} else {
-			err := i.registerErrorChannel(ctx, "concierge", concRuntimeErrChan)
-			if err != nil {
-				return fmt.Errorf("failed to add concierge error chan: %w", err)
-			}
 		}
 	}
 
@@ -257,6 +265,31 @@ func (i *Indexer) Start(ctx context.Context) error {
 			}
 		}
 	}()
+
+	if i.concierge != nil {
+		conciergeErrChan := make(chan error, 1)
+		tick := time.NewTicker(time.Minute * 15)
+		go func() {
+			do := func() {
+				ancli.Okf("Running concierge")
+				_, err := i.concierge.Run(ctx)
+				if err != nil && !errors.Is(err, context.Canceled) {
+					conciergeErrChan <- err
+				}
+			}
+			// Run on startup for fun
+			do()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					do()
+				}
+			}
+		}()
+		i.registerErrorChannel(ctx, "concierge", conciergeErrChan)
+	}
 
 	for {
 		select {

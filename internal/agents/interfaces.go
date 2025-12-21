@@ -2,7 +2,6 @@ package agents
 
 import (
 	"context"
-	"time"
 
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -45,18 +44,27 @@ type Butler interface {
 // of tools designed to act on the Kinoview media state
 type Concierge interface {
 	// Setup the Concierge, validate config etc. Return a chan err for runtime errors.
-	Setup(context.Context) (chan error, error)
+	Setup(context.Context) error
 
-	// Start the Concierge.
-	// On Start error -> returns error
-	// On Runtime error -> passes error into returned chan error
-	// On interval -> Acts, using tools to achieve Conciergy stuff in Kinoview
+	// Run the Concierge, blocking operation. Returns the last message from the concierge
+	// On Run error -> returns error
 	// On context cancel -> Gracefully shuts down operations, closes chan error on defer
-	Start(ctx context.Context, interval time.Duration) error
+	Run(ctx context.Context) (string, error)
+}
+
+type ItemGetter interface {
+	GetItemByID(ID string) (model.Item, error)
+	GetItemByName(Name string) (model.Item, error)
+}
+
+// ItemLister provides a read-only snapshot of items in the media library.
+// Useful for building search/browse tools without tying them to a specific store implementation.
+type ItemLister interface {
+	Snapshot() []model.Item
 }
 
 type MetadataManager interface {
-	Update(model.Item) error
+	UpdateMetadata(model.Item, string) error
 }
 
 // SuggestionManager manages suggestions. Stores them for whoever wants some suggestions
@@ -84,4 +92,13 @@ type SubtitleManager interface {
 type SubtitleSelector interface {
 	// Select returns the index of the best english subtitle stream, or error if none found
 	Select(ctx context.Context, streams []model.Stream) (int, error)
+}
+
+// UserContextManager manages the user context and allows
+type UserContextManager interface {
+	// AllClientContexts returns a snapshot of all client contexts for every session
+	AllClientContexts() []model.ClientContext
+
+	// StoreClientContext and persist on disk. Will error on failure to store.
+	StoreClientContext(model.ClientContext) error
 }

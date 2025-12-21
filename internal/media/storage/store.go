@@ -330,3 +330,33 @@ func (s *store) Snapshot() (ret []model.Item) {
 	}
 	return
 }
+
+func (s *store) GetItemByID(ID string) (model.Item, error) {
+	snapshot := s.Snapshot()
+	for _, s := range snapshot {
+		if s.ID == ID {
+			return s, nil
+		}
+	}
+	return model.Item{}, fmt.Errorf("failed to find item with ID: %v", ID)
+}
+
+func (s *store) GetItemByName(name string) (model.Item, error) {
+	snapshot := s.Snapshot()
+	for _, s := range snapshot {
+		if s.Name == name {
+			return s, nil
+		}
+	}
+	return model.Item{}, fmt.Errorf("failed to find item with name: %v", name)
+}
+
+func (s *store) UpdateMetadata(item model.Item, metadata string) error {
+	raw := json.RawMessage(metadata)
+	_, err := raw.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal, invalid json: %w", err)
+	}
+	item.Metadata = &raw
+	return s.store(item)
+}

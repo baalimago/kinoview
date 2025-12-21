@@ -36,7 +36,6 @@ Media:
 
 // New configured by models.Configurations
 func New(c models.Configurations) agents.Recommender {
-	c.SystemPrompt = systemPrompt
 	return &recommender{
 		llm: text.NewFullResponseQuerier(c),
 	}
