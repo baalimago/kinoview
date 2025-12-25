@@ -558,3 +558,112 @@ func TestIncrementalStorage(t *testing.T) {
 		t.Errorf("expected 2 contexts, got %d", len(contexts))
 	}
 }
+
+func TestTimeUnmarshalingWithStorage(t *testing.T) {
+	// CRITICAL TEST: Verify that times are properly unmarshaled from stored JSON
+	tmpDir := t.TempDir()
+	expectedPath := filepath.Join(tmpDir, appName, storeDir, logFile)
+
+	if err := os.MkdirAll(filepath.Dir(expectedPath), 0o755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	// Simulate frontend sending ISO 8601 formatted times
+	logContent := `{"sessionId":"session-test","startTime":"2024-03-15T14:30:00Z","viewingHistory":[{"name":"movie1","viewedAt":"2024-03-15T14:35:00Z","playedFor":"300"}],"timeOfDay":"afternoon","lastPlayedName":"movie1"}
+`
+
+	if err := os.WriteFile(expectedPath, []byte(logContent), 0o644); err != nil {
+		t.Fatalf("failed to write test log: %v", err)
+	}
+
+	// Load the contexts - this will unmarshal the JSON
+	manager, err := New(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+
+	contexts := manager.AllClientContexts()
+	if len(contexts) != 1 {
+		t.Fatalf("expected 1 context, got %d", len(contexts))
+	}
+
+	ctx := contexts[0]
+
+	// CRITICAL ASSERTION: StartTime must NOT be zero
+	if ctx.StartTime.IsZero() {
+		t.Fatal("CRITICAL: StartTime is zero! Time unmarshaling failed.")
+	}
+
+	// Verify the actual time values
+	if ctx.StartTime.Year() != 2024 {
+		t.Errorf("expected year 2024, got %d", ctx.StartTime.Year())
+	}
+	if ctx.StartTime.Month() != time.March {
+		t.Errorf("expected month March, got %v", ctx.StartTime.Month())
+	}
+	if ctx.StartTime.Day() != 15 {
+		t.Errorf("expected day 15, got %d", ctx.StartTime.Day())
+	}
+	if ctx.StartTime.Hour() != 14 {
+		t.Errorf("expected hour 14, got %d", ctx.StartTime.Hour())
+	}
+	if ctx.StartTime.Minute() != 30 {
+		t.Errorf("expected minute 30, got %d", ctx.StartTime.Minute())
+	}
+
+	// Verify viewing history times are also unmarshaled correctly
+	if len(ctx.ViewingHistory) != 1 {
+		t.Fatalf("expected 1 viewing history item, got %d", len(ctx.ViewingHistory))
+	}
+
+	viewedAt := ctx.ViewingHistory[0].ViewedAt
+	if viewedAt.IsZero() {
+		t.Fatal("CRITICAL: ViewedAt is zero! Time unmarshaling failed for viewing history.")
+	}
+
+	if viewedAt.Hour() != 14 || viewedAt.Minute() != 35 {
+		t.Errorf("expected 14:35, got %02d:%02d", viewedAt.Hour(), viewedAt.Minute())
+	}
+}
+
+func TestTimeUnmarshalingWithoutZSuffix(t *testing.T) {
+	// Test that times without Z suffix are also properly unmarshaled
+	tmpDir := t.TempDir()
+	expectedPath := filepath.Join(tmpDir, appName, storeDir, logFile)
+
+	if err := os.MkdirAll(filepath.Dir(expectedPath), 0o755); err != nil {
+		t.Fatalf("failed to create directory: %v", err)
+	}
+
+	// ISO 8601 format without Z suffix
+	logContent := `{"sessionId":"session-test","startTime":"2024-02-20T10:15:30","viewingHistory":[{"name":"movie2","viewedAt":"2024-02-20T10:20:00","playedFor":"600"}],"timeOfDay":"morning","lastPlayedName":"movie2"}
+`
+
+	if err := os.WriteFile(expectedPath, []byte(logContent), 0o644); err != nil {
+		t.Fatalf("failed to write test log: %v", err)
+	}
+
+	manager, err := New(tmpDir)
+	if err != nil {
+		t.Fatalf("failed to create manager: %v", err)
+	}
+
+	contexts := manager.AllClientContexts()
+	if len(contexts) != 1 {
+		t.Fatalf("expected 1 context, got %d", len(contexts))
+	}
+
+	ctx := contexts[0]
+
+	// Verify StartTime is NOT zero
+	if ctx.StartTime.IsZero() {
+		t.Fatal("StartTime is zero! Fallback ISO8601 unmarshaling failed.")
+	}
+
+	if ctx.StartTime.Day() != 20 {
+		t.Errorf("expected day 20, got %d", ctx.StartTime.Day())
+	}
+	if ctx.StartTime.Hour() != 10 {
+		t.Errorf("expected hour 10, got %d", ctx.StartTime.Hour())
+	}
+}
