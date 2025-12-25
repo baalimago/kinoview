@@ -25,6 +25,8 @@ Scan the existing media collection and enhance metadata quality. Review current 
 
 Then make best effort judgement calls about:
  - If the library is well-organized and metadata is accurate, acknowledge this and exit.
+ - If there are no suggestions, add some
+ - If the suggested items lack associated subtitles, attempt to add it ONCE. Cancel on failure.
  - If all suggestions are still valid, confirm and exit without modifications.
  - If there's nothing actionable to improve, inform the user and exit gracefully.
  
