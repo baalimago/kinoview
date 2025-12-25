@@ -17,10 +17,10 @@ import (
 	"github.com/baalimago/kinoview/internal/agents/concierge"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/media"
+	"github.com/baalimago/kinoview/internal/media/clientcontext"
 	"github.com/baalimago/kinoview/internal/media/storage"
 	"github.com/baalimago/kinoview/internal/media/subtitles"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
-	"github.com/baalimago/kinoview/internal/media/usercontext"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
@@ -117,7 +117,7 @@ func (c *command) Setup(ctx context.Context) error {
 	////////////
 	// User context setup
 	////////////
-	userContextMgr, err := usercontext.New(cacheDir)
+	userContextMgr, err := clientcontext.New(cacheDir)
 	if err != nil {
 		ancli.Warnf("failed to create user context manager: %v", err)
 	}

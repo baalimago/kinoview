@@ -44,6 +44,8 @@ type ViewMetadata struct {
 }
 
 type ClientContext struct {
+	SessionID      string         `json:"sessionId"`
+	StartTime      time.Time      `json:"startTime"`
 	ViewingHistory []ViewMetadata `json:"viewingHistory"`
 	TimeOfDay      string         `json:"timeOfDay"`
 	LastPlayedName string         `json:"lastPlayedName"`

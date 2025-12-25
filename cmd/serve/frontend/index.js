@@ -109,6 +109,31 @@ fetch('/gallery?start=0&am=1000&mime=video')
 
 
 var mostRecentID = "";
+var sessionID = "";
+var sessionStartTime = null;
+
+function getSessionID() {
+  if (!sessionID) {
+    sessionID = generateUUID();
+  }
+  return sessionID;
+}
+
+function getSessionStartTime() {
+  if (!sessionStartTime) {
+    sessionStartTime = new Date().toISOString();
+  }
+  return sessionStartTime;
+}
+
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function selectMedia(id) {
   const video = document.getElementById("screen");
   // Thank the gods for js's excellent singlethreaded scheduler

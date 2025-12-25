@@ -47,8 +47,8 @@ func (i *Indexer) handleIncomingEvent(eventType model.EventType, payload json.Ra
 		default:
 		}
 	case model.ClientContextEvent:
-		var ctx model.ClientContext
-		if err := json.Unmarshal(payload, &ctx); err != nil {
+		var userCtx model.ClientContext
+		if err := json.Unmarshal(payload, &userCtx); err != nil {
 			ancli.Warnf("failed to unmarshal context: %v", err)
 			return
 		}
@@ -56,7 +56,7 @@ func (i *Indexer) handleIncomingEvent(eventType model.EventType, payload json.Ra
 			ancli.Warnf("user context manager not set; dropping client context")
 			return
 		}
-		if err := i.userContextMgr.StoreClientContext(ctx); err != nil {
+		if err := i.userContextMgr.StoreClientContext(userCtx); err != nil {
 			ancli.Warnf("failed to store client context: %v", err)
 			return
 		}

@@ -16,23 +16,7 @@ type ConciergeOption func(*concierge)
 
 const systemPrompt = `You are a media concierge responsible for managing a media library. The root of the library is here: '%v'.
  
-Scan the existing media collection and enhance metadata quality. Review current suggestions and assess if they remain relevant.
- 
-Before taking action, evaluate the current state in order:
-	1. Scan previous notes using concierge_context_get
-	2. Scan previous user sessions using user_context_getter
-	3. Inspect the library state using: media_stats, media_list_missing_metadata, media_substring_filter, media_get_item
-
-Your chores are as follows:
-	1. Validate that the library is well-organized and metadata is accurate
-	2. Add suggestions if there are none
-	3. Validate that existing sugggestions are reasonable, judging by best effort on time of day, and user viewing history
-	4. Ensure the suggestions have subtitles
-	5. If there's nothing more actionable to do, persist context with concierge_context_push
-	6. EXIT
- 
-Be wise and anticipatory about what might need attention. Consider the current date when assessing suggestions and relevance. 
-Act deliberately. Avoid unnecessary modifications. Do not repeat yourself. Prefer quitting with a context update over retrying.`
+Act deliberately. Avoid unnecessary modifications. Use the tools to do conciergey things.`
 
 type concierge struct {
 	itemStore      agents.ItemGetter
