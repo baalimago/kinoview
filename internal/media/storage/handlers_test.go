@@ -315,6 +315,10 @@ func Test_store_StreamHandlerFunc(t *testing.T) {
 			},
 		}
 
+		s.subtitleManager = &mockSubtitleManager{
+			shouldFail: true,
+		}
+
 		s.cache = map[string]model.Item{"1": {ID: "1", Path: "dummy"}}
 
 		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)

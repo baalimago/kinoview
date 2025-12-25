@@ -321,7 +321,9 @@ func Test_streamMkvToMp4(t *testing.T) {
 
 func Test_Stream_store_ffmpegSubsUtil_extract(t *testing.T) {
 	t.Run("extract subs if possible", func(t *testing.T) {
-		subsUtil := ffmpegSubsUtil{}
+		subsUtil := ffmpegSubsUtil{
+			subsCache: make(map[string]string),
+		}
 		given := model.Item{
 			ID:   "some_ID",
 			Path: "./mock/Jellyfish_with_subs.mkv",
