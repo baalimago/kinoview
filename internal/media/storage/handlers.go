@@ -212,7 +212,7 @@ func (s *store) SubsListHandlerFunc() http.HandlerFunc {
 			return
 		}
 
-		info, err := s.subStreamFinder.find(item)
+		info, err := s.subtitleManager.Find(item)
 		if err != nil {
 			ancli.Errf("jsonStore failed to handle SubsList when subStripper.extract, err: %v", err)
 			http.Error(w, "failed to extract subtitles from media", http.StatusInternalServerError)
@@ -245,7 +245,8 @@ func (s *store) SubsHandlerFunc() http.HandlerFunc {
 			http.Error(w, fmt.Sprintf("cache miss for: '%v'", vid), http.StatusNotFound)
 			return
 		}
-		subs, err := s.subStreamExtractor.extract(cacheFile, sid)
+
+		subs, err := s.subtitleManager.Extract(cacheFile, sid)
 		if err != nil {
 			ancli.Errf("failed to extract subs: %v", err)
 			http.Error(w, "failed to extract subs", http.StatusInternalServerError)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -46,6 +45,8 @@ func (d *defaultRunner) Output(ctx context.Context, name string, args ...string)
 	}
 	return out, nil
 }
+
+type SubtitleAssociation map[string]os.File
 
 type Manager struct {
 	storePath string
@@ -182,8 +183,4 @@ func (m *Manager) Extract(item model.Item, streamIndex string) (string, error) {
 
 	ancli.Noticef("Extracted subtitle %s for %s in %v", streamIndex, item.Name, time.Since(start))
 	return destPath, nil
-}
-
-func (m *Manager) Associate(item model.Item, path string) error {
-	return errors.New("not yet implemented")
 }

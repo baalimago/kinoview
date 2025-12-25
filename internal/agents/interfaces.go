@@ -82,11 +82,9 @@ type SubtitleManager interface {
 	// Find subtitle information about some item
 	Find(item model.Item) (model.MediaInfo, error)
 
-	// Extract the subtitles, return string to path to the file where the subtitles are extracted
+	// Extract the subtitles, return string to path to the file where the subtitles are extracted. On subsequent
+	// calls, the subtitles will be checked from fle. As such, it's possible to preload subs
 	Extract(item model.Item, streamIndex string) (string, error)
-
-	// Associate an item with the subtitle at the path
-	Associate(item model.Item, subtitlePath string) error
 }
 
 type SubtitleSelector interface {

@@ -54,14 +54,9 @@ func (pst *preloadSubtitlesTool) Call(input models.Input) (string, error) {
 		return "", fmt.Errorf("failed to select subtitle stream: %w", err)
 	}
 
-	subPath, err := pst.subMgr.Extract(item, strconv.Itoa(streamIdx))
+	_, err = pst.subMgr.Extract(item, strconv.Itoa(streamIdx))
 	if err != nil {
 		return "", fmt.Errorf("failed to extract subtitles: %w", err)
-	}
-
-	err = pst.subMgr.Associate(item, subPath)
-	if err != nil {
-		return "", fmt.Errorf("failed to associate subtitles: %w", err)
 	}
 
 	return fmt.Sprintf("successfully preloaded subtitles for item: '%v'", item.Name), nil

@@ -23,18 +23,16 @@ Scan the existing media collection and enhance metadata quality. Review current 
  2. Scan previous user sessions using user_context_getter
  3. Inspect the library state using: media_stats, media_list_missing_metadata, media_substring_filter, media_get_item
 
-Then make best effort judgement calls about:
- - If the library is well-organized and metadata is accurate, acknowledge this and exit.
- - If there are no suggestions, add some
- - If the suggested items lack associated subtitles, attempt to add it ONCE. Cancel on failure.
- - If all suggestions are still valid, confirm and exit without modifications.
- - If there's nothing actionable to improve, inform the user and exit gracefully.
+Then make best effort judgement calls about, in following order:
+ 1. Validate that the library is well-organized and metadata is accurate
+ 2. Add suggestions if there are none
+ 3. Attempt to ensure that the suggested items lack associated subtitles, attempt to add it ONCE. Cancel on failure.
+ 4. Validate that existing sugggestions are reasonable, judging by best effort on time of day, and user viewing history
+ 5. If there's nothing more actionable to do, persist context with concierge_context_push and EXIT.
+ 6. Once the concierge_context_push has been run, DO NOT CONTINUE OPERATIONS.
  
-Only proceed with changes if they provide clear value. Be wise and anticipatory about what might need attention. Consider the current date when assessing suggestions and relevance.
- 
-Act deliberately. Avoid unnecessary modifications.
-
-Once you're done, persist your thoughts and motivations on your actions using the concierge_context_push.`
+Be wise and anticipatory about what might need attention. Consider the current date when assessing suggestions and relevance. 
+Act deliberately. Avoid unnecessary modifications. Do not repeat yourself. Prefer quitting with a context update over retrying.`
 
 type concierge struct {
 	itemStore      agents.ItemGetter
