@@ -191,9 +191,9 @@ func (s *store) VideoHandlerFunc() http.HandlerFunc {
 	}
 }
 
-// SubsHandlerFunc by stripping out the substitle streams using ffmpeg from video media found at
+// StreamHandlerFunc by stripping out the substitle streams using ffmpeg from video media found at
 // PathValue id. If there are multiple subtitle streams found, select one at random
-func (s *store) SubsListHandlerFunc() http.HandlerFunc {
+func (s *store) StreamListHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("vid")
 		if id == "" {
@@ -214,8 +214,8 @@ func (s *store) SubsListHandlerFunc() http.HandlerFunc {
 
 		info, err := s.subtitleManager.Find(item)
 		if err != nil {
-			ancli.Errf("jsonStore failed to handle SubsList when subStripper.extract, err: %v", err)
-			http.Error(w, "failed to extract subtitles from media", http.StatusInternalServerError)
+			ancli.Errf("jsonStore failed to handle StreamList when extracting streams, err: %v", err)
+			http.Error(w, "failed to extract streams from media", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -224,7 +224,7 @@ func (s *store) SubsListHandlerFunc() http.HandlerFunc {
 	}
 }
 
-func (s *store) SubsHandlerFunc() http.HandlerFunc {
+func (s *store) StreamHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vid := r.PathValue("vid")
 		if vid == "" {
@@ -232,9 +232,9 @@ func (s *store) SubsHandlerFunc() http.HandlerFunc {
 			return
 		}
 
-		sid := r.PathValue("sub_idx")
-		if sid == "" {
-			http.Error(w, "missing subtitle index", http.StatusBadRequest)
+		streamIdx := r.PathValue("stream_idx")
+		if streamIdx == "" {
+			http.Error(w, "missing stream index", http.StatusBadRequest)
 			return
 		}
 
@@ -246,14 +246,14 @@ func (s *store) SubsHandlerFunc() http.HandlerFunc {
 			return
 		}
 
-		subs, err := s.subtitleManager.Extract(cacheFile, sid)
+		streamData, err := s.subtitleManager.Extract(cacheFile, streamIdx)
 		if err != nil {
-			ancli.Errf("failed to extract subs: %v", err)
-			http.Error(w, "failed to extract subs", http.StatusInternalServerError)
+			ancli.Errf("failed to extract stream: %v", err)
+			http.Error(w, "failed to extract stream", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
-		http.ServeFile(w, r, subs)
+		http.ServeFile(w, r, streamData)
 	}
 }
 

@@ -60,11 +60,11 @@ func (m *mockStorage) ImageHandlerFunc() http.HandlerFunc {
 	return nil
 }
 
-func (m *mockStorage) SubsListHandlerFunc() http.HandlerFunc {
+func (m *mockStorage) StreamListHandlerFunc() http.HandlerFunc {
 	return nil
 }
 
-func (m *mockStorage) SubsHandlerFunc() http.HandlerFunc {
+func (m *mockStorage) StreamHandlerFunc() http.HandlerFunc {
 	return nil
 }
 

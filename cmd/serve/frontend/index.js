@@ -226,7 +226,6 @@ function loadSubtitles(id) {
       let hasAudio = false;
       let audioTrackIndex = 0;
 
-      console.log(JSON.stringify(data, null, " "))
       // Check if streams is array, sometimes it might be null if find returned empty
       if (data.streams) {
         for (const i of data.streams) {

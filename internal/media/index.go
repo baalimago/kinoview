@@ -32,8 +32,8 @@ type Storage interface {
 	ListHandlerFunc() http.HandlerFunc
 	VideoHandlerFunc() http.HandlerFunc
 	ImageHandlerFunc() http.HandlerFunc
-	SubsListHandlerFunc() http.HandlerFunc
-	SubsHandlerFunc() http.HandlerFunc
+	StreamListHandlerFunc() http.HandlerFunc
+	StreamHandlerFunc() http.HandlerFunc
 }
 
 type watcher interface {
@@ -313,8 +313,8 @@ func (i *Indexer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", i.store.ListHandlerFunc())
 	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
-	mux.HandleFunc("/subs/{vid}", i.store.SubsListHandlerFunc())
-	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.SubsHandlerFunc())
+	mux.HandleFunc("/subs/{vid}", i.store.StreamListHandlerFunc())
+	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.StreamHandlerFunc())
 	mux.HandleFunc("/image/{id}", i.store.ImageHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())

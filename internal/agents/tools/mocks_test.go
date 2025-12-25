@@ -47,7 +47,6 @@ type mockSubtitleManager struct {
 	mediaInfo     model.MediaInfo
 	extractedPath string
 	err           error
-	associated    bool
 }
 
 func (m *mockSubtitleManager) Find(item model.Item) (model.MediaInfo, error) {
@@ -56,11 +55,6 @@ func (m *mockSubtitleManager) Find(item model.Item) (model.MediaInfo, error) {
 
 func (m *mockSubtitleManager) Extract(item model.Item, streamIndex string) (string, error) {
 	return m.extractedPath, m.err
-}
-
-func (m *mockSubtitleManager) Associate(item model.Item, subtitlePath string) error {
-	m.associated = true
-	return m.err
 }
 
 type mockSubtitleSelector struct {

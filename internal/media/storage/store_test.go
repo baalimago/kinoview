@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path"
@@ -140,6 +141,97 @@ func TestJSONStore_Store(t *testing.T) {
 		got := s.cache[id].Metadata
 		testboil.FailTestIfDiff(t, string(*got), string(want))
 	})
+}
+
+type ffmpegSubsUtil struct {
+	mediaCache map[string]model.MediaInfo
+	subsCache  map[string]string
+}
+
+func (u *ffmpegSubsUtil) find(
+	item model.Item,
+) (model.MediaInfo, error) {
+	if info, ok := u.mediaCache[item.ID]; ok {
+		return info, nil
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		10*time.Second,
+	)
+	defer cancel()
+
+	args := []string{
+		item.Path,
+		"-v", "quiet",
+		"-print_format", "json",
+		"-show_streams",
+		"-select_streams", "s",
+	}
+
+	cmd := exec.CommandContext(ctx, "ffprobe", args...)
+	out, err := cmd.Output()
+	if err != nil {
+		return model.MediaInfo{},
+			fmt.Errorf(
+				"ffprobe failed: %w",
+				err,
+			)
+	}
+
+	var info model.MediaInfo
+	if err := json.Unmarshal(out, &info); err != nil {
+		return model.MediaInfo{},
+			fmt.Errorf(
+				"unmarshal failed: %w",
+				err,
+			)
+	}
+
+	u.mediaCache[item.ID] = info
+	return info, nil
+}
+
+func (u *ffmpegSubsUtil) extract(
+	item model.Item,
+	streamIndex string,
+) (string, error) {
+	if path, ok := u.subsCache[item.ID]; ok {
+		return path, nil
+	}
+
+	ctx, cancel := context.WithTimeout(
+		context.Background(),
+		30*time.Second,
+	)
+	defer cancel()
+
+	mapArg := "0:" + streamIndex
+	destPath := fmt.Sprintf(
+		"/tmp/%s_%s.vtt",
+		item.ID,
+		streamIndex,
+	)
+
+	args := []string{
+		"-y",
+		"-i", item.Path,
+		"-map", mapArg,
+		"-f", "webvtt",
+		destPath,
+	}
+
+	cmd := exec.CommandContext(ctx, "ffmpeg", args...)
+	if err := cmd.Run(); err != nil {
+		return "",
+			fmt.Errorf(
+				"ffmpeg extraction failed: %w",
+				err,
+			)
+	}
+
+	u.subsCache[item.ID] = destPath
+	return destPath, nil
 }
 
 func Test_streamMkvToMp4(t *testing.T) {
@@ -466,24 +558,12 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 
 func Test_newJSONStore_options(t *testing.T) {
 	t.Run("options pattern should work", func(t *testing.T) {
-		mockFinder := &mockSubtitleStreamFinder{}
-		mockExtractor := &mockSubtitleStreamExtractor{}
 		mockClassifier := &mockClassifier{}
 
 		s := NewStore(
 			WithStorePath(t.TempDir()),
-			WithSubtitleStreamFinder(mockFinder),
-			WithSubtitleStreamExtractor(mockExtractor),
 			WithClassifier(mockClassifier),
 		)
-
-		if s.subStreamFinder != mockFinder {
-			t.Fatal("subtitle stream finder should be the mock finder")
-		}
-
-		if s.subStreamExtractor != mockExtractor {
-			t.Fatal("subtitle stream extractor should be the mock extractor")
-		}
 
 		if s.classifier != mockClassifier {
 			t.Fatal("classifier should be the mock classifier")

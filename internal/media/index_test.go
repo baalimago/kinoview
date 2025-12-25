@@ -32,11 +32,11 @@ func (m *mockStore) VideoHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
-func (m *mockStore) SubsHandlerFunc() http.HandlerFunc {
+func (m *mockStore) StreamHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
-func (m *mockStore) SubsListHandlerFunc() http.HandlerFunc {
+func (m *mockStore) StreamListHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {}
 }
 

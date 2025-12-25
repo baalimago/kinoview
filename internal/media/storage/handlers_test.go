@@ -278,15 +278,15 @@ func (m *mockExtractor) extract(item model.Item, streamIndex string) (string, er
 	return "", fmt.Errorf("mocked failure")
 }
 
-func Test_store_SubsHandlerFunc(t *testing.T) {
+func Test_store_StreamHandlerFunc(t *testing.T) {
 	s := newTestStore(t)
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)
 		req.SetPathValue("vid", "1")
-		req.SetPathValue("sub_idx", "0")
+		req.SetPathValue("stream_idx", "0")
 		rr := httptest.NewRecorder()
-		handler := s.SubsHandlerFunc()
+		handler := s.StreamHandlerFunc()
 		handler.ServeHTTP(rr, req)
 		if rr.Result().StatusCode != http.StatusNotFound {
 			t.Errorf("expected 404 on nil cache, got %d", rr.Result().StatusCode)
@@ -297,7 +297,7 @@ func Test_store_SubsHandlerFunc(t *testing.T) {
 		s.cache = map[string]model.Item{}
 		req := httptest.NewRequest(http.MethodGet, "/subs", nil)
 		rr := httptest.NewRecorder()
-		handler := s.SubsHandlerFunc()
+		handler := s.StreamHandlerFunc()
 		handler.ServeHTTP(rr, req)
 		if rr.Result().StatusCode != http.StatusBadRequest {
 			t.Errorf("expected 400, got %d", rr.Result().StatusCode)
@@ -317,12 +317,11 @@ func Test_store_SubsHandlerFunc(t *testing.T) {
 
 		s.cache = map[string]model.Item{"1": {ID: "1", Path: "dummy"}}
 
-		s.subStreamExtractor = &mockExtractor{}
 		req := httptest.NewRequest(http.MethodGet, "/subs/1/0", nil)
 		req.SetPathValue("vid", "1")
-		req.SetPathValue("sub_idx", "0")
+		req.SetPathValue("stream_idx", "0")
 		rr := httptest.NewRecorder()
-		handler := s.SubsHandlerFunc()
+		handler := s.StreamHandlerFunc()
 		handler.ServeHTTP(rr, req)
 		if rr.Result().StatusCode != http.StatusInternalServerError {
 			t.Errorf("expected 500 on extractor fail, got %d", rr.Result().StatusCode)
@@ -330,7 +329,7 @@ func Test_store_SubsHandlerFunc(t *testing.T) {
 	})
 }
 
-func Test_store_SubsListHandlerFunc(t *testing.T) {
+func Test_store_StreamListHandlerFunc(t *testing.T) {
 	s := NewStore(WithStorePath(t.TempDir()))
 	s.cacheMu.Lock()
 	s.cache["withMime"] = model.Item{
@@ -348,7 +347,7 @@ func Test_store_SubsListHandlerFunc(t *testing.T) {
 	t.Run("missing vid path responds 400", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/", nil)
 		rr := httptest.NewRecorder()
-		s.SubsListHandlerFunc().ServeHTTP(rr, req)
+		s.StreamListHandlerFunc().ServeHTTP(rr, req)
 		testboil.FailTestIfDiff(t, rr.Result().StatusCode, http.StatusBadRequest)
 	})
 
@@ -356,7 +355,7 @@ func Test_store_SubsListHandlerFunc(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/subs/", nil)
 		req.SetPathValue("vid", "doesntExist")
 		rr := httptest.NewRecorder()
-		s.SubsListHandlerFunc().ServeHTTP(rr, req)
+		s.StreamListHandlerFunc().ServeHTTP(rr, req)
 		testboil.FailTestIfDiff(t, rr.Result().StatusCode, http.StatusNotFound)
 	})
 
@@ -364,7 +363,7 @@ func Test_store_SubsListHandlerFunc(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/subs/", nil)
 		req.SetPathValue("vid", "withOutMime")
 		rr := httptest.NewRecorder()
-		s.SubsListHandlerFunc().ServeHTTP(rr, req)
+		s.StreamListHandlerFunc().ServeHTTP(rr, req)
 		testboil.FailTestIfDiff(t, rr.Result().StatusCode, http.StatusNotFound)
 		bodyBytes, err := io.ReadAll(rr.Body)
 		testboil.FailTestIfDiff(t, err, nil)

@@ -31,8 +31,4 @@ func TestPreloadSubtitlesTool_Call(t *testing.T) {
 	if resp != expectedResp {
 		t.Errorf("expected response %q, got %q", expectedResp, resp)
 	}
-
-	if !sm.associated {
-		t.Errorf("expected subtitles to be associated")
-	}
 }
