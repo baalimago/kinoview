@@ -19,7 +19,7 @@ import (
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
 	"github.com/baalimago/kinoview/internal/media/storage"
-	"github.com/baalimago/kinoview/internal/media/subtitles"
+	"github.com/baalimago/kinoview/internal/media/stream"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
@@ -79,7 +79,7 @@ func (c *command) Setup(ctx context.Context) error {
 	////////////
 	// Butler setup
 	////////////
-	subsManager, err := subtitles.NewManager(subtitles.WithStoragePath(
+	subsManager, err := stream.NewManager(stream.WithStoragePath(
 		subsPath,
 	))
 	var b agents.Butler
@@ -138,7 +138,7 @@ func (c *command) Setup(ctx context.Context) error {
 		concierge.WithStoreDir(storePath),
 		concierge.WithCacheDir(cacheDir),
 		concierge.WithUserContextManager(userContextMgr),
-		concierge.WithModel("gpt-5.2"),
+		concierge.WithModel(*c.conciergeModel),
 	)
 	if err != nil {
 		ancli.Errf("failed to create concierge. His services will not be available: %v", err)

@@ -45,7 +45,7 @@ func (b *butler) preloadSubs(ctx context.Context,
 		selectedIdx = fmt.Sprintf("%d", idx)
 	}
 
-	_, err = b.subs.Extract(item, selectedIdx)
+	_, err = b.subs.ExtractSubtitles(item, selectedIdx)
 	if err != nil {
 		return fmt.Errorf("failed to extract subs for %s: %v",
 			item.Name, err)

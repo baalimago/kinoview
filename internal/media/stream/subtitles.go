@@ -1,4 +1,4 @@
-package subtitles
+package stream
 
 import (
 	"bytes"
@@ -46,8 +46,6 @@ func (d *defaultRunner) Output(ctx context.Context, name string, args ...string)
 	return out, nil
 }
 
-type SubtitleAssociation map[string]os.File
-
 type Manager struct {
 	storePath string
 	runner    CommandRunner
@@ -80,7 +78,7 @@ func NewManager(opts ...Option) (*Manager, error) {
 	defaultPath := "subtitles"
 	cfg, err := os.UserConfigDir()
 	if err == nil {
-		defaultPath = filepath.Join(cfg, "kinoview", "subtitles")
+		defaultPath = filepath.Join(cfg, "kinoview", "stream")
 	}
 
 	m := &Manager{
@@ -120,7 +118,6 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
-		"-select_streams", "s",
 	}
 
 	out, err := m.runner.Output(ctx, "ffprobe", args...)
@@ -142,7 +139,7 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 // Extract subtitles for a specific stream index to .vtt format.
 // Stores the result in the configured storePath.
 // If the file already exists, returns the path immediately.
-func (m *Manager) Extract(item model.Item, streamIndex string) (string, error) {
+func (m *Manager) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
 	// Unique filename based on Item ID and stream index
 	filename := fmt.Sprintf("%s_%s.vtt", item.ID, streamIndex)
 	destPath := filepath.Join(m.storePath, filename)

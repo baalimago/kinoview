@@ -246,7 +246,7 @@ func (s *store) StreamHandlerFunc() http.HandlerFunc {
 			return
 		}
 
-		streamData, err := s.subtitleManager.Extract(cacheFile, streamIdx)
+		streamData, err := s.subtitleManager.ExtractSubtitles(cacheFile, streamIdx)
 		if err != nil {
 			ancli.Errf("failed to extract stream: %v", err)
 			http.Error(w, "failed to extract stream", http.StatusInternalServerError)

@@ -140,7 +140,7 @@ function selectMedia(id) {
   mostRecentID = id;
   video.src = `/gallery/video/${id}`;
   video.style.display = "initial"
-  loadSubtitles(id);
+  loadStreams(id);
 }
 
 function constuctClientContext() {
@@ -193,8 +193,8 @@ function requestRecommendation() {
     });
 }
 
-function loadSubtitles(id) {
-  fetch(`/gallery/subs/${id}`)
+function loadStreams(id) {
+  fetch(`/gallery/streams/${id}`)
     .then(response => response.json())
     .then(data => {
       console.log(`Attempting to load streams for: ${id}`)
@@ -331,8 +331,8 @@ function selectSubtitle(id) {
     track.removeAttribute("src");
     if (debugSubs) debugSubs.value = "";
   } else {
-    console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
-    track.src = `/gallery/subs/${mostRecentID}/${id}`;
+    console.log(`Attempting to set subs to: /gallery/streams/${mostRecentID}/subs/${id}`)
+    track.src = `/gallery/streams/${mostRecentID}/subs/${id}`;
     // Sync debug selector keying off numeric stream index usually
     if (debugSubs) debugSubs.value = id;
   }

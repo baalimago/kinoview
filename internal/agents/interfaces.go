@@ -77,14 +77,14 @@ type SuggestionManager interface {
 	Add(model.Suggestion) error
 }
 
-// SubtitleManager which handles subtitle extraction and analysis
-type SubtitleManager interface {
+// StreamManager which handles subtitle extraction and analysis
+type StreamManager interface {
 	// Find subtitle information about some item
 	Find(item model.Item) (model.MediaInfo, error)
 
-	// Extract the subtitles, return string to path to the file where the subtitles are extracted. On subsequent
+	// ExtractSubtitles the subtitles, return string to path to the file where the subtitles are extracted. On subsequent
 	// calls, the subtitles will be checked from fle. As such, it's possible to preload subs
-	Extract(item model.Item, streamIndex string) (string, error)
+	ExtractSubtitles(item model.Item, streamIndex string) (string, error)
 }
 
 type SubtitleSelector interface {

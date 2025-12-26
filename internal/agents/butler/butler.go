@@ -20,7 +20,7 @@ import (
 
 type butler struct {
 	llm      text.FullResponse
-	subs     agents.SubtitleManager
+	subs     agents.StreamManager
 	selector agents.SubtitleSelector
 }
 
@@ -63,7 +63,7 @@ type suggestionResponse struct {
 }
 
 // New configured by models.Configurations and a Subtitler
-func New(c models.Configurations, subs agents.SubtitleManager) agents.Butler {
+func New(c models.Configurations, subs agents.StreamManager) agents.Butler {
 	c.SystemPrompt = pickerSystemPrompt
 	return &butler{
 		llm:      text.NewFullResponseQuerier(c),

@@ -12,11 +12,11 @@ import (
 
 type preloadSubtitlesTool struct {
 	itemGetter agents.ItemGetter
-	subMgr     agents.SubtitleManager
+	subMgr     agents.StreamManager
 	subSel     agents.SubtitleSelector
 }
 
-func NewPreloadSubtitlesTool(ig agents.ItemGetter, sm agents.SubtitleManager, ss agents.SubtitleSelector) (*preloadSubtitlesTool, error) {
+func NewPreloadSubtitlesTool(ig agents.ItemGetter, sm agents.StreamManager, ss agents.SubtitleSelector) (*preloadSubtitlesTool, error) {
 	if ig == nil {
 		return nil, errors.New("item getter can't be nil")
 	}
@@ -54,7 +54,7 @@ func (pst *preloadSubtitlesTool) Call(input models.Input) (string, error) {
 		return "", fmt.Errorf("failed to select subtitle stream: %w", err)
 	}
 
-	_, err = pst.subMgr.Extract(item, strconv.Itoa(streamIdx))
+	_, err = pst.subMgr.ExtractSubtitles(item, strconv.Itoa(streamIdx))
 	if err != nil {
 		return "", fmt.Errorf("failed to extract subtitles: %w", err)
 	}

@@ -29,7 +29,7 @@ type concierge struct {
 	itemLister     agents.ItemLister
 	metadataMgr    agents.MetadataManager
 	suggestionMgr  agents.SuggestionManager
-	subtitlesMgr   agents.SubtitleManager
+	subtitlesMgr   agents.StreamManager
 	subSelector    agents.SubtitleSelector
 	userContextMgr agents.UserContextManager
 
@@ -52,7 +52,7 @@ func WithSuggestionManager(m agents.SuggestionManager) ConciergeOption {
 	}
 }
 
-func WithSubtitleManager(m agents.SubtitleManager) ConciergeOption {
+func WithSubtitleManager(m agents.StreamManager) ConciergeOption {
 	return func(c *concierge) {
 		c.subtitlesMgr = m
 	}

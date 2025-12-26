@@ -28,7 +28,7 @@ func (m *mockSubtitleManager) Find(item model.Item) (model.MediaInfo, error) {
 	return model.MediaInfo{}, nil
 }
 
-func (m *mockSubtitleManager) Extract(item model.Item, streamIndex string) (string, error) {
+func (m *mockSubtitleManager) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
 	return "", nil
 }
 func (m *mockSubtitleManager) Associate(item model.Item, path string) error { return nil }

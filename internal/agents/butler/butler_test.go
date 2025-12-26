@@ -46,7 +46,7 @@ func (m *MockSubtitler) Find(item model.Item) (model.MediaInfo, error) {
 	return model.MediaInfo{}, nil
 }
 
-func (m *MockSubtitler) Extract(item model.Item, streamIndex string) (string, error) {
+func (m *MockSubtitler) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
 	if m.ExtractFunc != nil {
 		return m.ExtractFunc(item, streamIndex)
 	}

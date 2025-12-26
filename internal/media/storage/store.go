@@ -23,7 +23,7 @@ type store struct {
 	storePath       string
 	cacheMu         *sync.RWMutex
 	cache           map[string]model.Item
-	subtitleManager agents.SubtitleManager
+	subtitleManager agents.StreamManager
 
 	classifier            agents.Classifier
 	classificationWorkers int
@@ -37,7 +37,7 @@ type store struct {
 
 type StoreOption func(*store)
 
-func WithSubtitlesManager(subsM agents.SubtitleManager) StoreOption {
+func WithSubtitlesManager(subsM agents.StreamManager) StoreOption {
 	return func(s *store) {
 		s.subtitleManager = subsM
 	}

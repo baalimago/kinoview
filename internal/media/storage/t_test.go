@@ -74,7 +74,7 @@ type mockSubtitleManager struct {
 	shouldReturn model.MediaInfo
 }
 
-func (m *mockSubtitleManager) Extract(item model.Item, streamIndex string) (string, error) {
+func (m *mockSubtitleManager) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
 	if m.shouldFail {
 		return "", errors.New("whopsidops")
 	}

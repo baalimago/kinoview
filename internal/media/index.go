@@ -211,6 +211,8 @@ func (i *Indexer) Setup(ctx context.Context) error {
 		conciergeSetupErr := i.concierge.Setup(ctx)
 		if conciergeSetupErr != nil {
 			ancli.Errf("failed to setup concierge: %v", conciergeSetupErr)
+			// Reset concirege as its broken, this is a flag to not attempt to use it downstream
+			i.concierge = nil
 		}
 	}
 
@@ -313,8 +315,8 @@ func (i *Indexer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", i.store.ListHandlerFunc())
 	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
-	mux.HandleFunc("/subs/{vid}", i.store.StreamListHandlerFunc())
-	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.StreamHandlerFunc())
+	mux.HandleFunc("/streams/{vid}", i.store.StreamListHandlerFunc())
+	mux.HandleFunc("/streams/{vid}/subs/{sub_idx}", i.store.StreamHandlerFunc())
 	mux.HandleFunc("/image/{id}", i.store.ImageHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())

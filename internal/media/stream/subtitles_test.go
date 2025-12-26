@@ -1,4 +1,4 @@
-package subtitles
+package stream
 
 import (
 	"context"
@@ -132,7 +132,7 @@ func TestFind(t *testing.T) {
 	}
 }
 
-func TestExtract(t *testing.T) {
+func TestExtractSubtitles(t *testing.T) {
 	tmp := t.TempDir()
 	mr := &mockRunner{
 		runErrMap: make(map[string]error),
@@ -151,10 +151,10 @@ func TestExtract(t *testing.T) {
 		return nil
 	}
 
-	// 1. Successful Extraction
-	path, err := m.Extract(item, streamIdx)
+	// 1. Successful ExtractSubtitlesion
+	path, err := m.ExtractSubtitles(item, streamIdx)
 	if err != nil {
-		t.Fatalf("Extract failed: %v", err)
+		t.Fatalf("ExtractSubtitles failed: %v", err)
 	}
 	expectedPath := filepath.Join(tmp, "extract-id_2.vtt")
 	if path != expectedPath {
@@ -167,19 +167,19 @@ func TestExtract(t *testing.T) {
 	// 2. Existence Check (Disk Cache)
 	// Make mock runner fail, extract should succeed because file exists
 	mr.runErrMap["ffmpeg"] = errors.New("should not run")
-	path2, err := m.Extract(item, streamIdx)
+	path2, err := m.ExtractSubtitles(item, streamIdx)
 	if err != nil {
-		t.Fatalf("ExtractFromCache failed: %v", err)
+		t.Fatalf("ExtractSubtitlesFromCache failed: %v", err)
 	}
 	if path2 != expectedPath {
 		t.Errorf("got path %q", path2)
 	}
 
-	// 3. Extraction Error
+	// 3. ExtractSubtitlesion Error
 	itemFail := model.Item{ID: "fail-id", Path: "fail.mp4"}
 	mr.runCallback = nil // invalidates callback
 	mr.runErrMap["ffmpeg"] = errors.New("process crash")
-	_, err = m.Extract(itemFail, "0")
+	_, err = m.ExtractSubtitles(itemFail, "0")
 	if err == nil {
 		t.Fatal("expected error, got nil")
 	}
