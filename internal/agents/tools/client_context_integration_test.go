@@ -32,7 +32,6 @@ func TestUserContextIntegration_BasicRetrieval(t *testing.T) {
 				PlayedForSec: "1:30:45",
 			},
 		},
-		TimeOfDay:      "evening",
 		LastPlayedName: "Movie A",
 	}
 
@@ -92,7 +91,6 @@ func TestUserContextIntegration_Pagination(t *testing.T) {
 					ViewedAt: baseTime.Add(time.Duration(i) * time.Hour),
 				},
 			},
-			TimeOfDay: "evening",
 		}
 	}
 
@@ -140,14 +138,12 @@ func TestUserContextIntegration_MostRecentMode(t *testing.T) {
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Old Movie", ViewedAt: time.Now().Add(-24 * time.Hour)},
 		},
-		TimeOfDay: "morning",
 	}
 
 	ctx2 := model.ClientContext{
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Recent Movie", ViewedAt: time.Now().Add(-1 * time.Hour)},
 		},
-		TimeOfDay: "evening",
 	}
 
 	mgr := &mockUserContextManager{
@@ -176,14 +172,12 @@ func TestUserContextIntegration_SessionsMode(t *testing.T) {
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Movie 1", ViewedAt: time.Now().Add(-2 * time.Hour)},
 		},
-		TimeOfDay: "evening",
 	}
 
 	ctx2 := model.ClientContext{
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Movie 2", ViewedAt: time.Now().Add(-1 * time.Hour)},
 		},
-		TimeOfDay: "evening",
 	}
 
 	mgr := &mockUserContextManager{
@@ -213,14 +207,12 @@ func TestUserContextIntegration_ViewedMode(t *testing.T) {
 			{Name: "Action Movie", ViewedAt: time.Now().Add(-2 * time.Hour)},
 			{Name: "Drama Movie", ViewedAt: time.Now().Add(-1 * time.Hour)},
 		},
-		TimeOfDay: "evening",
 	}
 
 	ctx2 := model.ClientContext{
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Comedy Movie", ViewedAt: time.Now()},
 		},
-		TimeOfDay: "night",
 	}
 
 	mgr := &mockUserContextManager{
@@ -246,7 +238,7 @@ func TestUserContextIntegration_ViewedMode(t *testing.T) {
 func TestUserContextIntegration_InvalidMode(t *testing.T) {
 	mgr := &mockUserContextManager{
 		contexts: []model.ClientContext{
-			{TimeOfDay: "evening"},
+			{},
 		},
 	}
 
@@ -270,7 +262,6 @@ func TestUserContextIntegration_DefaultMode(t *testing.T) {
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Movie", ViewedAt: time.Now()},
 		},
-		TimeOfDay: "evening",
 	}
 
 	mgr := &mockUserContextManager{
@@ -301,7 +292,6 @@ func TestUserContextIntegration_DefaultLimit(t *testing.T) {
 			ViewingHistory: []model.ViewMetadata{
 				{Name: "Movie " + string(rune('A'+i)), ViewedAt: time.Now()},
 			},
-			TimeOfDay: "evening",
 		}
 	}
 
@@ -336,7 +326,6 @@ func TestUserContextIntegration_ReflectionFieldDiscovery(t *testing.T) {
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Test Movie", ViewedAt: time.Now()},
 		},
-		TimeOfDay:      "evening",
 		LastPlayedName: "Test Movie",
 	}
 
@@ -365,21 +354,18 @@ func TestUserContextIntegration_MultipleContextsOrdering(t *testing.T) {
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Movie 1", ViewedAt: time.Now().Add(-3 * time.Hour)},
 		},
-		TimeOfDay: "morning",
 	}
 
 	ctx2 := model.ClientContext{
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Movie 2", ViewedAt: time.Now().Add(-1 * time.Hour)},
 		},
-		TimeOfDay: "afternoon",
 	}
 
 	ctx3 := model.ClientContext{
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Movie 3", ViewedAt: time.Now()},
 		},
-		TimeOfDay: "evening",
 	}
 
 	mgr := &mockUserContextManager{
@@ -409,7 +395,6 @@ func TestUserContextIntegration_ViewingHistoryWithMultipleMovies(t *testing.T) {
 			{Name: "Movie B", ViewedAt: time.Now().Add(-2 * time.Hour), PlayedForSec: "2:00:00"},
 			{Name: "Movie C", ViewedAt: time.Now().Add(-1 * time.Hour), PlayedForSec: "1:45:00"},
 		},
-		TimeOfDay:      "evening",
 		LastPlayedName: "Movie C",
 	}
 
@@ -441,7 +426,6 @@ func TestUserContextIntegration_LargeLimitValue(t *testing.T) {
 			ViewingHistory: []model.ViewMetadata{
 				{Name: "Movie " + string(rune('A'+i)), ViewedAt: time.Now()},
 			},
-			TimeOfDay: "evening",
 		}
 	}
 
@@ -468,7 +452,6 @@ func TestUserContextIntegration_NegativeLimitAndOffset(t *testing.T) {
 		ViewingHistory: []model.ViewMetadata{
 			{Name: "Movie", ViewedAt: time.Now()},
 		},
-		TimeOfDay: "evening",
 	}
 
 	mgr := &mockUserContextManager{

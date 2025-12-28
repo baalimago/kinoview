@@ -80,7 +80,7 @@ func TestClientContextUnmarshalJSON_RFC3339Format(t *testing.T) {
 				"lastPlayedName": ""
 			}`,
 			expectErr: true,
-			validate: nil,
+			validate:  nil,
 		},
 		{
 			name: "With viewing history and valid startTime",
@@ -192,7 +192,7 @@ func TestViewMetadataUnmarshalJSON_RFC3339Format(t *testing.T) {
 				"playedFor": "100"
 			}`,
 			expectErr: true,
-			validate: nil,
+			validate:  nil,
 		},
 	}
 
@@ -227,7 +227,6 @@ func TestClientContextRoundTrip(t *testing.T) {
 				PlayedForSec: "300",
 			},
 		},
-		TimeOfDay:      "morning",
 		LastPlayedName: "movie1",
 	}
 

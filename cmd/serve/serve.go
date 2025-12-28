@@ -61,6 +61,7 @@ func Command() *command {
 		configDir:           kinoviewConfigDir,
 		classificationModel: &defaultModel,
 		recommenderModel:    &defaultModel,
+		conciergeModel:      &defaultModel,
 	}
 }
 

@@ -2,6 +2,7 @@ package concierge
 
 import (
 	"errors"
+	"time"
 
 	"github.com/baalimago/clai/pkg/agent"
 	"github.com/baalimago/clai/pkg/text/models"
@@ -31,11 +32,12 @@ type concierge struct {
 	suggestionMgr  agents.SuggestionManager
 	subtitlesMgr   agents.StreamManager
 	subSelector    agents.SubtitleSelector
-	userContextMgr agents.UserContextManager
+	userContextMgr agents.ClientContextManager
 
 	storeDir string
 
 	model     string
+	interval  time.Duration
 	configDir string
 	cacheDir  string
 }
@@ -97,7 +99,13 @@ func WithCacheDir(dir string) ConciergeOption {
 	}
 }
 
-func WithUserContextManager(ucm agents.UserContextManager) ConciergeOption {
+func WithInterval(d time.Duration) ConciergeOption {
+	return func(c *concierge) {
+		c.interval = d
+	}
+}
+
+func WithUserContextManager(ucm agents.ClientContextManager) ConciergeOption {
 	return func(c *concierge) {
 		c.userContextMgr = ucm
 	}
@@ -119,7 +127,9 @@ func WithModel(m string) ConciergeOption {
 // 7. MediaList
 // 8. MediaStats
 func New(opts ...ConciergeOption) (agents.Concierge, error) {
-	c := concierge{}
+	c := concierge{
+		interval: 6 * time.Hour,
+	}
 	for _, o := range opts {
 		o(&c)
 	}

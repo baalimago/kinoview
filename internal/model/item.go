@@ -73,8 +73,12 @@ type ClientContext struct {
 	SessionID      string         `json:"sessionId"`
 	StartTime      time.Time      `json:"startTime"`
 	ViewingHistory []ViewMetadata `json:"viewingHistory"`
-	TimeOfDay      string         `json:"timeOfDay"`
 	LastPlayedName string         `json:"lastPlayedName"`
+}
+
+type ClientContextDelta struct {
+	SessionID      string         `json:"sessionId"`
+	ViewingHistory []ViewMetadata `json:"viewingHistory"`
 }
 
 // UnmarshalJSON handles JSON unmarshaling for ClientContext, supporting RFC3339 format

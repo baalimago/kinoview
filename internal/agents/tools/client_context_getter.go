@@ -3,21 +3,21 @@ package tools
 import (
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
+	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
 type userContextGetter struct {
-	mgr agents.UserContextManager
+	mgr agents.ClientContextManager
 }
 
-func NewUserContextGetter(mgr agents.UserContextManager) (*userContextGetter, error) {
+func NewUserContextGetter(mgr agents.ClientContextManager) (*userContextGetter, error) {
 	if mgr == nil {
 		return nil, errors.New("user context manager can't be nil")
 	}
@@ -53,13 +53,13 @@ func (t *userContextGetter) Call(input models.Input) (string, error) {
 
 	// Try to order by some timestamp if present; otherwise keep stable order.
 	sort.SliceStable(contexts, func(i, j int) bool {
-		return ctxTime(contexts[i]).After(ctxTime(contexts[j]))
+		return contexts[i].StartTime.After(contexts[j].StartTime)
 	})
 
 	if sessionID != "" {
 		filtered := make([]model.ClientContext, 0, len(contexts))
 		for _, c := range contexts {
-			if ctxSessionID(c) == sessionID {
+			if c.SessionID == sessionID {
 				filtered = append(filtered, c)
 			}
 		}
@@ -79,24 +79,34 @@ func (t *userContextGetter) Call(input models.Input) (string, error) {
 	}
 	contexts = contexts[:limit]
 
+	ret := ""
 	switch mode {
 	case "most_recent":
-		return renderContexts(contexts[:1], true), nil
+		ret = renderContexts(contexts[:1], true)
 	case "sessions":
-		return renderSessions(contexts), nil
+		ret = renderSessions(contexts)
 	case "viewed":
-		return renderViewed(contexts), nil
+		ret = renderViewed(contexts)
 	case "summary":
-		return renderContexts(contexts, false), nil
+		ret = renderContexts(contexts, false)
 	default:
 		return "unknown mode; valid: most_recent, sessions, viewed, summary", nil
 	}
+	ancli.Okf("returning:\n%v", ret)
+	return ret, nil
 }
+
+const desc = `Inspect recorded user contexts: recent context, session timestamps, and what was viewed during sessions. Use options to return only what you need.
+Mode explanation:
+	* sessions: Show session timestamps and event counts
+	* most_recent: Show the most recent context entry
+	* viewed: Show what was viewed per session
+	* summary: Show recent context entries (default)`
 
 func (t *userContextGetter) Specification() models.Specification {
 	return models.Specification{
 		Name:        "user_context_getter",
-		Description: "Inspect recorded user contexts: recent context, session timestamps, and what was viewed during sessions. Use options to return only what you need.",
+		Description: desc,
 		Inputs: &models.InputSchema{
 			Type:     "object",
 			Required: make([]string, 0),
@@ -128,7 +138,10 @@ func renderContexts(contexts []model.ClientContext, detailed bool) string {
 		if i > 0 {
 			b.WriteString("\n")
 		}
-		b.WriteString(fmt.Sprintf("- session_id=%s, time=%s\n", safe(ctxSessionID(c)), ctxTime(c).Format(time.RFC3339)))
+		b.WriteString(fmt.Sprintf("- session_id=%s, time=%s, am viewed: %v\n",
+			c.SessionID,
+			c.StartTime.Format(time.RFC3339),
+			len(c.ViewingHistory)))
 		if detailed {
 			b.WriteString(fmt.Sprintf("  viewed: %s\n", strings.Join(ctxViewed(c), ", ")))
 		}
@@ -146,11 +159,11 @@ func renderSessions(contexts []model.ClientContext) string {
 	}
 	m := map[string]*sess{}
 	for _, c := range contexts {
-		id := ctxSessionID(c)
+		id := c.SessionID
 		if id == "" {
 			id = "<unknown>"
 		}
-		ts := ctxTime(c)
+		ts := c.StartTime
 		s := m[id]
 		if s == nil {
 			s = &sess{id: id, start: ts, end: ts, count: 0}
@@ -188,7 +201,7 @@ func renderViewed(contexts []model.ClientContext) string {
 	// Group by session id -> set of viewed ids/names
 	m := map[string]map[string]struct{}{}
 	for _, c := range contexts {
-		id := ctxSessionID(c)
+		id := c.SessionID
 		if id == "" {
 			id = "<unknown>"
 		}
@@ -224,117 +237,10 @@ func renderViewed(contexts []model.ClientContext) string {
 	return strings.TrimSpace(b.String())
 }
 
-func safe(s string) string {
-	if s == "" {
-		return "<unknown>"
-	}
-	return s
-}
-
-// The user context model may evolve; use defensive reflective discovery of fields.
-// We only use stdlib; no json tags assumptions.
-
-func ctxSessionID(c model.ClientContext) string {
-	// Common field names
-	if v, ok := getStringField(c, "SessionID"); ok {
-		return v
-	}
-	if v, ok := getStringField(c, "SessionId"); ok {
-		return v
-	}
-	if v, ok := getStringField(c, "ID"); ok {
-		return v
-	}
-	return ""
-}
-
 func ctxViewed(c model.ClientContext) []string {
-	// Try common slice fields
-	if v, ok := getStringSliceField(c, "Viewed"); ok {
-		return v
+	ret := make([]string, 0)
+	for _, vh := range c.ViewingHistory {
+		ret = append(ret, vh.Name)
 	}
-	if v, ok := getStringSliceField(c, "ViewedIDs"); ok {
-		return v
-	}
-	if v, ok := getStringSliceField(c, "ViewedItems"); ok {
-		return v
-	}
-	if v, ok := getStringSliceField(c, "Items"); ok {
-		return v
-	}
-	return nil
-}
-
-func ctxTime(c model.ClientContext) time.Time {
-	if v, ok := getTimeField(c, "Time"); ok {
-		return v
-	}
-	if v, ok := getTimeField(c, "Timestamp"); ok {
-		return v
-	}
-	if v, ok := getTimeField(c, "CreatedAt"); ok {
-		return v
-	}
-	if v, ok := getTimeField(c, "UpdatedAt"); ok {
-		return v
-	}
-	// Zero if unknown
-	return time.Time{}
-}
-
-// reflection helpers
-
-func getStringField(v any, name string) (string, bool) {
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if !rv.IsValid() || rv.Kind() != reflect.Struct {
-		return "", false
-	}
-	f := rv.FieldByName(name)
-	if !f.IsValid() || f.Kind() != reflect.String {
-		return "", false
-	}
-	return f.String(), true
-}
-
-func getStringSliceField(v any, name string) ([]string, bool) {
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if !rv.IsValid() || rv.Kind() != reflect.Struct {
-		return nil, false
-	}
-	f := rv.FieldByName(name)
-	if !f.IsValid() || f.Kind() != reflect.Slice {
-		return nil, false
-	}
-	if f.Type().Elem().Kind() != reflect.String {
-		return nil, false
-	}
-	out := make([]string, f.Len())
-	for i := 0; i < f.Len(); i++ {
-		out[i] = f.Index(i).String()
-	}
-	return out, true
-}
-
-func getTimeField(v any, name string) (time.Time, bool) {
-	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Pointer {
-		rv = rv.Elem()
-	}
-	if !rv.IsValid() || rv.Kind() != reflect.Struct {
-		return time.Time{}, false
-	}
-	f := rv.FieldByName(name)
-	if !f.IsValid() {
-		return time.Time{}, false
-	}
-	if f.Type() == reflect.TypeOf(time.Time{}) {
-		return f.Interface().(time.Time), true
-	}
-	return time.Time{}, false
+	return ret
 }

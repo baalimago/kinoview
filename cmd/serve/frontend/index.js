@@ -156,7 +156,6 @@ function constuctClientContext() {
     }
   )
   return {
-    "timeOfDay": new Date().toISOString(),
     "viewingHistory": viewingHistory,
   }
 }

@@ -77,7 +77,7 @@ type Indexer struct {
 	butler      agents.Butler
 	concierge   agents.Concierge
 
-	userContextMgr agents.UserContextManager
+	clientContextMgr agents.ClientContextManager
 
 	suggestions *suggestions.Manager
 
@@ -121,6 +121,12 @@ func WithConcierge(c agents.Concierge) IndexerOption {
 func WithSuggestionsManager(s *suggestions.Manager) IndexerOption {
 	return func(i *Indexer) {
 		i.suggestions = s
+	}
+}
+
+func WithClientContextManager(m agents.ClientContextManager) IndexerOption {
+	return func(i *Indexer) {
+		i.clientContextMgr = m
 	}
 }
 

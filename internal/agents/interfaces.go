@@ -92,8 +92,8 @@ type SubtitleSelector interface {
 	Select(ctx context.Context, streams []model.Stream) (int, error)
 }
 
-// UserContextManager manages the user context and allows
-type UserContextManager interface {
+// ClientContextManager manages the user context and allows
+type ClientContextManager interface {
 	// AllClientContexts returns a snapshot of all client contexts for every session
 	AllClientContexts() []model.ClientContext
 

@@ -6,11 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"sync"
-
+	"github.com/baalimago/kinoview/internal/media/suggestions"
 	"github.com/baalimago/kinoview/internal/model"
 	"golang.org/x/net/websocket"
 )
@@ -62,18 +62,18 @@ func (m *mockUserContextMgr) waitForAtLeast(n int, timeout time.Duration) bool {
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
 	for {
-	m.mu.Lock()
-	l := len(m.store)
-	m.mu.Unlock()
-	if l >= n {
-	return true
-	}
-	select {
-	case <-m.ch:
-		// try again
-	case <-deadline.C:
-		return false
-	}
+		m.mu.Lock()
+		l := len(m.store)
+		m.mu.Unlock()
+		if l >= n {
+			return true
+		}
+		select {
+		case <-m.ch:
+			// try again
+		case <-deadline.C:
+			return false
+		}
 	}
 }
 
@@ -87,7 +87,11 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		recs: []model.Suggestion{expectedRec},
 	}
 	ucm := newMockUserContextMgr()
-	idx, _ := NewIndexer(WithButler(butler), WithUserContextManager(ucm))
+	sugMgr, err := suggestions.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := NewIndexer(WithButler(butler), WithClientContextManager(ucm), WithSuggestionsManager(sugMgr))
 	// Need to initialize store to avoid nil pointer in Snapshot called by disconnect
 	idx.store = &mockStore{
 		items: []model.Item{},
@@ -107,9 +111,7 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	}
 
 	// Send context
-	ctx := model.ClientContext{
-		TimeOfDay: "Evening",
-	}
+	ctx := model.ClientContext{}
 	evt := model.Event[model.ClientContext]{
 		Type:    model.ClientContextEvent,
 		Created: time.Now(),
@@ -124,13 +126,6 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Fatalf("timeout waiting for stored context")
 	}
 
-	// Verify context stored
-	all := ucm.AllClientContexts()
-	got := all[len(all)-1]
-	if got.TimeOfDay != "Evening" {
-		t.Errorf("Want Evening, got %s", got.TimeOfDay)
-	}
-
 	// Close connection to trigger butler
 	ws.Close()
 
@@ -140,10 +135,6 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	if !butler.called {
 		t.Error("Butler was not called after disconnect")
 	}
-	if butler.ctx.TimeOfDay != "Evening" {
-		t.Errorf("Butler got wrong context: %v", butler.ctx)
-	}
-
 	// Now check if suggestions are available via HTTP
 	resp, err := http.Get(server.URL + "/suggestions")
 	if err != nil {

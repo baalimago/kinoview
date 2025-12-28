@@ -69,11 +69,11 @@ func (i *Indexer) handleDisconnect() {
 	if i.butler == nil {
 		return
 	}
-	if i.userContextMgr == nil {
+	if i.clientContextMgr == nil {
 		ancli.Warnf("user context manager not set; skipping butler suggestions")
 		return
 	}
-	contexts := i.userContextMgr.AllClientContexts()
+	contexts := i.clientContextMgr.AllClientContexts()
 	var clientCtx model.ClientContext
 	if len(contexts) > 0 {
 		clientCtx = contexts[len(contexts)-1]

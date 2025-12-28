@@ -156,7 +156,7 @@ func TestRecommendHandler_Success(t *testing.T) {
 	if got.ID != "2" {
 		t.Fatalf("got id %q, want %q", got.ID, "2")
 	}
-	wantReq := "{\n \"request\": \"watch drama\",\n \"context\": {\n  \"sessionId\": \"\",\n  \"startTime\": \"0001-01-01T00:00:00Z\",\n  \"viewingHistory\": null,\n  \"timeOfDay\": \"\",\n  \"lastPlayedName\": \"\"\n }\n}"
+	wantReq := "{\n \"request\": \"watch drama\",\n \"context\": {\n  \"sessionId\": \"\",\n  \"startTime\": \"0001-01-01T00:00:00Z\",\n  \"viewingHistory\": null,\n  \"lastPlayedName\": \"\"\n }\n}"
 	if strings.TrimSpace(rec.lastReq) != wantReq {
 		t.Fatalf("\ngot:  %q\nwant: %q", rec.lastReq, wantReq)
 	}

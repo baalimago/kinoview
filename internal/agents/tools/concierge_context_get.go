@@ -161,7 +161,7 @@ func renderConciergeNotes(notes []conciergeNote, includeBody bool) string {
 		if at.IsZero() {
 			at = time.Time{}
 		}
-		b.WriteString(fmt.Sprintf("- id=%s, time=%s\n", safe(n.ID), at.Format(time.RFC3339)))
+		b.WriteString(fmt.Sprintf("- id=%s, time=%s\n", n.ID, at.Format(time.RFC3339)))
 		if includeBody {
 			b.WriteString(fmt.Sprintf("  note: %s\n", n.Note))
 		}

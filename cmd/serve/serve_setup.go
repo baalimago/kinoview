@@ -157,7 +157,7 @@ func (c *command) Setup(ctx context.Context) error {
 		// butler may be nil here, intentionally, if subsManager isnt properly setup
 		media.WithButler(b),
 		media.WithConcierge(concidonk),
-		media.WithUserContextManager(userContextMgr),
+		media.WithClientContextManager(userContextMgr),
 	)
 	if err != nil {
 		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)
