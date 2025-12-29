@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -51,6 +52,8 @@ type Manager struct {
 	storePath string
 	runner    CommandRunner
 
+	debug bool
+
 	// mediaCache caches the ffprobe results to avoid repeated scanning
 	mediaCache map[string]model.MediaInfo
 	mediaMu    sync.RWMutex
@@ -86,6 +89,10 @@ func NewManager(opts ...Option) (*Manager, error) {
 		storePath:  defaultPath,
 		runner:     &defaultRunner{},
 		mediaCache: make(map[string]model.MediaInfo),
+	}
+
+	if misc.Truthy(os.Getenv("DEBUG")) || misc.Truthy(os.Getenv("DEBUG_SUBS")) {
+		m.debug = true
 	}
 
 	for _, opt := range opts {
@@ -175,11 +182,16 @@ func (m *Manager) ExtractSubtitles(item model.Item, streamIndex string) (string,
 	}
 
 	start := time.Now()
-	ancli.Noticef("Extracting subtitle %s for %s. Command:\nffmpeg %v", streamIndex, item.Name, strings.Join(args, " "))
+
+	if m.debug {
+		ancli.Noticef("Extracting subtitle %s for %s. Command:\nffmpeg %v", streamIndex, item.Name, strings.Join(args, " "))
+	}
 	if err := m.runner.Run(ctx, "ffmpeg", args...); err != nil {
 		return "", fmt.Errorf("ffmpeg extraction failed: %w", err)
 	}
 
-	ancli.Okf("Extracted subtitle %s for %s in %v", streamIndex, item.Name, time.Since(start))
+	if m.debug {
+		ancli.Okf("Extracted subtitle %s for %s in %v", streamIndex, item.Name, time.Since(start))
+	}
 	return destPath, nil
 }
