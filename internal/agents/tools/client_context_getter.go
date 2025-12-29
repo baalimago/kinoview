@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
-	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -92,7 +91,6 @@ func (t *userContextGetter) Call(input models.Input) (string, error) {
 	default:
 		return "unknown mode; valid: most_recent, sessions, viewed, summary", nil
 	}
-	ancli.Okf("returning:\n%v", ret)
 	return ret, nil
 }
 
