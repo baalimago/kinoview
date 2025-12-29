@@ -25,7 +25,7 @@ type CommandRunner interface {
 
 type defaultRunner struct{}
 
-func (d *defaultRunner) Run(ctx context.Context, name string, args ...string) error {
+func (d defaultRunner) Run(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	// Capture stderr for debugging/logging, similar to original implementation
 	var stderr bytes.Buffer
@@ -37,7 +37,7 @@ func (d *defaultRunner) Run(ctx context.Context, name string, args ...string) er
 	return nil
 }
 
-func (d *defaultRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+func (d defaultRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -87,7 +87,7 @@ func NewManager(opts ...Option) (*Manager, error) {
 
 	m := &Manager{
 		storePath:  defaultPath,
-		runner:     &defaultRunner{},
+		runner:     defaultRunner{},
 		mediaCache: make(map[string]model.MediaInfo),
 	}
 
@@ -168,7 +168,7 @@ func (m *Manager) ExtractSubtitles(item model.Item, streamIndex string) (string,
 		return destPath, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	// ffmpeg -y -i <input> -map 0:<stream> -f webvtt <output>
