@@ -228,12 +228,14 @@ func (s *store) StreamHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vid := r.PathValue("vid")
 		if vid == "" {
+			ancli.Errf("missing video ID")
 			http.Error(w, "missing video id", http.StatusBadRequest)
 			return
 		}
 
 		streamIdx := r.PathValue("stream_idx")
 		if streamIdx == "" {
+			ancli.Errf("missing stream index url param")
 			http.Error(w, "missing stream index", http.StatusBadRequest)
 			return
 		}
@@ -242,6 +244,7 @@ func (s *store) StreamHandlerFunc() http.HandlerFunc {
 		cacheFile, exists := s.cache[vid]
 		s.cacheMu.RUnlock()
 		if !exists {
+			ancli.Errf("cache miss for: %v", vid)
 			http.Error(w, fmt.Sprintf("cache miss for: '%v'", vid), http.StatusNotFound)
 			return
 		}

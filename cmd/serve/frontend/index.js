@@ -330,8 +330,8 @@ function selectSubtitle(id) {
     track.removeAttribute("src");
     if (debugSubs) debugSubs.value = "";
   } else {
-    console.log(`Attempting to set subs to: /gallery/streams/${mostRecentID}/subs/${id}`)
-    track.src = `/gallery/streams/${mostRecentID}/subs/${id}`;
+    console.log(`Attempting to set subs to: /gallery/streams/${mostRecentID}/stream/${id}`)
+    track.src = `/gallery/streams/${mostRecentID}/stream/${id}`;
     // Sync debug selector keying off numeric stream index usually
     if (debugSubs) debugSubs.value = id;
   }

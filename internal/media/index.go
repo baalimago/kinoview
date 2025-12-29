@@ -322,7 +322,7 @@ func (i *Indexer) Handler() http.Handler {
 	mux.Handle("/", i.store.ListHandlerFunc())
 	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
 	mux.HandleFunc("/streams/{vid}", i.store.StreamListHandlerFunc())
-	mux.HandleFunc("/streams/{vid}/subs/{stream_idx}", i.store.StreamHandlerFunc())
+	mux.HandleFunc("/streams/{vid}/stream/{stream_idx}", i.store.StreamHandlerFunc())
 	mux.HandleFunc("/image/{id}", i.store.ImageHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())
