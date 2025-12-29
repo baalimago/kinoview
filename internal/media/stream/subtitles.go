@@ -174,6 +174,7 @@ func (m *Manager) ExtractSubtitles(item model.Item, streamIndex string) (string,
 	}
 
 	start := time.Now()
+	ancli.Noticef("Extracted subtitle %s for %s", streamIndex, item.Name)
 	if err := m.runner.Run(ctx, "ffmpeg", args...); err != nil {
 		return "", fmt.Errorf("ffmpeg extraction failed: %w", err)
 	}

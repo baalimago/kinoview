@@ -73,8 +73,7 @@ func (b *butler) prepSuggestion(ctx context.Context,
 	}
 	err = b.preloadSubs(ctx, item, &rec)
 	if err != nil {
-		return rec, fmt.Errorf("failed to preloadSubs: %w",
-			err)
+		return rec, fmt.Errorf("failed to preloadSubs: %w", err)
 	}
 	return rec, nil
 }
