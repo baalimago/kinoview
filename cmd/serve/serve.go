@@ -37,8 +37,8 @@ type command struct {
 	tlsCertPath  *string
 	tlsKeyPath   *string
 
-	generateMetadata    *bool
 	classificationModel *string
+	butlerModel         *string
 	recommenderModel    *string
 	conciergeModel      *string
 }
@@ -55,12 +55,13 @@ func Command() *command {
 		return nil
 	}
 
-	defaultModel := "gpt-5"
+	defaultModel := ""
 	return &command{
 		binPath:             r,
 		configDir:           kinoviewConfigDir,
 		classificationModel: &defaultModel,
 		recommenderModel:    &defaultModel,
+		butlerModel:         &defaultModel,
 		conciergeModel:      &defaultModel,
 	}
 }
@@ -156,10 +157,10 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.tlsCertPath = fs.String("tlsCertPath", "", "set to a path to a cert, requires tlsKeyPath to be set")
 	c.tlsKeyPath = fs.String("tlsKeyPath", "", "set to a path to a key, requires tlsCertPath to be set")
 
-	c.generateMetadata = fs.Bool("generateMetadata", true, "set to true if you want LLM generated metadata using clai")
-	c.classificationModel = fs.String("classificationModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
-	c.recommenderModel = fs.String("recommenderModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
-	c.conciergeModel = fs.String("conciergeModel", "gpt-5.2", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai.")
+	c.classificationModel = fs.String("classifier", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 
 	c.flagset = fs
 	return fs

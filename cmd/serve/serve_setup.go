@@ -68,40 +68,11 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 
 	////////////
-	// Recommender setup
+	// Classifier setup
 	////////////
-	recommender := recommender.New(models.Configurations{
-		Model:         *c.recommenderModel,
-		ConfigDir:     c.configDir,
-		InternalTools: []models.ToolName{},
-	})
-
-	////////////
-	// Butler setup
-	////////////
-	subsManager, err := stream.NewManager(stream.WithStoragePath(
-		subsPath,
-	))
-	var b agents.Butler
-	if err != nil {
-		ancli.Warnf("failed to setup subsManager, skipping butler setup. subsManager error: %v", err)
-	} else {
-		b = butler.New(models.Configurations{
-			Model:         *c.classificationModel,
-			ConfigDir:     c.configDir,
-			InternalTools: []models.ToolName{},
-		}, subsManager,
-		)
-	}
-
-	////////////
-	// Storage setup
-	////////////
-	store := storage.NewStore(
-		storage.WithStorePath(storePath),
-		storage.WithSubtitlesManager(subsManager),
-		storage.WithClassificationWorkers(5),
-		storage.WithClassifier(classifier.New(models.Configurations{
+	var clifier agents.Classifier
+	if *c.classificationModel != "" {
+		clifier = classifier.New(models.Configurations{
 			Model:     *c.classificationModel,
 			ConfigDir: c.configDir,
 			InternalTools: []models.ToolName{
@@ -111,7 +82,49 @@ func (c *command) Setup(ctx context.Context) error {
 				models.WebsiteTextTool,
 				models.RipGrepTool,
 			},
-		})),
+		})
+	}
+
+	////////////
+	// Recommender setup
+	////////////
+	var r agents.Recommender
+	if *c.recommenderModel != "" {
+		r = recommender.New(models.Configurations{
+			Model:         *c.recommenderModel,
+			ConfigDir:     c.configDir,
+			InternalTools: []models.ToolName{},
+		})
+	}
+
+	////////////
+	// Butler setup
+	////////////
+	subsManager, err := stream.NewManager(stream.WithStoragePath(
+		subsPath,
+	))
+	var alfred agents.Butler
+	if *c.butlerModel != "" {
+		if err != nil {
+			ancli.Warnf("failed to setup subsManager, skipping butler setup. subsManager error: %v", err)
+		} else {
+			alfred = butler.New(models.Configurations{
+				Model:         *c.butlerModel,
+				ConfigDir:     c.configDir,
+				InternalTools: []models.ToolName{},
+			}, subsManager,
+			)
+		}
+	}
+
+	////////////
+	// Storage setup
+	////////////
+	store := storage.NewStore(
+		storage.WithStorePath(storePath),
+		storage.WithSubtitlesManager(subsManager),
+		storage.WithClassificationWorkers(5),
+		storage.WithClassifier(clifier),
 	)
 
 	////////////
@@ -125,25 +138,28 @@ func (c *command) Setup(ctx context.Context) error {
 	////////////
 	// Concierge setup
 	////////////
-	concidonk, err := concierge.New(
-		concierge.WithItemGetter(store),
-		concierge.WithMetadataManager(store),
-		concierge.WithSubtitleManager(subsManager),
-		concierge.WithSuggestionManager(suggestionsManager),
-		concierge.WithSubtitleSelector(butler.NewSelector(models.Configurations{
-			Model:     *c.classificationModel,
-			ConfigDir: c.configDir,
-		})),
-		concierge.WithConfigDir(c.configDir),
-		concierge.WithStoreDir(storePath),
-		concierge.WithCacheDir(cacheDir),
-		concierge.WithUserContextManager(userContextMgr),
-		concierge.WithModel(*c.conciergeModel),
-	)
-	if err != nil {
-		ancli.Errf("failed to create concierge. His services will not be available: %v", err)
-	} else {
-		ancli.Noticef("concierge setup OK")
+	var conkidonk agents.Concierge
+	if *c.conciergeModel != "" {
+		conkidonk, err = concierge.New(
+			concierge.WithItemGetter(store),
+			concierge.WithMetadataManager(store),
+			concierge.WithSubtitleManager(subsManager),
+			concierge.WithSuggestionManager(suggestionsManager),
+			concierge.WithSubtitleSelector(butler.NewSelector(models.Configurations{
+				Model:     *c.classificationModel,
+				ConfigDir: c.configDir,
+			})),
+			concierge.WithConfigDir(c.configDir),
+			concierge.WithStoreDir(storePath),
+			concierge.WithCacheDir(cacheDir),
+			concierge.WithUserContextManager(userContextMgr),
+			concierge.WithModel(*c.conciergeModel),
+		)
+		if err != nil {
+			ancli.Errf("failed to create concierge. His services will not be available: %v", err)
+		} else {
+			ancli.Noticef("concierge setup OK")
+		}
 	}
 
 	////////////
@@ -151,12 +167,12 @@ func (c *command) Setup(ctx context.Context) error {
 	////////////
 	indexer, err := media.NewIndexer(
 		media.WithStorage(store),
-		media.WithRecommender(recommender),
+		media.WithRecommender(r),
 		media.WithWatchPath(c.watchPath),
 		media.WithSuggestionsManager(suggestionsManager),
 		// butler may be nil here, intentionally, if subsManager isnt properly setup
-		media.WithButler(b),
-		media.WithConcierge(concidonk),
+		media.WithButler(alfred),
+		media.WithConcierge(conkidonk),
 		media.WithClientContextManager(userContextMgr),
 	)
 	if err != nil {
