@@ -249,12 +249,14 @@ func (s *store) StreamHandlerFunc() http.HandlerFunc {
 			return
 		}
 
+		ancli.Okf("attempting to extract subs for: %v, idx: %v", cacheFile.Name, streamIdx)
 		streamData, err := s.subtitleManager.ExtractSubtitles(cacheFile, streamIdx)
 		if err != nil {
 			ancli.Errf("failed to extract stream: %v", err)
 			http.Error(w, "failed to extract stream", http.StatusInternalServerError)
 			return
 		}
+		ancli.Okf("serving file: %v", streamData)
 		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
 		http.ServeFile(w, r, streamData)
 	}
