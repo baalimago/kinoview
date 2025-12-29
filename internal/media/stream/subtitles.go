@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -174,11 +175,11 @@ func (m *Manager) ExtractSubtitles(item model.Item, streamIndex string) (string,
 	}
 
 	start := time.Now()
-	ancli.Noticef("Extracted subtitle %s for %s", streamIndex, item.Name)
+	ancli.Noticef("Extracting subtitle %s for %s. Command:\nffmpeg %v", streamIndex, item.Name, strings.Join(args, " "))
 	if err := m.runner.Run(ctx, "ffmpeg", args...); err != nil {
 		return "", fmt.Errorf("ffmpeg extraction failed: %w", err)
 	}
 
-	ancli.Noticef("Extracted subtitle %s for %s in %v", streamIndex, item.Name, time.Since(start))
+	ancli.Okf("Extracted subtitle %s for %s in %v", streamIndex, item.Name, time.Since(start))
 	return destPath, nil
 }
