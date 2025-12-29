@@ -70,16 +70,18 @@ func (el *errorListener) start(ctx context.Context) {
 }
 
 type Indexer struct {
-	watchPath   string
-	watcher     watcher
-	store       Storage
+	watchPath string
+	watcher   watcher
+	store     Storage
+
+	// Agents
 	recommender agents.Recommender
 	butler      agents.Butler
 	concierge   agents.Concierge
 
+	// Agent support managers
 	clientContextMgr agents.ClientContextManager
-
-	suggestions *suggestions.Manager
+	suggestions      *suggestions.Manager
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
@@ -201,9 +203,11 @@ func (i *Indexer) Setup(ctx context.Context) error {
 		return fmt.Errorf("setup watcher: %w", err)
 	}
 
-	recSetupErr := i.recommender.Setup(ctx)
-	if recSetupErr != nil {
-		ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
+	if i.recommender != nil {
+		recSetupErr := i.recommender.Setup(ctx)
+		if recSetupErr != nil {
+			ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
+		}
 	}
 
 	if i.butler != nil {

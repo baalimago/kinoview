@@ -155,11 +155,14 @@ func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 		return nil, fmt.Errorf("jsonStore Setup failed to load persisted items: %w", err)
 	}
 
-	ancli.Noticef("setting up classifier")
-	err = s.classifier.Setup(ctx)
-	if err != nil {
-		ancli.Errf("failed to setup classifier, classifications wont be possible. Err: %v", err)
+	if s.classifier != nil {
+		ancli.Noticef("setting up classifier")
+		err = s.classifier.Setup(ctx)
+		if err != nil {
+			ancli.Errf("failed to setup classifier, classifications wont be possible. Err: %v", err)
+		}
 	}
+
 	s.classifierErrors = make(chan error)
 	s.readyChan <- struct{}{}
 	return s.classifierErrors, nil
