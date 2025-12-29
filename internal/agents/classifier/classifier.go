@@ -79,7 +79,7 @@ func buildChat(i model.Item, t0 time.Time) models.Chat {
 		Messages: []models.Message{
 			{
 				Role:    "system",
-				Content: systemPrompt,
+				Content: fmt.Sprintf(systemPrompt, constants.MetadataFormat),
 			},
 			{
 				Role:    "user",
