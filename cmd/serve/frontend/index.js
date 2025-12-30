@@ -109,13 +109,38 @@ fetch('/gallery?start=0&am=1000&mime=video')
 
 
 var mostRecentID = "";
+var sessionID = "";
+var sessionStartTime = null;
+
+function getSessionID() {
+  if (!sessionID) {
+    sessionID = generateUUID();
+  }
+  return sessionID;
+}
+
+function getSessionStartTime() {
+  if (!sessionStartTime) {
+    sessionStartTime = new Date().toISOString();
+  }
+  return sessionStartTime;
+}
+
+function generateUUID() {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+    const r = (Math.random() * 16) | 0;
+    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
 function selectMedia(id) {
   const video = document.getElementById("screen");
   // Thank the gods for js's excellent singlethreaded scheduler
   mostRecentID = id;
   video.src = `/gallery/video/${id}`;
   video.style.display = "initial"
-  loadSubtitles(id);
+  loadStreams(id);
 }
 
 function constuctClientContext() {
@@ -131,7 +156,6 @@ function constuctClientContext() {
     }
   )
   return {
-    "timeOfDay": new Date().toISOString(),
     "viewingHistory": viewingHistory,
   }
 }
@@ -168,8 +192,8 @@ function requestRecommendation() {
     });
 }
 
-function loadSubtitles(id) {
-  fetch(`/gallery/subs/${id}`)
+function loadStreams(id) {
+  fetch(`/gallery/streams/${id}`)
     .then(response => response.json())
     .then(data => {
       console.log(`Attempting to load streams for: ${id}`)
@@ -306,8 +330,8 @@ function selectSubtitle(id) {
     track.removeAttribute("src");
     if (debugSubs) debugSubs.value = "";
   } else {
-    console.log(`Attempting to set subs to: /gallery/subs/${mostRecentID}/${id}`)
-    track.src = `/gallery/subs/${mostRecentID}/${id}`;
+    console.log(`Attempting to set subs to: /gallery/streams/${mostRecentID}/stream/${id}`)
+    track.src = `/gallery/streams/${mostRecentID}/stream/${id}`;
     // Sync debug selector keying off numeric stream index usually
     if (debugSubs) debugSubs.value = id;
   }

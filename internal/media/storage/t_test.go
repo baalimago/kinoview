@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -57,21 +58,23 @@ func (m *mockResponseWriter) WriteHeader(statusCode int) {
 	m.statusCode = statusCode
 }
 
-type mockSubtitleStreamFinder struct {
-	mockFind func(model.Item) (model.MediaInfo, error)
+type mockSubtitleManager struct {
+	shouldFail   bool
+	shouldReturn model.MediaInfo
 }
 
-func (m *mockSubtitleStreamFinder) find(item model.Item) (model.MediaInfo, error) {
-	if m.mockFind != nil {
-		return m.mockFind(item)
+func (m *mockSubtitleManager) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
+	if m.shouldFail {
+		return "", errors.New("whopsidops")
 	}
-	return model.MediaInfo{}, nil
+	return "", nil
 }
 
-type mockSubtitleStreamExtractor struct{}
-
-func (m *mockSubtitleStreamExtractor) extract(item model.Item, streamIndex string) (string, error) {
-	return "", nil
+func (m *mockSubtitleManager) Find(item model.Item) (model.MediaInfo, error) {
+	if m.shouldFail {
+		return model.MediaInfo{}, errors.New("whopsidops")
+	}
+	return m.shouldReturn, nil
 }
 
 func newTestStore(t *testing.T) *store {

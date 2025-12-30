@@ -6,21 +6,11 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io/fs"
 	"net/http"
 	"os"
 	"path"
 
-	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
-	"github.com/baalimago/kinoview/internal/agents"
-	"github.com/baalimago/kinoview/internal/agents/butler"
-	"github.com/baalimago/kinoview/internal/agents/classifier"
-	"github.com/baalimago/kinoview/internal/agents/recommender"
-	"github.com/baalimago/kinoview/internal/media"
-	"github.com/baalimago/kinoview/internal/media/storage"
-	"github.com/baalimago/kinoview/internal/media/subtitles"
-	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
 //go:embed frontend/*
@@ -47,9 +37,10 @@ type command struct {
 	tlsCertPath  *string
 	tlsKeyPath   *string
 
-	generateMetadata    *bool
 	classificationModel *string
+	butlerModel         *string
 	recommenderModel    *string
+	conciergeModel      *string
 }
 
 func Command() *command {
@@ -59,122 +50,16 @@ func Command() *command {
 	}
 	kinoviewConfigDir := path.Join(configDir, "kinoview")
 	r, _ := os.Executable()
-	if err != nil {
-		ancli.Errf("failed to create indexer: %v", err)
-		return nil
-	}
 
-	defaultModel := "gpt-5"
+	defaultModel := ""
 	return &command{
 		binPath:             r,
 		configDir:           kinoviewConfigDir,
 		classificationModel: &defaultModel,
 		recommenderModel:    &defaultModel,
+		butlerModel:         &defaultModel,
+		conciergeModel:      &defaultModel,
 	}
-}
-
-func (c *command) Setup(ctx context.Context) error {
-	relPath := ""
-
-	if c.flagset == nil {
-		return errors.New("flagset not set; use the Command function")
-	}
-
-	if len(c.flagset.Args()) == 0 {
-		wd, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get working directory: %w", err)
-		}
-		relPath = wd
-	} else {
-		relPath = c.flagset.Arg(0)
-	}
-	c.watchPath = path.Clean(relPath)
-
-	if c.configDir == "" {
-		userCfgDir, err := os.UserConfigDir()
-		if err != nil {
-			return fmt.Errorf("failed to get config dir: %v", err)
-		}
-		c.configDir = userCfgDir
-	}
-
-	if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
-		ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
-		if err := os.MkdirAll(c.configDir, 0o755); err != nil {
-			return fmt.Errorf("could not create config dir: %w", err)
-		}
-	}
-	storePath := path.Join(c.configDir, "store")
-	subsPath := path.Join(c.configDir, "subtitles")
-	subsManager, err := subtitles.NewManager(subtitles.WithStoragePath(
-		subsPath,
-	))
-	var b agents.Butler
-	if err != nil {
-		ancli.Warnf("failed to setup subsManager, skipping butler setup. subsManager error: %v", err)
-	} else {
-		b = butler.NewButler(models.Configurations{
-			Model:         *c.classificationModel,
-			ConfigDir:     c.configDir,
-			InternalTools: []models.ToolName{},
-		}, subsManager,
-		)
-	}
-	indexer, err := media.NewIndexer(
-		media.WithStorage(
-			storage.NewStore(
-				storage.WithStorePath(storePath),
-				storage.WithClassificationWorkers(5),
-				storage.WithClassifier(classifier.NewClassifier(models.Configurations{
-					Model:     *c.classificationModel,
-					ConfigDir: c.configDir,
-					InternalTools: []models.ToolName{
-						models.CatTool,
-						models.FindTool,
-						models.FFProbeTool,
-						models.WebsiteTextTool,
-						models.RipGrepTool,
-					},
-				})),
-			),
-		),
-		media.WithRecommender(recommender.NewRecommender(models.Configurations{
-			Model:         *c.recommenderModel,
-			ConfigDir:     c.configDir,
-			InternalTools: []models.ToolName{},
-		})),
-		media.WithWatchPath(c.watchPath),
-		// butler may be nil here, intentionally, if subsManager isnt properly setup
-		media.WithButler(b),
-	)
-	if err != nil {
-		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)
-	}
-	c.indexer = indexer
-
-	err = c.indexer.Setup(ctx)
-	if err != nil {
-		return fmt.Errorf("c.indexer.Setup failed to setup Indexer, err: %w", err)
-	}
-
-	return nil
-}
-
-func (c *command) setupMux() (*http.ServeMux, error) {
-	mux := http.NewServeMux()
-	subFs, err := fs.Sub(frontendFiles, "frontend")
-	if err != nil {
-		return nil, fmt.Errorf("c.Run failed to get frontendFiles sub: %w", err)
-	}
-	fs := http.FS(subFs)
-	fsh := http.FileServer(fs)
-	fsh = wd41serve.SlogHandler(fsh)
-	fsh = wd41serve.CacheHandler(fsh, *c.cacheControl)
-	fsh = wd41serve.CrossOriginIsolationHandler(fsh)
-	mux.Handle("/gallery/", http.StripPrefix("/gallery", c.indexer.Handler()))
-	mux.Handle("/", fsh)
-	return mux, nil
 }
 
 func (c *command) startServeRoutine(mux *http.ServeMux, serverErrChan chan error) func(context.Context) error {
@@ -268,9 +153,10 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.tlsCertPath = fs.String("tlsCertPath", "", "set to a path to a cert, requires tlsKeyPath to be set")
 	c.tlsKeyPath = fs.String("tlsKeyPath", "", "set to a path to a key, requires tlsCertPath to be set")
 
-	c.generateMetadata = fs.Bool("generateMetadata", true, "set to true if you want LLM generated metadata using clai")
-	c.classificationModel = fs.String("classificationModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
-	c.recommenderModel = fs.String("recommenderModel", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
+	c.classificationModel = fs.String("classifier", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 
 	c.flagset = fs
 	return fs

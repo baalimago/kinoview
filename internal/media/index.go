@@ -7,13 +7,14 @@ import (
 	"net/http"
 	"os"
 	"path"
-	"sync"
+	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/loghandler"
+	"github.com/baalimago/kinoview/internal/media/suggestions"
 	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -31,8 +32,8 @@ type Storage interface {
 	ListHandlerFunc() http.HandlerFunc
 	VideoHandlerFunc() http.HandlerFunc
 	ImageHandlerFunc() http.HandlerFunc
-	SubsListHandlerFunc() http.HandlerFunc
-	SubsHandlerFunc() http.HandlerFunc
+	StreamListHandlerFunc() http.HandlerFunc
+	StreamHandlerFunc() http.HandlerFunc
 }
 
 type watcher interface {
@@ -69,17 +70,23 @@ func (el *errorListener) start(ctx context.Context) {
 }
 
 type Indexer struct {
-	watchPath   string
-	watcher     watcher
-	store       Storage
+	watchPath string
+	watcher   watcher
+	store     Storage
+
+	// Agents
 	recommender agents.Recommender
 	butler      agents.Butler
+	concierge   agents.Concierge
 
-	clientCtxMu       sync.Mutex
-	lastClientContext model.ClientContext
+	// Agent support managers
+	clientContextMgr agents.ClientContextManager
+	suggestions      *suggestions.Manager
 
-	clientRecsMu          sync.Mutex
-	clientRecommendations []model.Recommendation
+	// websocket health/heartbeat tuning (mainly for tests)
+	heartbeatInterval time.Duration
+	pongTimeout       time.Duration
+	pingWriteTimeout  time.Duration
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
@@ -112,6 +119,34 @@ func WithButler(b agents.Butler) IndexerOption {
 	}
 }
 
+func WithConcierge(c agents.Concierge) IndexerOption {
+	return func(i *Indexer) {
+		i.concierge = c
+	}
+}
+
+func WithSuggestionsManager(s *suggestions.Manager) IndexerOption {
+	return func(i *Indexer) {
+		i.suggestions = s
+	}
+}
+
+func WithClientContextManager(m agents.ClientContextManager) IndexerOption {
+	return func(i *Indexer) {
+		i.clientContextMgr = m
+	}
+}
+
+// WithHeartbeatConfig allows overriding ping interval and timeouts.
+// Zero/negative values keep defaults.
+func WithHeartbeatConfig(interval, pongTimeout, pingWriteTimeout time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.heartbeatInterval = interval
+		i.pongTimeout = pongTimeout
+		i.pingWriteTimeout = pingWriteTimeout
+	}
+}
+
 func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 	w, err := int_watcher.NewRecursiveWatcher()
 	if err != nil {
@@ -125,7 +160,7 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 
 	i := &Indexer{
 		watcher: w,
-		recommender: recommender.NewRecommender(models.Configurations{
+		recommender: recommender.New(models.Configurations{
 			Model:         "gpt-5",
 			ConfigDir:     claiPath,
 			InternalTools: []models.ToolName{},
@@ -136,6 +171,14 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 
 	for _, opt := range opts {
 		opt(i)
+	}
+
+	if i.suggestions == nil {
+		sm, err := suggestions.NewManager("")
+		if err != nil {
+			return nil, fmt.Errorf("failed to create suggestions manager: %w", err)
+		}
+		i.suggestions = sm
 	}
 
 	return i, nil
@@ -175,9 +218,11 @@ func (i *Indexer) Setup(ctx context.Context) error {
 		return fmt.Errorf("setup watcher: %w", err)
 	}
 
-	recSetupErr := i.recommender.Setup(ctx)
-	if recSetupErr != nil {
-		ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
+	if i.recommender != nil {
+		recSetupErr := i.recommender.Setup(ctx)
+		if recSetupErr != nil {
+			ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
+		}
 	}
 
 	if i.butler != nil {
@@ -187,9 +232,25 @@ func (i *Indexer) Setup(ctx context.Context) error {
 		}
 	}
 
+	if i.concierge != nil {
+		conciergeSetupErr := i.concierge.Setup(ctx)
+		if conciergeSetupErr != nil {
+			ancli.Errf("failed to setup concierge: %v", conciergeSetupErr)
+			// Reset concirege as its broken, this is a flag to not attempt to use it downstream
+			i.concierge = nil
+		}
+	}
+
 	i.fileUpdates = fileUpdates
-	i.registerErrorChannel(ctx, "watcher", watcherErrors)
-	i.registerErrorChannel(ctx, "store", storeErrors)
+	err = i.registerErrorChannel(ctx, "watcher", watcherErrors)
+	if err != nil {
+		return fmt.Errorf("failed to add watcher error chan: %w", err)
+	}
+
+	err = i.registerErrorChannel(ctx, "store", storeErrors)
+	if err != nil {
+		return fmt.Errorf("failed to add store error chan: %w", err)
+	}
 
 	ancli.Okf("indexer.Setup OK")
 	return nil
@@ -232,6 +293,31 @@ func (i *Indexer) Start(ctx context.Context) error {
 		}
 	}()
 
+	if i.concierge != nil {
+		conciergeErrChan := make(chan error, 1)
+		tick := time.NewTicker(time.Minute * 15)
+		go func() {
+			do := func() {
+				ancli.Okf("Running concierge")
+				_, err := i.concierge.Run(ctx)
+				if err != nil && !errors.Is(err, context.Canceled) {
+					conciergeErrChan <- err
+				}
+			}
+			// Run on startup for fun
+			do()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-tick.C:
+					do()
+				}
+			}
+		}()
+		i.registerErrorChannel(ctx, "concierge", conciergeErrChan)
+	}
+
 	for {
 		select {
 		case err := <-i.errorUpdates:
@@ -254,8 +340,8 @@ func (i *Indexer) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("/", i.store.ListHandlerFunc())
 	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
-	mux.HandleFunc("/subs/{vid}", i.store.SubsListHandlerFunc())
-	mux.HandleFunc("/subs/{vid}/{sub_idx}", i.store.SubsHandlerFunc())
+	mux.HandleFunc("/streams/{vid}", i.store.StreamListHandlerFunc())
+	mux.HandleFunc("/streams/{vid}/stream/{stream_idx}", i.store.StreamHandlerFunc())
 	mux.HandleFunc("/image/{id}", i.store.ImageHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())

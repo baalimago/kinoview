@@ -46,11 +46,15 @@ func (m *MockSubtitler) Find(item model.Item) (model.MediaInfo, error) {
 	return model.MediaInfo{}, nil
 }
 
-func (m *MockSubtitler) Extract(item model.Item, streamIndex string) (string, error) {
+func (m *MockSubtitler) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
 	if m.ExtractFunc != nil {
 		return m.ExtractFunc(item, streamIndex)
 	}
 	return "", nil
+}
+
+func (m *MockSubtitler) Associate(item model.Item, path string) error {
+	return nil
 }
 
 // MockSubtitleSelector mocks the SubtitleSelector interface
@@ -58,7 +62,7 @@ type MockSubtitleSelector struct {
 	SelectEnglishFunc func(ctx context.Context, streams []model.Stream) (int, error)
 }
 
-func (m *MockSubtitleSelector) SelectEnglish(ctx context.Context, streams []model.Stream) (int, error) {
+func (m *MockSubtitleSelector) Select(ctx context.Context, streams []model.Stream) (int, error) {
 	if m.SelectEnglishFunc != nil {
 		return m.SelectEnglishFunc(ctx, streams)
 	}
@@ -68,7 +72,7 @@ func (m *MockSubtitleSelector) SelectEnglish(ctx context.Context, streams []mode
 func TestNewButler(t *testing.T) {
 	c := models.Configurations{}
 	subs := &MockSubtitler{}
-	b := NewButler(c, subs)
+	b := New(c, subs)
 	if b == nil {
 		t.Fatal("NewButler returned nil")
 	}
@@ -314,7 +318,7 @@ func TestSelector_SelectEnglish(t *testing.T) {
 		{Index: 1, CodecType: "subtitle", Tags: model.Tags{Title: "English"}},
 	}
 
-	idx, err := s.SelectEnglish(ctx, streams)
+	idx, err := s.Select(ctx, streams)
 	if err != nil {
 		t.Fatalf("SelectEnglish failed: %v", err)
 	}
@@ -323,7 +327,7 @@ func TestSelector_SelectEnglish(t *testing.T) {
 	}
 
 	// Test no subtitles
-	_, err = s.SelectEnglish(ctx, []model.Stream{{Index: 0, CodecType: "video"}})
+	_, err = s.Select(ctx, []model.Stream{{Index: 0, CodecType: "video"}})
 	if err == nil {
 		t.Error("Expected error when no subtitles found")
 	}
@@ -332,7 +336,7 @@ func TestSelector_SelectEnglish(t *testing.T) {
 	mockLLM.QueryFunc = func(ctx context.Context, chat models.Chat) (models.Chat, error) {
 		return models.Chat{}, errors.New("llm error")
 	}
-	_, err = s.SelectEnglish(ctx, streams)
+	_, err = s.Select(ctx, streams)
 	if err == nil {
 		t.Error("Expected error when LLM fails")
 	}
@@ -345,7 +349,7 @@ func TestSelector_SelectEnglish(t *testing.T) {
 			},
 		}, nil
 	}
-	_, err = s.SelectEnglish(ctx, streams)
+	_, err = s.Select(ctx, streams)
 	if err == nil {
 		t.Error("Expected error when LLM returns error info")
 	}
@@ -397,7 +401,7 @@ func TestButler_MetadataAndDebug(t *testing.T) {
 	_, _ = b.PrepSuggestions(ctx, model.ClientContext{}, items)
 
 	// Call Selector english
-	b.selector.SelectEnglish(ctx, []model.Stream{
+	b.selector.Select(ctx, []model.Stream{
 		{Index: 0, CodecType: "subtitle"},
 	})
 }
@@ -475,7 +479,7 @@ func TestSelector_Fallback(t *testing.T) {
 		},
 	}
 	s := &selector{llm: mockLLM}
-	idx, err := s.SelectEnglish(ctx, []model.Stream{
+	idx, err := s.Select(ctx, []model.Stream{
 		{Index: 0, CodecType: "subtitle", Tags: model.Tags{Title: "English"}},
 	})
 	if err != nil {
@@ -540,7 +544,7 @@ func TestSelector_EmptyResponse(t *testing.T) {
 	s := &selector{llm: mockLLM}
 	// Need at least one subtitle stream
 	streams := []model.Stream{{CodecType: "subtitle", Index: 0}}
-	_, err := s.SelectEnglish(ctx, streams)
+	_, err := s.Select(ctx, streams)
 	if err == nil {
 		t.Fatal("Expected error on empty response")
 	}

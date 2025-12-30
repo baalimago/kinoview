@@ -1,4 +1,4 @@
-package subtitles
+package stream
 
 import (
 	"bytes"
@@ -8,10 +8,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -23,7 +25,7 @@ type CommandRunner interface {
 
 type defaultRunner struct{}
 
-func (d *defaultRunner) Run(ctx context.Context, name string, args ...string) error {
+func (d defaultRunner) Run(ctx context.Context, name string, args ...string) error {
 	cmd := exec.CommandContext(ctx, name, args...)
 	// Capture stderr for debugging/logging, similar to original implementation
 	var stderr bytes.Buffer
@@ -35,7 +37,7 @@ func (d *defaultRunner) Run(ctx context.Context, name string, args ...string) er
 	return nil
 }
 
-func (d *defaultRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
+func (d defaultRunner) Output(ctx context.Context, name string, args ...string) ([]byte, error) {
 	cmd := exec.CommandContext(ctx, name, args...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
@@ -49,6 +51,8 @@ func (d *defaultRunner) Output(ctx context.Context, name string, args ...string)
 type Manager struct {
 	storePath string
 	runner    CommandRunner
+
+	debug bool
 
 	// mediaCache caches the ffprobe results to avoid repeated scanning
 	mediaCache map[string]model.MediaInfo
@@ -78,13 +82,17 @@ func NewManager(opts ...Option) (*Manager, error) {
 	defaultPath := "subtitles"
 	cfg, err := os.UserConfigDir()
 	if err == nil {
-		defaultPath = filepath.Join(cfg, "kinoview", "subtitles")
+		defaultPath = filepath.Join(cfg, "kinoview", "stream")
 	}
 
 	m := &Manager{
 		storePath:  defaultPath,
-		runner:     &defaultRunner{},
+		runner:     defaultRunner{},
 		mediaCache: make(map[string]model.MediaInfo),
+	}
+
+	if misc.Truthy(os.Getenv("DEBUG")) || misc.Truthy(os.Getenv("DEBUG_SUBS")) {
+		m.debug = true
 	}
 
 	for _, opt := range opts {
@@ -118,7 +126,6 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
-		"-select_streams", "s",
 	}
 
 	out, err := m.runner.Output(ctx, "ffprobe", args...)
@@ -140,7 +147,7 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 // Extract subtitles for a specific stream index to .vtt format.
 // Stores the result in the configured storePath.
 // If the file already exists, returns the path immediately.
-func (m *Manager) Extract(item model.Item, streamIndex string) (string, error) {
+func (m *Manager) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
 	// Unique filename based on Item ID and stream index
 	filename := fmt.Sprintf("%s_%s.vtt", item.ID, streamIndex)
 	destPath := filepath.Join(m.storePath, filename)
@@ -161,7 +168,7 @@ func (m *Manager) Extract(item model.Item, streamIndex string) (string, error) {
 		return destPath, nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
 	// ffmpeg -y -i <input> -map 0:<stream> -f webvtt <output>
@@ -175,10 +182,16 @@ func (m *Manager) Extract(item model.Item, streamIndex string) (string, error) {
 	}
 
 	start := time.Now()
+
+	if m.debug {
+		ancli.Noticef("Extracting subtitle %s for %s. Command:\nffmpeg %v", streamIndex, item.Name, strings.Join(args, " "))
+	}
 	if err := m.runner.Run(ctx, "ffmpeg", args...); err != nil {
 		return "", fmt.Errorf("ffmpeg extraction failed: %w", err)
 	}
 
-	ancli.Noticef("Extracted subtitle %s for %s in %v", streamIndex, item.Name, time.Since(start))
+	if m.debug {
+		ancli.Okf("Extracted subtitle %s for %s in %v", streamIndex, item.Name, time.Since(start))
+	}
 	return destPath, nil
 }

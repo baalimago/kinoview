@@ -1,11 +1,11 @@
-(function() {
+(function () {
     function setupEventStream() {
         let wsProto = "ws://";
         if (window.location.protocol === "https:") {
             wsProto = "wss://";
         }
         const wsUrl = wsProto + window.location.host + "/gallery/ws";
-        
+
         // Configuration
         const RECONNECT_DELAY = 1000;
         const UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
@@ -17,13 +17,13 @@
         function connect() {
             if (socket) {
                 // Ensure clean state if we are forcing a reconnect
-                try { socket.close(); } catch(e){}
+                try { socket.close(); } catch (e) { }
             }
 
             console.log("Connecting to EventStream at " + wsUrl);
             socket = new WebSocket(wsUrl);
 
-            socket.onopen = function() {
+            socket.onopen = function () {
                 console.log("EventStream connected");
                 sendContext();
                 // Start periodic updates
@@ -31,11 +31,11 @@
                 updateIntervalTimer = setInterval(sendContext, UPDATE_INTERVAL);
             };
 
-            socket.onmessage = function(event) {
+            socket.onmessage = function (event) {
                 try {
                     const msg = JSON.parse(event.data);
                     if (msg.type === "health") {
-                         socket.send(JSON.stringify({
+                        socket.send(JSON.stringify({
                             type: "health",
                             time: new Date().toISOString(),
                             payload: {}
@@ -46,13 +46,13 @@
                 }
             };
 
-            socket.onclose = function(event) {
+            socket.onclose = function (event) {
                 console.log("EventStream closed. Reconnecting in " + RECONNECT_DELAY + "ms");
                 cleanup();
                 reconnectTimer = setTimeout(connect, RECONNECT_DELAY);
             };
 
-            socket.onerror = function(error) {
+            socket.onerror = function (error) {
                 console.error("EventStream error:", error);
                 socket.close(); // Ensure onclose is called
             };
@@ -64,7 +64,7 @@
 
         function sendContext() {
             if (!socket || socket.readyState !== WebSocket.OPEN) return;
-            
+
             try {
                 // Dependencies from index.js
                 if (typeof constuctClientContext !== "function") {
@@ -72,14 +72,22 @@
                     return;
                 }
 
-                const ctx = constuctClientContext();
-                
+                const clientContext = constuctClientContext();
+
+                // Enhance context with sessionId and startTime
+                if (typeof getSessionID !== "undefined") {
+                    clientContext.sessionId = getSessionID();
+                }
+                if (typeof getSessionStartTime !== "undefined") {
+                    clientContext.startTime = getSessionStartTime();
+                }
+
                 // Enhance context with lastPlayedName if available
                 if (typeof mostRecentID !== "undefined" && mostRecentID) {
                     if (typeof loadPersistedMediaItem === "function") {
                         const item = loadPersistedMediaItem(mostRecentID);
                         if (item && item.name) {
-                            ctx.lastPlayedName = item.name;
+                            clientContext.lastPlayedName = item.name;
                         }
                     }
                 }
@@ -87,7 +95,7 @@
                 socket.send(JSON.stringify({
                     type: "clientContext",
                     time: new Date().toISOString(),
-                    payload: ctx
+                    payload: clientContext
                 }));
                 console.log("Sent user context update");
             } catch (e) {
@@ -97,7 +105,7 @@
 
         // Start connection
         connect();
-        
+
         // Handle page visibility changes to possibly reconnect or pause?
         // For now, browser WebSocket handling is sufficient.
     }

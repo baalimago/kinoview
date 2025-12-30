@@ -69,16 +69,23 @@ func (i *Indexer) handleDisconnect() {
 	if i.butler == nil {
 		return
 	}
-	i.clientCtxMu.Lock()
-	clientCtx := i.lastClientContext
-	i.clientCtxMu.Unlock()
+	if i.clientContextMgr == nil {
+		ancli.Warnf("user context manager not set; skipping butler suggestions")
+		return
+	}
+	contexts := i.clientContextMgr.AllClientContexts()
+	var clientCtx model.ClientContext
+	if len(contexts) > 0 {
+		clientCtx = contexts[len(contexts)-1]
+	}
 
-	// Use background context as the request context is dead/dying
-	// Use a detached thread to not block the handler return
 	go func() {
-		ancli.Okf("butler triggered by disconnect, prepping suggestions")
+		ancli.Okf("disconnect detected, prepping suggestions")
+
+		// Use background context as the request context is dead/dying
+		// Use a detached routine to not block the handler return
 		// 1 minute timeout for butler work
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 		defer cancel()
 
 		allItmes := i.store.Snapshot()
@@ -92,9 +99,10 @@ func (i *Indexer) handleDisconnect() {
 		if err != nil {
 			ancli.Warnf("Butler failed to prep suggestions: %v", err)
 		} else {
-			i.clientRecsMu.Lock()
-			i.clientRecommendations = recs
-			i.clientRecsMu.Unlock()
+			err := i.suggestions.Update(recs)
+			if err != nil {
+				ancli.Warnf("failed to update suggestions: %v", err)
+			}
 			ancli.Okf("Stored %d suggestions from Butler", len(recs))
 		}
 	}()
@@ -107,12 +115,10 @@ func (i *Indexer) suggestionsHandler() http.HandlerFunc {
 			return
 		}
 
-		i.clientRecsMu.Lock()
-		recs := i.clientRecommendations
-		i.clientRecsMu.Unlock()
+		recs := i.suggestions.Get()
 
 		if recs == nil {
-			recs = []model.Recommendation{}
+			recs = []model.Suggestion{}
 		}
 
 		w.Header().Set("Content-Type", "application/json")

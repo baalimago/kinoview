@@ -18,15 +18,10 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-type Subtitler interface {
-	Find(item model.Item) (model.MediaInfo, error)
-	Extract(item model.Item, streamIndex string) (string, error)
-}
-
 type butler struct {
 	llm      text.FullResponse
-	subs     Subtitler
-	selector SubtitleSelector
+	subs     agents.StreamManager
+	selector agents.SubtitleSelector
 }
 
 const pickerSystemPrompt = `You are a media Butler. Your goal is to anticipate what the user wants to watch next.
@@ -67,8 +62,8 @@ type suggestionResponse struct {
 	Motivation  string `json:"motivation"`
 }
 
-// NewButler configured by models.Configurations and a Subtitler
-func NewButler(c models.Configurations, subs Subtitler) agents.Butler {
+// New configured by models.Configurations and a Subtitler
+func New(c models.Configurations, subs agents.StreamManager) agents.Butler {
 	c.SystemPrompt = pickerSystemPrompt
 	return &butler{
 		llm:      text.NewFullResponseQuerier(c),
@@ -86,7 +81,7 @@ func (b *butler) Setup(ctx context.Context) error {
 }
 
 // PrepSuggestions implementation
-func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientContext, items []model.Item) ([]model.Recommendation, error) {
+func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientContext, items []model.Item) ([]model.Suggestion, error) {
 	itemsStr := formatItems(items)
 	contextStr := formatContext(clientCtx)
 
@@ -129,7 +124,7 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 		return nil, fmt.Errorf("failed to parse suggestions: %w", err)
 	}
 
-	var recommendations []model.Recommendation
+	var recommendations []model.Suggestion
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var errs []error

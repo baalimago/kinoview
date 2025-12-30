@@ -19,24 +19,11 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-type subtitleStreamFinder interface {
-	// fid the media info for some item
-	find(item model.Item) (model.MediaInfo, error)
-}
-
-type subtitleStreamExtractor interface {
-	// extract the subs and return path to the file
-	// containing subs. Subs are expected to be in .vtt
-	// format
-	extract(item model.Item, streamIndex string) (string, error)
-}
-
 type store struct {
-	storePath          string
-	cacheMu            *sync.RWMutex
-	cache              map[string]model.Item
-	subStreamFinder    subtitleStreamFinder
-	subStreamExtractor subtitleStreamExtractor
+	storePath       string
+	cacheMu         *sync.RWMutex
+	cache           map[string]model.Item
+	subtitleManager agents.StreamManager
 
 	classifier            agents.Classifier
 	classificationWorkers int
@@ -50,15 +37,9 @@ type store struct {
 
 type StoreOption func(*store)
 
-func WithSubtitleStreamFinder(finder subtitleStreamFinder) StoreOption {
+func WithSubtitlesManager(subsM agents.StreamManager) StoreOption {
 	return func(s *store) {
-		s.subStreamFinder = finder
-	}
-}
-
-func WithSubtitleStreamExtractor(extractor subtitleStreamExtractor) StoreOption {
-	return func(s *store) {
-		s.subStreamExtractor = extractor
+		s.subtitleManager = subsM
 	}
 }
 
@@ -81,10 +62,6 @@ func WithClassificationWorkers(amWorkers int) StoreOption {
 }
 
 func NewStore(opts ...StoreOption) *store {
-	subUtils := &ffmpegSubsUtil{
-		mediaCache: map[string]model.MediaInfo{},
-	}
-
 	cfgDir, err := os.UserConfigDir()
 	if err != nil {
 		ancli.Warnf("failed to find user config dir: %v", err)
@@ -93,13 +70,11 @@ func NewStore(opts ...StoreOption) *store {
 	storePath := path.Join(kinoviewCfgPath, "store")
 
 	s := &store{
-		debug:              misc.Truthy(os.Getenv("DEBUG")),
-		subStreamFinder:    subUtils,
-		subStreamExtractor: subUtils,
-		storePath:          storePath,
-		cache:              make(map[string]model.Item),
-		cacheMu:            &sync.RWMutex{},
-		classifier: classifier.NewClassifier(models.Configurations{
+		debug:     misc.Truthy(os.Getenv("DEBUG")),
+		storePath: storePath,
+		cache:     make(map[string]model.Item),
+		cacheMu:   &sync.RWMutex{},
+		classifier: classifier.New(models.Configurations{
 			Model:     "gpt-5",
 			ConfigDir: kinoviewCfgPath,
 			InternalTools: []models.ToolName{
@@ -180,11 +155,14 @@ func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 		return nil, fmt.Errorf("jsonStore Setup failed to load persisted items: %w", err)
 	}
 
-	ancli.Noticef("setting up classifier")
-	err = s.classifier.Setup(ctx)
-	if err != nil {
-		ancli.Errf("failed to setup classifier, classifications wont be possible. Err: %v", err)
+	if s.classifier != nil {
+		ancli.Noticef("setting up classifier")
+		err = s.classifier.Setup(ctx)
+		if err != nil {
+			ancli.Errf("failed to setup classifier, classifications wont be possible. Err: %v", err)
+		}
 	}
+
 	s.classifierErrors = make(chan error)
 	s.readyChan <- struct{}{}
 	return s.classifierErrors, nil
@@ -329,4 +307,34 @@ func (s *store) Snapshot() (ret []model.Item) {
 		ret = append(ret, i)
 	}
 	return
+}
+
+func (s *store) GetItemByID(ID string) (model.Item, error) {
+	snapshot := s.Snapshot()
+	for _, s := range snapshot {
+		if s.ID == ID {
+			return s, nil
+		}
+	}
+	return model.Item{}, fmt.Errorf("failed to find item with ID: %v", ID)
+}
+
+func (s *store) GetItemByName(name string) (model.Item, error) {
+	snapshot := s.Snapshot()
+	for _, s := range snapshot {
+		if s.Name == name {
+			return s, nil
+		}
+	}
+	return model.Item{}, fmt.Errorf("failed to find item with name: %v", name)
+}
+
+func (s *store) UpdateMetadata(item model.Item, metadata string) error {
+	raw := json.RawMessage(metadata)
+	_, err := raw.MarshalJSON()
+	if err != nil {
+		return fmt.Errorf("failed to marshal, invalid json: %w", err)
+	}
+	item.Metadata = &raw
+	return s.store(item)
 }

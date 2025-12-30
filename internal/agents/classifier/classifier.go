@@ -12,6 +12,7 @@ import (
 	"github.com/baalimago/clai/pkg/text"
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/kinoview/internal/agents"
+	"github.com/baalimago/kinoview/internal/media/constants"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -23,18 +24,7 @@ The following format will have parenthases. These are to describe the fields to 
 Some of the fields may be omitted if they aren't relevant for the media. "season" is for instance not relevant for a movie. 
 
 OUTPUT ONLY IN THE FOLLOWING FORMAT:
-{
-	"name": "<NAME>",
-	"alt_name": "<ALTERNATIVE NAME (if there were multiple titles)>" (string),
-	"actors": [ "ACTOR FULLNAME 0" (string), "ACTOR FULLNAME 1" (string), ... ],
-	"year": <RELEASE YEAR OF MEDIA> (int),
-	"description": "<DESCRIPTION OF MEDIA (max 100 words)>" (string),
-	"langugae": "<LANGUAGE (primarily spoken language)>" (string),
-	"duration_min": <DURATION OF MEDIA IN MINUTES> (int),
-	"season": <SEASON (if series)> (int),
-	"episode": <EPISODE NUMBER (if series)> (int),
-	"extra_to": "<MAIN MEDIA NAME (if extras, such as behind the scenes)>" (string)
-}`
+%s`
 
 const userPrompt = `Information about the media to classify: %v`
 
@@ -42,9 +32,9 @@ type classifier struct {
 	llm text.FullResponse
 }
 
-// NewClassifier configured by models.Configurations
-func NewClassifier(c models.Configurations) agents.Classifier {
-	c.SystemPrompt = systemPrompt
+// New configured by models.Configurations
+func New(c models.Configurations) agents.Classifier {
+	c.SystemPrompt = fmt.Sprintf(systemPrompt, constants.MetadataFormat)
 	return &classifier{
 		llm: text.NewFullResponseQuerier(c),
 	}
@@ -89,7 +79,7 @@ func buildChat(i model.Item, t0 time.Time) models.Chat {
 		Messages: []models.Message{
 			{
 				Role:    "system",
-				Content: systemPrompt,
+				Content: fmt.Sprintf(systemPrompt, constants.MetadataFormat),
 			},
 			{
 				Role:    "user",

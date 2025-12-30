@@ -6,9 +6,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	"github.com/baalimago/kinoview/internal/media/suggestions"
 	"github.com/baalimago/kinoview/internal/model"
 	"golang.org/x/net/websocket"
 )
@@ -16,29 +18,80 @@ import (
 type mockButler struct {
 	called bool
 	ctx    model.ClientContext
-	recs   []model.Recommendation
+	recs   []model.Suggestion
 }
 
 func (m *mockButler) Setup(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockButler) PrepSuggestions(ctx context.Context, c model.ClientContext, items []model.Item) ([]model.Recommendation, error) {
+func (m *mockButler) PrepSuggestions(ctx context.Context, c model.ClientContext, items []model.Item) ([]model.Suggestion, error) {
 	m.called = true
 	m.ctx = c
 	return m.recs, nil
 }
 
+type mockUserContextMgr struct {
+	mu    sync.Mutex
+	store []model.ClientContext
+	ch    chan struct{}
+}
+
+func newMockUserContextMgr() *mockUserContextMgr {
+	return &mockUserContextMgr{ch: make(chan struct{}, 100)}
+}
+
+func (m *mockUserContextMgr) AllClientContexts() []model.ClientContext {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]model.ClientContext(nil), m.store...)
+}
+
+func (m *mockUserContextMgr) StoreClientContext(ctx model.ClientContext) error {
+	m.mu.Lock()
+	m.store = append(m.store, ctx)
+	m.mu.Unlock()
+	select {
+	case m.ch <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (m *mockUserContextMgr) waitForAtLeast(n int, timeout time.Duration) bool {
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+	for {
+		m.mu.Lock()
+		l := len(m.store)
+		m.mu.Unlock()
+		if l >= n {
+			return true
+		}
+		select {
+		case <-m.ch:
+			// try again
+		case <-deadline.C:
+			return false
+		}
+	}
+}
+
 func TestEventStreamAndSuggestions(t *testing.T) {
 	// Setup
-	expectedRec := model.Recommendation{
+	expectedRec := model.Suggestion{
 		Item:       model.Item{ID: "test-id", Name: "Test Movie"},
 		Motivation: "Because you like tests",
 	}
 	butler := &mockButler{
-		recs: []model.Recommendation{expectedRec},
+		recs: []model.Suggestion{expectedRec},
 	}
-	idx, _ := NewIndexer(WithButler(butler))
+	ucm := newMockUserContextMgr()
+	sugMgr, err := suggestions.NewManager(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	idx, _ := NewIndexer(WithButler(butler), WithClientContextManager(ucm), WithSuggestionsManager(sugMgr))
 	// Need to initialize store to avoid nil pointer in Snapshot called by disconnect
 	idx.store = &mockStore{
 		items: []model.Item{},
@@ -58,9 +111,7 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	}
 
 	// Send context
-	ctx := model.ClientContext{
-		TimeOfDay: "Evening",
-	}
+	ctx := model.ClientContext{}
 	evt := model.Event[model.ClientContext]{
 		Type:    model.ClientContextEvent,
 		Created: time.Now(),
@@ -70,15 +121,9 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Fatalf("Send failed: %v", err)
 	}
 
-	// Wait a bit for server to process
-	time.Sleep(100 * time.Millisecond)
-
-	// Verify context updated
-	idx.clientCtxMu.Lock()
-	got := idx.lastClientContext
-	idx.clientCtxMu.Unlock()
-	if got.TimeOfDay != "Evening" {
-		t.Errorf("Want Evening, got %s", got.TimeOfDay)
+	// Wait for server to process and store context
+	if ok := ucm.waitForAtLeast(1, time.Second); !ok {
+		t.Fatalf("timeout waiting for stored context")
 	}
 
 	// Close connection to trigger butler
@@ -90,10 +135,6 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	if !butler.called {
 		t.Error("Butler was not called after disconnect")
 	}
-	if butler.ctx.TimeOfDay != "Evening" {
-		t.Errorf("Butler got wrong context: %v", butler.ctx)
-	}
-
 	// Now check if suggestions are available via HTTP
 	resp, err := http.Get(server.URL + "/suggestions")
 	if err != nil {
@@ -105,7 +146,7 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var recs []model.Recommendation
+	var recs []model.Suggestion
 	if err := json.NewDecoder(resp.Body).Decode(&recs); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}

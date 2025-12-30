@@ -191,9 +191,9 @@ func (s *store) VideoHandlerFunc() http.HandlerFunc {
 	}
 }
 
-// SubsHandlerFunc by stripping out the substitle streams using ffmpeg from video media found at
+// StreamHandlerFunc by stripping out the substitle streams using ffmpeg from video media found at
 // PathValue id. If there are multiple subtitle streams found, select one at random
-func (s *store) SubsListHandlerFunc() http.HandlerFunc {
+func (s *store) StreamListHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := r.PathValue("vid")
 		if id == "" {
@@ -212,10 +212,10 @@ func (s *store) SubsListHandlerFunc() http.HandlerFunc {
 			return
 		}
 
-		info, err := s.subStreamFinder.find(item)
+		info, err := s.subtitleManager.Find(item)
 		if err != nil {
-			ancli.Errf("jsonStore failed to handle SubsList when subStripper.extract, err: %v", err)
-			http.Error(w, "failed to extract subtitles from media", http.StatusInternalServerError)
+			ancli.Errf("jsonStore failed to handle StreamList when extracting streams, err: %v", err)
+			http.Error(w, "failed to extract streams from media", http.StatusInternalServerError)
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -224,17 +224,19 @@ func (s *store) SubsListHandlerFunc() http.HandlerFunc {
 	}
 }
 
-func (s *store) SubsHandlerFunc() http.HandlerFunc {
+func (s *store) StreamHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		vid := r.PathValue("vid")
 		if vid == "" {
+			ancli.Errf("missing video ID")
 			http.Error(w, "missing video id", http.StatusBadRequest)
 			return
 		}
 
-		sid := r.PathValue("sub_idx")
-		if sid == "" {
-			http.Error(w, "missing subtitle index", http.StatusBadRequest)
+		streamIdx := r.PathValue("stream_idx")
+		if streamIdx == "" {
+			ancli.Errf("missing stream index url param")
+			http.Error(w, "missing stream index", http.StatusBadRequest)
 			return
 		}
 
@@ -242,17 +244,21 @@ func (s *store) SubsHandlerFunc() http.HandlerFunc {
 		cacheFile, exists := s.cache[vid]
 		s.cacheMu.RUnlock()
 		if !exists {
+			ancli.Errf("cache miss for: %v", vid)
 			http.Error(w, fmt.Sprintf("cache miss for: '%v'", vid), http.StatusNotFound)
 			return
 		}
-		subs, err := s.subStreamExtractor.extract(cacheFile, sid)
+
+		ancli.Okf("attempting to extract subs for: %v, idx: %v", cacheFile.Name, streamIdx)
+		streamData, err := s.subtitleManager.ExtractSubtitles(cacheFile, streamIdx)
 		if err != nil {
-			ancli.Errf("failed to extract subs: %v", err)
-			http.Error(w, "failed to extract subs", http.StatusInternalServerError)
+			ancli.Errf("failed to extract stream: %v", err)
+			http.Error(w, "failed to extract stream", http.StatusInternalServerError)
 			return
 		}
+		ancli.Okf("serving file: %v", streamData)
 		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
-		http.ServeFile(w, r, subs)
+		http.ServeFile(w, r, streamData)
 	}
 }
 
