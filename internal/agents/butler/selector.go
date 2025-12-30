@@ -23,7 +23,7 @@ type selector struct {
 const selectorSystemPrompt = `You are a media stream analyzer. Your task is to select the most appropriate English subtitle stream from a list of streams.
 
 Priorities:
-1. Standard subtitles (often tagged "eng", "en", "English").
+1. Standard English subtitles (often tagged "eng", "en", "English").
 2. English SDH (Subtitles for the Deaf and Hard-of-hearing) if no standard English is available.
 3. Forced English subtitles (only if strictly necessary or no others exist, though these are usually for foreign parts).
 
