@@ -83,6 +83,11 @@ type Indexer struct {
 	clientContextMgr agents.ClientContextManager
 	suggestions      *suggestions.Manager
 
+	// websocket health/heartbeat tuning (mainly for tests)
+	heartbeatInterval time.Duration
+	pongTimeout       time.Duration
+	pingWriteTimeout  time.Duration
+
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
 	errorUpdates  chan error
@@ -129,6 +134,16 @@ func WithSuggestionsManager(s *suggestions.Manager) IndexerOption {
 func WithClientContextManager(m agents.ClientContextManager) IndexerOption {
 	return func(i *Indexer) {
 		i.clientContextMgr = m
+	}
+}
+
+// WithHeartbeatConfig allows overriding ping interval and timeouts.
+// Zero/negative values keep defaults.
+func WithHeartbeatConfig(interval, pongTimeout, pingWriteTimeout time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.heartbeatInterval = interval
+		i.pongTimeout = pongTimeout
+		i.pingWriteTimeout = pingWriteTimeout
 	}
 }
 

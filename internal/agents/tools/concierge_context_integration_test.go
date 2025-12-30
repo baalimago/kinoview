@@ -443,3 +443,65 @@ func TestConciergeContextIntegration_Ordering(t *testing.T) {
 		t.Fatalf("expected reverse chronological order, got positions: %d, %d, %d", pos0, pos1, pos2)
 	}
 }
+
+func TestConciergeCacheDir_WithProvidedCacheDir(t *testing.T) {
+	t.Parallel()
+
+	cacheDir := "/custom/cache"
+	got, err := conciergeCacheDir(cacheDir)
+	if err != nil {
+		t.Fatalf("conciergeCacheDir: %v", err)
+	}
+
+	expected := filepath.Join(cacheDir, "kinoview", "concierge")
+	if got != expected {
+		t.Fatalf("got %q want %q", got, expected)
+	}
+}
+
+func TestConciergeCacheDir_WithEmptyString(t *testing.T) {
+	t.Parallel()
+
+	got, err := conciergeCacheDir("")
+	if err != nil {
+		t.Fatalf("conciergeCacheDir: %v", err)
+	}
+
+	if got == "" {
+		t.Fatalf("got empty string")
+	}
+
+	if !filepath.IsAbs(got) {
+		t.Fatalf("expected absolute path, got %q", got)
+	}
+
+	if !strings.HasPrefix(filepath.Clean(got), filepath.Clean(filepath.Join(os.Getenv("HOME"), ".cache"))) {
+		t.Fatalf("expected path in user cache dir, got %q", got)
+	}
+}
+
+func TestConciergeCacheDir_PathStructure(t *testing.T) {
+	t.Parallel()
+
+	tmpDir := t.TempDir()
+	got, err := conciergeCacheDir(tmpDir)
+	if err != nil {
+		t.Fatalf("conciergeCacheDir: %v", err)
+	}
+
+	if !strings.HasPrefix(filepath.Clean(got), filepath.Clean(tmpDir)) {
+		t.Fatalf("expected path to start with tmpDir")
+	}
+
+	lastPart := filepath.Base(got)
+	if lastPart != "concierge" {
+		t.Fatalf("expected last component to be 'concierge', got %q",
+			lastPart)
+	}
+
+	secondLast := filepath.Base(filepath.Dir(got))
+	if secondLast != "kinoview" {
+		t.Fatalf("expected second-to-last to be 'kinoview', got %q",
+			secondLast)
+	}
+}

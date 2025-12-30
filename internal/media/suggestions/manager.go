@@ -25,7 +25,7 @@ func NewManager(cacheBaseDir string) (*Manager, error) {
 		}
 	}
 	dir := filepath.Join(cacheBaseDir, "kinoview")
-	err := os.MkdirAll(dir, 0755)
+	err := os.MkdirAll(dir, 0o755)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cache dir: %w", err)
 	}
@@ -98,5 +98,5 @@ func (m *Manager) save() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(m.cacheFilePath, data, 0644)
+	return os.WriteFile(m.cacheFilePath, data, 0o644)
 }

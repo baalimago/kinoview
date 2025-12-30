@@ -58,17 +58,6 @@ func (m *mockResponseWriter) WriteHeader(statusCode int) {
 	m.statusCode = statusCode
 }
 
-type mockSubtitleStreamFinder struct {
-	mockFind func(model.Item) (model.MediaInfo, error)
-}
-
-func (m *mockSubtitleStreamFinder) find(item model.Item) (model.MediaInfo, error) {
-	if m.mockFind != nil {
-		return m.mockFind(item)
-	}
-	return model.MediaInfo{}, nil
-}
-
 type mockSubtitleManager struct {
 	shouldFail   bool
 	shouldReturn model.MediaInfo

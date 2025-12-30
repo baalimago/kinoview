@@ -1,6 +1,10 @@
 package clientcontext
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -288,5 +292,182 @@ func TestStoreClientContextConcurrent(t *testing.T) {
 	if len(all) != numGoroutines {
 		t.Errorf("expected %d contexts, got %d",
 			numGoroutines, len(all))
+	}
+}
+
+func TestManagerLoad_FileDoesNotExist(t *testing.T) {
+	tmpDir := t.TempDir()
+	m := &Manager{logPath: filepath.Join(tmpDir, "kinoview", "client", "context.log")}
+	if err := m.load(); err != nil {
+		t.Fatalf("load returned error: %v", err)
+	}
+	if got := m.AllClientContexts(); len(got) != 0 {
+		t.Fatalf("expected 0 contexts, got %d", len(got))
+	}
+}
+
+func TestManagerLoad_EmptyFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "kinoview", "client", "context.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(logPath, nil, 0o644); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	m := &Manager{logPath: logPath}
+	if err := m.load(); err != nil {
+		t.Fatalf("load returned error: %v", err)
+	}
+	if got := m.AllClientContexts(); len(got) != 0 {
+		t.Fatalf("expected 0 contexts, got %d", len(got))
+	}
+}
+
+func TestManagerLoad_InvalidJSONLine(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "kinoview", "client", "context.log")
+	if err := os.MkdirAll(filepath.Dir(logPath), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	// One valid JSON line and one invalid.
+	data := []byte("{\"SessionID\":\"s1\",\"ViewingHistory\":[{\"Name\":\"m1\",\"ViewedAt\":\"2020-01-01T00:00:00Z\",\"PlayedForSec\":\"1\"}]}\n{not-json}\n")
+	if err := os.WriteFile(logPath, data, 0o644); err != nil {
+		t.Fatalf("writefile: %v", err)
+	}
+
+	m := &Manager{logPath: logPath}
+	err := m.load()
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "unmarshal user context log entry") {
+		t.Fatalf("expected unmarshal context error, got: %v", err)
+	}
+}
+
+func TestAppendToLogLocked_NoDeltaDoesNotWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "kinoview", "client", "context.log")
+	m := &Manager{logPath: logPath}
+
+	now := time.Now().UTC()
+	ctx := model.ClientContext{
+		SessionID: "s1",
+		ViewingHistory: []model.ViewMetadata{
+			{Name: "m1", ViewedAt: now, PlayedForSec: "10"},
+		},
+	}
+
+	// First call: there is no prior history => it WILL write.
+	// appendToLogLocked expects StoreClientContext ordering: append ctx to m.contexts after appending.
+	if err := m.appendToLogLocked(ctx); err != nil {
+		t.Fatalf("appendToLogLocked: %v", err)
+	}
+	m.contexts = append(m.contexts, ctx)
+	b1, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if len(b1) == 0 {
+		t.Fatalf("expected some bytes written")
+	}
+
+	// Second call with identical context should not write (no viewing history changes)
+	if err := m.appendToLogLocked(ctx); err != nil {
+		t.Fatalf("appendToLogLocked 2: %v", err)
+	}
+	m.contexts = append(m.contexts, ctx)
+	b2, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read2: %v", err)
+	}
+	if string(b2) != string(b1) {
+		t.Fatalf("expected log unchanged; before=%q after=%q", string(b1), string(b2))
+	}
+}
+
+func TestAppendToLogLocked_ErrorMissingSessionID(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "kinoview", "client", "context.log")
+	m := &Manager{logPath: logPath}
+
+	ctx := model.ClientContext{SessionID: ""}
+	m.contexts = append(m.contexts, ctx)
+	err := m.appendToLogLocked(ctx)
+	if err == nil {
+		t.Fatalf("expected error, got nil")
+	}
+	if !strings.Contains(err.Error(), "failed to separate") {
+		t.Fatalf("expected wrapping error, got: %v", err)
+	}
+}
+
+func TestAppendToLogLocked_WritesDeltaAndIsJSONL(t *testing.T) {
+	tmpDir := t.TempDir()
+	logPath := filepath.Join(tmpDir, "kinoview", "client", "context.log")
+	m := &Manager{logPath: logPath}
+
+	now := time.Now().UTC()
+	ctx1 := model.ClientContext{
+		SessionID:      "s1",
+		ViewingHistory: []model.ViewMetadata{{Name: "m1", ViewedAt: now, PlayedForSec: "10"}},
+	}
+	if err := m.appendToLogLocked(ctx1); err != nil {
+		t.Fatalf("append1: %v", err)
+	}
+	m.contexts = append(m.contexts, ctx1)
+
+	ctx2 := model.ClientContext{
+		SessionID:      "s1",
+		ViewingHistory: []model.ViewMetadata{{Name: "m1", ViewedAt: now, PlayedForSec: "11"}},
+	}
+	if err := m.appendToLogLocked(ctx2); err != nil {
+		t.Fatalf("append2: %v", err)
+	}
+	m.contexts = append(m.contexts, ctx2)
+
+	b, err := os.ReadFile(logPath)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(b)), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("expected 2 jsonl lines, got %d: %q", len(lines), string(b))
+	}
+	for i, ln := range lines {
+		if strings.TrimSpace(ln) == "" {
+			t.Fatalf("line %d empty", i)
+		}
+		var d model.ClientContextDelta
+		if err := json.Unmarshal([]byte(ln), &d); err != nil {
+			t.Fatalf("line %d not valid json: %v; line=%q", i, err, ln)
+		}
+		if d.SessionID != "s1" {
+			t.Fatalf("line %d: expected session s1, got %q", i, d.SessionID)
+		}
+		if len(d.ViewingHistory) != 1 {
+			t.Fatalf("line %d: expected 1 view, got %d", i, len(d.ViewingHistory))
+		}
+	}
+}
+
+func TestViewMetadataEqual(t *testing.T) {
+	now := time.Now()
+	base := model.ViewMetadata{Name: "m", PlayedForSec: "1", ViewedAt: now}
+
+	if !viewMetadataEqual(base, base) {
+		t.Fatalf("expected equal")
+	}
+
+	if viewMetadataEqual(base, model.ViewMetadata{Name: "x", PlayedForSec: "1", ViewedAt: now}) {
+		t.Fatalf("expected not equal when Name differs")
+	}
+	if viewMetadataEqual(base, model.ViewMetadata{Name: "m", PlayedForSec: "2", ViewedAt: now}) {
+		t.Fatalf("expected not equal when PlayedForSec differs")
+	}
+	if viewMetadataEqual(base, model.ViewMetadata{Name: "m", PlayedForSec: "1", ViewedAt: now.Add(time.Second)}) {
+		t.Fatalf("expected not equal when ViewedAt differs")
 	}
 }

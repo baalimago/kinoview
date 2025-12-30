@@ -23,8 +23,8 @@ func NewMediaListTool(l agents.ItemLister) (*mediaListTool, error) {
 }
 
 type mediaListResponse struct {
-	Total int              `json:"total"`
-	Items []mediaListItem  `json:"items"`
+	Total int             `json:"total"`
+	Items []mediaListItem `json:"items"`
 }
 
 type mediaListItem struct {

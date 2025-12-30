@@ -10,6 +10,12 @@ import (
 	"golang.org/x/net/websocket"
 )
 
+const (
+	defaultHeartbeatInterval = 5 * time.Second
+	defaultPongTimeout       = 1 * time.Second
+	defaultPingWriteTimeout  = 1 * time.Second
+)
+
 func (i *Indexer) handleWebsocketConnection(ws *websocket.Conn) {
 	defer ws.Close()
 
@@ -64,8 +70,21 @@ func (i *Indexer) handleIncomingEvent(eventType model.EventType, payload json.Ra
 	}
 }
 
+// heartbeatLoop periodically sends a health ping and expects a pong response.
+//
+// Timings are intentionally configurable (via Indexer fields) to make this
+// routine testable without slow sleeps.
 func (i *Indexer) heartbeatLoop(ws *websocket.Conn, pongChan <-chan struct{}, errChan <-chan error) {
-	ticker := time.NewTicker(5 * time.Second)
+	interval := i.heartbeatInterval
+	if interval <= 0 {
+		interval = defaultHeartbeatInterval
+	}
+	pongTimeout := i.pongTimeout
+	if pongTimeout <= 0 {
+		pongTimeout = defaultPongTimeout
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -80,7 +99,7 @@ func (i *Indexer) heartbeatLoop(ws *websocket.Conn, pongChan <-chan struct{}, er
 				return
 			}
 
-			if !i.waitForPong(pongChan, errChan) {
+			if !i.waitForPong(pongChan, errChan, pongTimeout) {
 				i.handleDisconnect()
 				return
 			}
@@ -94,17 +113,25 @@ func (i *Indexer) sendHealthPing(ws *websocket.Conn) error {
 		Created: time.Now(),
 		Payload: model.Health{},
 	}
-	if err := ws.SetWriteDeadline(time.Now().Add(1 * time.Second)); err != nil {
+
+	writeTimeout := i.pingWriteTimeout
+	if writeTimeout <= 0 {
+		writeTimeout = defaultPingWriteTimeout
+	}
+	if err := ws.SetWriteDeadline(time.Now().Add(writeTimeout)); err != nil {
 		return err
 	}
 	return websocket.JSON.Send(ws, ping)
 }
 
-func (i *Indexer) waitForPong(pongChan <-chan struct{}, errChan <-chan error) bool {
+func (i *Indexer) waitForPong(pongChan <-chan struct{}, errChan <-chan error, timeout time.Duration) bool {
+	if timeout <= 0 {
+		timeout = defaultPongTimeout
+	}
 	select {
 	case <-pongChan:
 		return true
-	case <-time.After(1 * time.Second):
+	case <-time.After(timeout):
 		ancli.Warnf("client health check timed out")
 		return false
 	case <-errChan:

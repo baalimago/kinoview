@@ -3,7 +3,6 @@ package storage
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"image"
 	"image/color"
 	"io"
@@ -270,12 +269,6 @@ func Test_store_VideoHandlerFunc(t *testing.T) {
 			t.Errorf("Expected error response, got: %s", rec.buffer)
 		}
 	})
-}
-
-type mockExtractor struct{}
-
-func (m *mockExtractor) extract(item model.Item, streamIndex string) (string, error) {
-	return "", fmt.Errorf("mocked failure")
 }
 
 func Test_store_StreamHandlerFunc(t *testing.T) {

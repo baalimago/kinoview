@@ -50,10 +50,6 @@ func Command() *command {
 	}
 	kinoviewConfigDir := path.Join(configDir, "kinoview")
 	r, _ := os.Executable()
-	if err != nil {
-		ancli.Errf("failed to create indexer: %v", err)
-		return nil
-	}
 
 	defaultModel := ""
 	return &command{
