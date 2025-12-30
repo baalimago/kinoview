@@ -175,6 +175,7 @@ func TestNew_ItemListerDerivesFromItemGetter(t *testing.T) {
 }
 
 func TestConcierge_Setup_NoUserContextManager(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "somevalue")
 	ig := &mockItemGetter{}
 	mm := &mockMetadataManager{}
 	sm := &mockSuggestionManager{}
@@ -202,6 +203,7 @@ func TestConcierge_Setup_NoUserContextManager(t *testing.T) {
 }
 
 func TestConcierge_Setup_WithUserContextManager(t *testing.T) {
+	t.Setenv("OPENAI_API_KEY", "somevalue")
 	ig := &mockItemGetter{}
 	mm := &mockMetadataManager{}
 	sm := &mockSuggestionManager{}
