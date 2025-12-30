@@ -534,6 +534,9 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 		s.cacheMu.Lock()
 		original := s.cache[item.ID]
 		s.cacheMu.Unlock()
+		if original.Metadata == nil {
+			t.Fatalf("expected original to have metadata: %v", original)
+		}
 		originalMeta := string(*original.Metadata)
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error { return nil },
