@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -1330,9 +1331,7 @@ func TestCommand_Run_classification_station_error(t *testing.T) {
 		t.Fatalf("Expected station error")
 	}
 
-	if err.Error() != "station error" {
-		t.Fatalf("Expected 'station error', got '%v'", err)
-	}
+	testboil.AssertStringContains(t, err.Error(), "station error")
 }
 
 func TestCommand_Run_start_classification_station_fails(t *testing.T) {

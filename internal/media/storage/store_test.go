@@ -500,6 +500,9 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 		if !exist {
 			t.Fatal("expected item to exist in store")
 		}
+		if got.Metadata == nil {
+			t.Errorf("expected metadata on item: %v", debug.IndentedJsonFmt(got))
+		}
 		gotMetadata := string(*got.Metadata)
 		if gotMetadata != want {
 			t.Errorf("expected metadata to be set, got: %v", gotMetadata)

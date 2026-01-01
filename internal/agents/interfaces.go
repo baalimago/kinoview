@@ -2,6 +2,7 @@ package agents
 
 import (
 	"context"
+	"io"
 
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -99,4 +100,11 @@ type ClientContextManager interface {
 
 	// StoreClientContext and persist on disk. Will error on failure to store.
 	StoreClientContext(model.ClientContext) error
+}
+
+// OutputSetter sets the output of some module. Intent is for modules to write
+// their output to files instead of causing racy logs in stdout
+type OutputSetter interface {
+	// SetOutput to some Writer
+	SetOutput(io.Writer) error
 }

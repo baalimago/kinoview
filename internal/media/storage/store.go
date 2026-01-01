@@ -25,10 +25,11 @@ type store struct {
 	cache           map[string]model.Item
 	subtitleManager agents.StreamManager
 
-	classifier            agents.Classifier
-	classificationWorkers int
-	classifierErrors      chan error
-	classificationRequest chan classificationCandidate
+	classifier               agents.Classifier
+	classificationLogsOutdir string
+	classificationWorkers    int
+	classifierErrors         chan error
+	classificationRequest    chan classificationCandidate
 
 	readyChan chan struct{}
 
@@ -68,6 +69,11 @@ func NewStore(opts ...StoreOption) *store {
 	}
 	kinoviewCfgPath := path.Join(cfgDir, "kinoview")
 	storePath := path.Join(kinoviewCfgPath, "store")
+	classifierLogOut := path.Join(kinoviewCfgPath, "classifierLogs")
+	err = os.MkdirAll(classifierLogOut, 0o755)
+	if err != nil {
+		ancli.Errf("failed to create classifier logs dir: %v", err)
+	}
 
 	s := &store{
 		debug:     misc.Truthy(os.Getenv("DEBUG")),
@@ -85,9 +91,10 @@ func NewStore(opts ...StoreOption) *store {
 				models.RipGrepTool,
 			},
 		}),
-		classificationRequest: make(chan classificationCandidate),
-		classifierErrors:      make(chan error),
-		classificationWorkers: 2,
+		classificationRequest:    make(chan classificationCandidate),
+		classifierErrors:         make(chan error),
+		classificationWorkers:    2,
+		classificationLogsOutdir: classifierLogOut,
 
 		// Buffered chanel to not cause regression since it's currently only used in classify
 		// Large enough buffre to ever cause congestion due to waiting for it to be ready
@@ -172,7 +179,7 @@ func (s *store) Start(ctx context.Context) {
 	go func() {
 		err := s.StartClassificationStation(ctx)
 		if err != nil {
-			s.classifierErrors <- err
+			s.classifierErrors <- fmt.Errorf("failed to start classification station: %w", err)
 		}
 	}()
 }

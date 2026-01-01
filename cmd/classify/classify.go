@@ -127,7 +127,7 @@ func (c *command) startClassificationStation(ctx context.Context) (chan error, e
 	go func() {
 		err := c.store.StartClassificationStation(ctx)
 		if err != nil {
-			errChan <- err
+			errChan <- fmt.Errorf("failed to start  classification station: %w", err)
 		}
 	}()
 

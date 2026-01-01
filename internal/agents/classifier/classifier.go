@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"time"
 
@@ -29,14 +30,16 @@ OUTPUT ONLY IN THE FOLLOWING FORMAT:
 const userPrompt = `Information about the media to classify: %v`
 
 type classifier struct {
-	llm text.FullResponse
+	conf *models.Configurations
+	llm  text.FullResponse
 }
 
 // New configured by models.Configurations
 func New(c models.Configurations) agents.Classifier {
 	c.SystemPrompt = fmt.Sprintf(systemPrompt, constants.MetadataFormat)
 	return &classifier{
-		llm: text.NewFullResponseQuerier(c),
+		llm:  text.NewFullResponseQuerier(c),
+		conf: &c,
 	}
 }
 
@@ -45,6 +48,15 @@ func (c *classifier) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to setup querier: %w", err)
 	}
+	return nil
+}
+
+func (c *classifier) SetOutput(w io.Writer) error {
+	if c.conf == nil {
+		return errors.New("no previous config set, can only set output on initialized classfier")
+	}
+	c.conf.Out = w
+	c.llm = text.NewFullResponseQuerier(*c.conf)
 	return nil
 }
 

@@ -72,6 +72,7 @@ func (c *command) Setup(ctx context.Context) error {
 	////////////
 	var clifier agents.Classifier
 	if *c.classificationModel != "" {
+		ancli.Noticef("creating new classifier")
 		clifier = classifier.New(models.Configurations{
 			Model:     *c.classificationModel,
 			ConfigDir: c.configDir,

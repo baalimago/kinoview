@@ -154,10 +154,6 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		return nil, errors.New("subtitle selector can't be nil")
 	}
 
-	if c.userContextMgr == nil {
-		// user context manager optional; tool will be omitted if not provided
-	}
-
 	llmTools := make([]models.LLMTool, 0)
 
 	ccg, err := tools.NewConciergeContextGet(tools.ConciergeContextWithCacheDir(c.cacheDir))

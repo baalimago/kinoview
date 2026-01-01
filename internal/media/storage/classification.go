@@ -2,10 +2,14 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"path"
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 	"golang.org/x/exp/rand"
 )
@@ -53,7 +57,23 @@ func (s *store) startClassificationRoutine(ctx context.Context, workerID int, wo
 		case <-ctx.Done():
 			return
 		case c := <-workChan:
-			ancli.Noticef("[%v] - Worker %v, classifying: %v", c.correlationID, workerID, c.item.Name)
+			notice := fmt.Sprintf("[%v] - Worker %v, classifying: %v", c.correlationID, workerID, c.item.Name)
+			outSetter, ok := s.classifier.(agents.OutputSetter)
+			if ok {
+				f, err := os.Create(path.Join(s.classificationLogsOutdir, fmt.Sprintf("w%v_%v_%v.txt", workerID, c.correlationID, c.item.ID)))
+				if err != nil {
+					s.classifierErrors <- fmt.Errorf("failed to create write file: %w", err)
+				} else {
+					err = outSetter.SetOutput(f)
+					if err != nil {
+						s.classifierErrors <- fmt.Errorf("failed to set output stream: %w", err)
+					} else {
+						notice += fmt.Sprintf(", output in: %v", f.Name())
+					}
+				}
+			}
+
+			ancli.Noticef("%v", notice)
 			i, err := s.classifier.Classify(ctx, c.item)
 			resChan <- classificationResult{
 				correlationID: c.correlationID,
@@ -68,6 +88,9 @@ func (s *store) startClassificationRoutine(ctx context.Context, workerID int, wo
 // chan error if the routine successfully started. Closing of chan error indicates
 // shutdown of routine
 func (s *store) StartClassificationStation(ctx context.Context) error {
+	if s.classifier == nil {
+		return errors.New("classifier is nil, nothing to start")
+	}
 	resChan := make(chan classificationResult, 1000)
 	workChan := make(chan classificationCandidate, 1000)
 	for i := range s.classificationWorkers {
