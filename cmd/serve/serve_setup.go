@@ -124,7 +124,7 @@ func (c *command) Setup(ctx context.Context) error {
 	store := storage.NewStore(
 		storage.WithStorePath(storePath),
 		storage.WithSubtitlesManager(subsManager),
-		storage.WithClassificationWorkers(5),
+		storage.WithClassificationWorkers(*c.classificationWorkers),
 		storage.WithClassifier(clifier),
 	)
 
@@ -156,10 +156,10 @@ func (c *command) Setup(ctx context.Context) error {
 			concierge.WithUserContextManager(userContextMgr),
 			concierge.WithModel(*c.conciergeModel),
 		)
-		if err != nil {
-			ancli.Errf("failed to create concierge. His services will not be available: %v", err)
-		} else {
+		if err == nil {
 			ancli.Noticef("concierge setup OK")
+		} else {
+			ancli.Errf("failed to create concierge. His services will not be available: %v", err)
 		}
 	}
 

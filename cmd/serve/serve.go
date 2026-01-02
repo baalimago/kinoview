@@ -37,10 +37,11 @@ type command struct {
 	tlsCertPath  *string
 	tlsKeyPath   *string
 
-	classificationModel *string
-	butlerModel         *string
-	recommenderModel    *string
-	conciergeModel      *string
+	classificationModel   *string
+	classificationWorkers *int
+	butlerModel           *string
+	recommenderModel      *string
+	conciergeModel        *string
 }
 
 func Command() *command {
@@ -137,7 +138,7 @@ func (c *command) Run(ctx context.Context) error {
 }
 
 func (c *command) Help() string {
-	return "Serve some filesystem. Set the directory as the second argument: wd-41 serve <dir>. If omitted, current wd will be used."
+	return "Serve some filesystem. Set the directory as the second argument: kinoview serve <dir>. If omitted, current wd will be used."
 }
 
 func (c *command) Describe() string {
@@ -154,6 +155,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.tlsKeyPath = fs.String("tlsKeyPath", "", "set to a path to a key, requires tlsCertPath to be set")
 
 	c.classificationModel = fs.String("classifier", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.classificationWorkers = fs.Int("classifierWorkers", 5, "set amount of workers used for classification")
 	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
