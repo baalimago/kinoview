@@ -38,7 +38,7 @@ func Command() *command {
 	}
 	cacheDir, err := os.UserCacheDir()
 	if err == nil {
-		ret.cacheDir = misc.Pointer(cacheDir)
+		ret.cacheDir = misc.Pointer(path.Join(cacheDir, "kinoview"))
 	} else {
 		ancli.Errf("failed to find user cache dir: %v", err)
 	}
@@ -52,6 +52,7 @@ func (c *command) Describe() string {
 func (c *command) Flagset() *flag.FlagSet {
 	fs := flag.NewFlagSet("concierge", flag.ContinueOnError)
 	fs.StringVar(c.configDir, "confDir", *c.configDir, "Overwrite config dir")
+	fs.StringVar(c.cacheDir, "cacheDir", *c.cacheDir, "Overwrite cache dir")
 	fs.StringVar(c.model, "model", *c.model, "Model to use for all internal agentic systems")
 	return fs
 }

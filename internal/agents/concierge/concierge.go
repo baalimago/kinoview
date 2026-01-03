@@ -248,6 +248,7 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		agent.WithPrompt(systemPrompt),
 		agent.WithTools(llmTools),
 		agent.WithMaxToolCalls(20),
+		agent.WithConfigDir(c.configDir),
 	)
 	return &a, nil
 }
