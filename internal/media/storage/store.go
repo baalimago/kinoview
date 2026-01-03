@@ -310,6 +310,7 @@ func (s *store) Store(ctx context.Context, i model.Item) error {
 func (s *store) Snapshot() (ret []model.Item) {
 	s.cacheMu.RLock()
 	defer s.cacheMu.RUnlock()
+	ancli.Okf("Now returning from store path: %v", s.storePath)
 	for _, i := range s.cache {
 		ret = append(ret, i)
 	}
