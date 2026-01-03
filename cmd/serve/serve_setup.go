@@ -44,11 +44,7 @@ func (c *command) Setup(ctx context.Context) error {
 
 	storePath := path.Join(*c.configDir, "store")
 	subsPath := path.Join(*c.configDir, "subtitles")
-	cacheDir, err := os.UserCacheDir()
-	if err != nil {
-		ancli.Warnf("failed to get user cache dir: %v", err)
-	}
-	suggestionsManager, err := suggestions.NewManager(cacheDir)
+	suggestionsManager, err := suggestions.NewManager(*c.cacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to create suggestions manager: %w", err)
 	}
@@ -117,7 +113,7 @@ func (c *command) Setup(ctx context.Context) error {
 	////////////
 	// User context setup
 	////////////
-	userContextMgr, err := clientcontext.New(cacheDir)
+	userContextMgr, err := clientcontext.New(*c.cacheDir)
 	if err != nil {
 		ancli.Warnf("failed to create user context manager: %v", err)
 	}
@@ -138,7 +134,7 @@ func (c *command) Setup(ctx context.Context) error {
 			})),
 			concierge.WithConfigDir(*c.configDir),
 			concierge.WithStoreDir(storePath),
-			concierge.WithCacheDir(cacheDir),
+			concierge.WithCacheDir(*c.cacheDir),
 			concierge.WithUserContextManager(userContextMgr),
 			concierge.WithModel(*c.conciergeModel),
 		)

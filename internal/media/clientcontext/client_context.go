@@ -29,7 +29,7 @@ func New(cacheDir string) (*Manager, error) {
 	if cacheDir == "" {
 		return nil, errors.New("cacheDir can't be nil")
 	}
-	p := filepath.Join(cacheDir, "kinoview", "client", "context.log")
+	p := filepath.Join(cacheDir, "client", "context.log")
 	m := &Manager{logPath: p}
 	if err := m.load(); err != nil {
 		return nil, err
