@@ -8,6 +8,8 @@ import (
 	"path"
 	"testing"
 	"time"
+
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 )
 
 func TestSetup(t *testing.T) {
@@ -23,6 +25,7 @@ func TestSetup(t *testing.T) {
 		c := Command()
 		c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
 		want, _ := os.Getwd()
+		c.classificationWorkers = misc.Pointer(1)
 		err := c.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -36,6 +39,7 @@ func TestSetup(t *testing.T) {
 		c := Command()
 		c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
 		_ = c.flagset.Parse([]string{"/tmp"})
+		c.classificationWorkers = misc.Pointer(1)
 		err := c.Setup(context.Background())
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
@@ -48,12 +52,13 @@ func TestSetup(t *testing.T) {
 	t.Run("configDir is created if missing", func(t *testing.T) {
 		dir := t.TempDir()
 		c := Command()
-		c.configDir = path.Join(dir, "doesnotexist")
+		c.configDir = misc.Pointer(path.Join(dir, "doesnotexist"))
 		c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
+		c.classificationWorkers = misc.Pointer(1)
 		if err := c.Setup(context.Background()); err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		if _, err := os.Stat(c.configDir); err != nil {
+		if _, err := os.Stat(*c.configDir); err != nil {
 			t.Errorf("configDir not created: %v", err)
 		}
 	})
@@ -69,6 +74,7 @@ func TestSetup(t *testing.T) {
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				c := Command()
+				c.classificationWorkers = misc.Pointer(1)
 				c.flagset = flag.NewFlagSet("x", flag.ContinueOnError)
 				if tt.args != nil {
 					_ = c.flagset.Parse(tt.args)
@@ -83,10 +89,11 @@ func TestSetup(t *testing.T) {
 	t.Run("validate side effects", func(t *testing.T) {
 		dir := t.TempDir()
 		c := Command()
-		c.configDir = path.Join(dir, "abc")
+		c.configDir = misc.Pointer(path.Join(dir, "abc"))
 		c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
+		c.classificationWorkers = misc.Pointer(1)
 		_ = c.Setup(context.Background())
-		if _, err := os.Stat(c.configDir); err != nil {
+		if _, err := os.Stat(*c.configDir); err != nil {
 			t.Error("side effect: configDir not created")
 		}
 	})
@@ -94,10 +101,10 @@ func TestSetup(t *testing.T) {
 	t.Run("clean up after test run", func(t *testing.T) {
 		dir := t.TempDir()
 		c := Command()
-		c.configDir = path.Join(dir, "gone")
+		c.configDir = misc.Pointer(path.Join(dir, "gone"))
 		c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
 		_ = c.Setup(context.Background())
-		if err := os.RemoveAll(c.configDir); err != nil {
+		if err := os.RemoveAll(*c.configDir); err != nil {
 			t.Errorf("cleanup failed: %v", err)
 		}
 	})
@@ -107,7 +114,7 @@ func TestRun(t *testing.T) {
 	t.Run("successful run", func(t *testing.T) {
 		c := Command()
 		c.Flagset()
-		c.configDir = t.TempDir()
+		c.configDir = misc.Pointer(t.TempDir())
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second/2)
 		t.Cleanup(func() {
 			cancel()
@@ -118,7 +125,7 @@ func TestRun(t *testing.T) {
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)
 		}
-		c.configDir = t.TempDir()
+		c.configDir = misc.Pointer(t.TempDir())
 		c.watchPath = t.TempDir()
 		err = c.Run(ctx)
 		if err != nil {

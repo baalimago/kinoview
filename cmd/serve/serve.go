@@ -11,6 +11,7 @@ import (
 	"path"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 )
 
 //go:embed frontend/*
@@ -49,10 +50,11 @@ type command struct {
 func Command() *command {
 	defaultModel := ""
 	ret := command{
-		classificationModel: &defaultModel,
-		recommenderModel:    &defaultModel,
-		butlerModel:         &defaultModel,
-		conciergeModel:      &defaultModel,
+		classificationModel:   &defaultModel,
+		recommenderModel:      &defaultModel,
+		butlerModel:           &defaultModel,
+		conciergeModel:        &defaultModel,
+		classificationWorkers: misc.Pointer(5),
 	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
