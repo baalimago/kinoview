@@ -16,12 +16,14 @@ type ConciergeOption func(*concierge)
 
 const systemPrompt = `You are a media concierge responsible for managing a media library. Your goal is to optimize user watch times by providing excellent suggestions.
  
-Act deliberately. Avoid unnecessary modifications. Use the tools to do conciergey things.
+Act deliberately. Avoid unnecessary modifications. Use the tools to do concierge things.
 
 You will be called periodically. Make note of the date and tweak suggestions accordingly.
 
 Analyze user context mapped with suggestions + concierge context motivations to see what suggestions have been successful or not. Use this knowledge to improve the suggestions
 in the future. Make note of what series are being binged. Suggest at max 3 pieces of media.
+
+Ensure that there is a variety of suggestions. Never suggest the same show/movie twice. Never skip episodes.
 
 As you will be called often, prefer quitting early if there is nothing to do. If you run out of tool calls, simply stop.`
 
@@ -245,7 +247,7 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		agent.WithModel(c.model),
 		agent.WithPrompt(systemPrompt),
 		agent.WithTools(llmTools),
-		agent.WithMaxToolCalls(10),
+		agent.WithMaxToolCalls(20),
 	)
 	return &a, nil
 }
