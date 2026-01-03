@@ -16,27 +16,15 @@ type Manager struct {
 	cacheFilePath string
 }
 
-func NewManager(cacheBaseDir string) (*Manager, error) {
-	if cacheBaseDir == "" {
-		var err error
-		cacheBaseDir, err = os.UserCacheDir()
-		if err != nil {
-			return nil, fmt.Errorf("failed to get user cache dir: %w", err)
-		}
-	}
-	dir := filepath.Join(cacheBaseDir, "kinoview")
-	err := os.MkdirAll(dir, 0o755)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create cache dir: %w", err)
-	}
-	cacheFilePath := filepath.Join(dir, "suggestions.json")
+func NewManager(kinoviewCacheDir string) (*Manager, error) {
+	cacheFilePath := filepath.Join(kinoviewCacheDir, "suggestions.json")
 
 	m := &Manager{
 		cacheFilePath: cacheFilePath,
 		suggestions:   []model.Suggestion{},
 	}
 
-	err = m.load()
+	err := m.load()
 	if err != nil && !os.IsNotExist(err) {
 		return nil, fmt.Errorf("failed to load suggestions: %w", err)
 	}

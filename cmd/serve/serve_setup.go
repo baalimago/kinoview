@@ -42,22 +42,8 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 	c.watchPath = path.Clean(relPath)
 
-	if c.configDir == "" {
-		userCfgDir, err := os.UserConfigDir()
-		if err != nil {
-			return fmt.Errorf("failed to get config dir: %v", err)
-		}
-		c.configDir = userCfgDir
-	}
-
-	if _, err := os.Stat(c.configDir); os.IsNotExist(err) {
-		ancli.Noticef("config dir non-existent, creating: '%v'", c.configDir)
-		if err := os.MkdirAll(c.configDir, 0o755); err != nil {
-			return fmt.Errorf("could not create config dir: %w", err)
-		}
-	}
-	storePath := path.Join(c.configDir, "store")
-	subsPath := path.Join(c.configDir, "subtitles")
+	storePath := path.Join(*c.configDir, "store")
+	subsPath := path.Join(*c.configDir, "subtitles")
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		ancli.Warnf("failed to get user cache dir: %v", err)
@@ -75,7 +61,7 @@ func (c *command) Setup(ctx context.Context) error {
 		ancli.Noticef("creating new classifier")
 		clifier = classifier.New(models.Configurations{
 			Model:     *c.classificationModel,
-			ConfigDir: c.configDir,
+			ConfigDir: *c.configDir,
 			InternalTools: []models.ToolName{
 				models.CatTool,
 				models.FindTool,
@@ -93,7 +79,7 @@ func (c *command) Setup(ctx context.Context) error {
 	if *c.recommenderModel != "" {
 		r = recommender.New(models.Configurations{
 			Model:         *c.recommenderModel,
-			ConfigDir:     c.configDir,
+			ConfigDir:     *c.configDir,
 			InternalTools: []models.ToolName{},
 		})
 	}
@@ -111,7 +97,7 @@ func (c *command) Setup(ctx context.Context) error {
 		} else {
 			alfred = butler.New(models.Configurations{
 				Model:         *c.butlerModel,
-				ConfigDir:     c.configDir,
+				ConfigDir:     *c.configDir,
 				InternalTools: []models.ToolName{},
 			}, subsManager,
 			)
@@ -148,9 +134,9 @@ func (c *command) Setup(ctx context.Context) error {
 			concierge.WithSuggestionManager(suggestionsManager),
 			concierge.WithSubtitleSelector(butler.NewSelector(models.Configurations{
 				Model:     *c.classificationModel,
-				ConfigDir: c.configDir,
+				ConfigDir: *c.configDir,
 			})),
-			concierge.WithConfigDir(c.configDir),
+			concierge.WithConfigDir(*c.configDir),
 			concierge.WithStoreDir(storePath),
 			concierge.WithCacheDir(cacheDir),
 			concierge.WithUserContextManager(userContextMgr),

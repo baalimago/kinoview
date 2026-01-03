@@ -26,8 +26,10 @@ type command struct {
 	indexer Indexer
 
 	binPath   string
-	configDir string
 	watchPath string
+
+	configDir *string
+	cacheDir  *string
 
 	host *string
 	port *int
@@ -45,22 +47,41 @@ type command struct {
 }
 
 func Command() *command {
-	configDir, err := os.UserConfigDir()
-	if err != nil {
-		ancli.Errf("failed to find user config dir: %v", err)
-	}
-	kinoviewConfigDir := path.Join(configDir, "kinoview")
-	r, _ := os.Executable()
-
 	defaultModel := ""
-	return &command{
-		binPath:             r,
-		configDir:           kinoviewConfigDir,
+	ret := command{
 		classificationModel: &defaultModel,
 		recommenderModel:    &defaultModel,
 		butlerModel:         &defaultModel,
 		conciergeModel:      &defaultModel,
 	}
+	configDir, err := os.UserConfigDir()
+	if err != nil {
+		ancli.Errf("failed to find user config dir: %v", err)
+	}
+
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		ancli.Errf("failed to find user cache dir: %v", err)
+	}
+
+	kinoviewConfigDir := path.Join(configDir, "kinoview")
+	kinoviewCacheDir := path.Join(cacheDir, "kinoview")
+	err = os.MkdirAll(kinoviewConfigDir, 0o755)
+	if err != nil {
+		ancli.Errf("failed to create: '%v'", kinoviewConfigDir)
+	}
+	err = os.MkdirAll(kinoviewCacheDir, 0o755)
+	if err != nil {
+		ancli.Errf("failed to create: '%v'", kinoviewCacheDir)
+	}
+	r, err := os.Executable()
+	if err != nil {
+		ancli.Errf("failed to find bin path: %v", err)
+	}
+	ret.binPath = r
+	ret.configDir = &kinoviewConfigDir
+	ret.cacheDir = &kinoviewCacheDir
+	return &ret
 }
 
 func (c *command) startServeRoutine(mux *http.ServeMux, serverErrChan chan error) func(context.Context) error {
@@ -149,6 +170,10 @@ func (c *command) Flagset() *flag.FlagSet {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	c.host = fs.String("host", "localhost", "hostname to serve on")
 	c.port = fs.Int("port", 8080, "port to serve on")
+
+	fs.StringVar(c.cacheDir, "cacheDir", *c.cacheDir, "Set to custom cache dir")
+	fs.StringVar(c.configDir, "configDir", *c.configDir, "Set to custom config dir")
+
 	c.cacheControl = fs.String("cacheControl", "no-cache", "set to configure the cache-control header")
 
 	c.tlsCertPath = fs.String("tlsCertPath", "", "set to a path to a cert, requires tlsKeyPath to be set")

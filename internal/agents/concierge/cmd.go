@@ -38,7 +38,7 @@ func Command() *command {
 	}
 	cacheDir, err := os.UserCacheDir()
 	if err == nil {
-		ret.cacheDir = misc.Pointer(path.Join(cacheDir, "kinoview"))
+		ret.cacheDir = misc.Pointer(cacheDir)
 	} else {
 		ancli.Errf("failed to find user cache dir: %v", err)
 	}
