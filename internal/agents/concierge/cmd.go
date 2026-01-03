@@ -62,6 +62,7 @@ func (c *command) Help() string {
 }
 
 func (c *command) Run(ctx context.Context) error {
+	ancli.Okf("concierge running with model: %v", *c.model)
 	resp, err := c.con.Run(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to run concierge: %w", err)
