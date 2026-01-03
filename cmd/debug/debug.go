@@ -23,6 +23,13 @@ var commands = map[string]cmd.Command{
 	"con|concierge": concierge.Command(),
 }
 
+// runFn is a seam for tests. In production it defaults to cmd.Run.
+var runFn = cmd.Run
+
+func run(ctx context.Context, args []string) int {
+	return runFn(ctx, args, commands, usage)
+}
+
 type command struct {
 	flagset *flag.FlagSet
 }
@@ -47,7 +54,7 @@ func (c *command) Setup(ctx context.Context) error {
 }
 
 func (c *command) Run(ctx context.Context) error {
-	exitCode := cmd.Run(ctx, os.Args[:2], commands, usage)
+	exitCode := run(ctx, os.Args)
 	if exitCode > 0 {
 		return fmt.Errorf("non nil exit code from: '%v', code: %v", c.flagset.Args(), exitCode)
 	}
