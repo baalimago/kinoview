@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -29,6 +30,7 @@ func NewManager(kinoviewCacheDir string) (*Manager, error) {
 		return nil, fmt.Errorf("failed to load suggestions: %w", err)
 	}
 
+	ancli.Okf("suggestion manager setup, loaded: '%v' items", len(m.Get()))
 	return m, nil
 }
 
