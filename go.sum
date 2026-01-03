@@ -1,7 +1,7 @@
 github.com/baalimago/clai v1.9.2-rc8 h1:r9Vi2OpDHviwSjOuKE2AMAGP0r0fiH9aQ5H6p7BIbCI=
 github.com/baalimago/clai v1.9.2-rc8/go.mod h1:wIZ+TEJbtmRk7mjTleaZ5DAAC4q21Wkx8D8lO06bacI=
-github.com/baalimago/go_away_boilerplate v1.33.0 h1:3Knf13Knz2E6wFtztlys6ySK2CJsB6DbHRmkiSVf9D4=
-github.com/baalimago/go_away_boilerplate v1.33.0/go.mod h1:2O+zQ0Zm8vPD5SeccFFlgyf3AnYWQSHAut/ecPMmRdU=
+github.com/baalimago/go_away_boilerplate v1.33.1 h1:GtEh3Dcp1RWDAm9zQO9LZizm/8VtECr0OkWRvLcHsek=
+github.com/baalimago/go_away_boilerplate v1.33.1/go.mod h1:2O+zQ0Zm8vPD5SeccFFlgyf3AnYWQSHAut/ecPMmRdU=
 github.com/baalimago/wd-41 v1.0.1 h1:fUP4eAIa2WiQEereTKt0G1KF/fKdypLp6bG1D64n75w=
 github.com/baalimago/wd-41 v1.0.1/go.mod h1:TXpH4pK/Hdo/4IWdIAkMa/4j+0e5uOOLX6oG3lELCwk=
 github.com/fsnotify/fsnotify v1.7.0 h1:8JEhPFa5W2WU7YfeZzPNqzMP6Lwt7L2715Ggo0nosvA=
