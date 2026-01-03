@@ -80,6 +80,8 @@ func (c *command) Setup(ctx context.Context) error {
 		return errors.New("cache dir is nil, please set it using -cacheDir flag")
 	}
 
+	ancli.Noticef("configDir: '%v', cacheDir: '%v'", *c.configDir, *c.cacheDir)
+
 	subsPath := path.Join(*c.configDir, "subtitles")
 	storePath := path.Join(*c.configDir, "store")
 	suggestionsManager, err := suggestions.NewManager(*c.cacheDir)
