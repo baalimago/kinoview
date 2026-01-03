@@ -65,8 +65,11 @@ func WithSubtitleManager(m agents.StreamManager) ConciergeOption {
 func WithItemGetter(ig agents.ItemGetter) ConciergeOption {
 	return func(c *concierge) {
 		c.itemStore = ig
-		if l, ok := ig.(agents.ItemLister); ok {
+		l, ok := ig.(agents.ItemLister)
+		if ok {
 			c.itemLister = l
+		} else {
+			ancli.Warnf("failed to cast: %T to agents.ItemLister, will proceed without", ig)
 		}
 	}
 }
@@ -245,10 +248,10 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 
 	a := agent.New(
 		agent.WithModel(c.model),
+		agent.WithConfigDir(c.configDir),
 		agent.WithPrompt(systemPrompt),
 		agent.WithTools(llmTools),
 		agent.WithMaxToolCalls(20),
-		agent.WithConfigDir(c.configDir),
 	)
 	return &a, nil
 }
