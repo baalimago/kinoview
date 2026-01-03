@@ -99,6 +99,12 @@ func (c *command) Setup(ctx context.Context) error {
 		storage.WithStorePath(storePath),
 		storage.WithSubtitlesManager(subsManager),
 	)
+
+	// Ignore error channel as we only want to load persisted items
+	_, err = store.Setup(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to setup store: %v", err)
+	}
 	userContextMgr, err := clientcontext.New(*c.cacheDir)
 	if err != nil {
 		ancli.Warnf("failed to create user context manager: %v", err)
