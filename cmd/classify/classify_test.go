@@ -119,8 +119,8 @@ func TestCommand_Flagset(t *testing.T) {
 		t.Fatalf("Flagset() returned nil")
 	}
 
-	if fs.Name() != "server" {
-		t.Fatalf("Flagset name is not 'server', got: %s", fs.Name())
+	if fs.Name() != "classify" {
+		t.Fatalf("Flagset name is not 'classify', got: %s", fs.Name())
 	}
 
 	// Check that model flag exists
@@ -804,15 +804,6 @@ func TestCommand_Creation_returns_non_nil(t *testing.T) {
 	cmd := Command()
 	if cmd == nil {
 		t.Fatalf("Command() should not return nil")
-	}
-}
-
-func TestCommand_Flagset_name(t *testing.T) {
-	cmd := &command{}
-	fs := cmd.Flagset()
-
-	if fs.Name() != "server" {
-		t.Fatalf("Flagset should be named 'server', got: %s", fs.Name())
 	}
 }
 

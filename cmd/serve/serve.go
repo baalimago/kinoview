@@ -11,6 +11,7 @@ import (
 	"path"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 )
 
 //go:embed frontend/*
@@ -26,8 +27,10 @@ type command struct {
 	indexer Indexer
 
 	binPath   string
-	configDir string
 	watchPath string
+
+	configDir *string
+	cacheDir  *string
 
 	host *string
 	port *int
@@ -37,29 +40,50 @@ type command struct {
 	tlsCertPath  *string
 	tlsKeyPath   *string
 
-	classificationModel *string
-	butlerModel         *string
-	recommenderModel    *string
-	conciergeModel      *string
+	classificationModel   *string
+	classificationWorkers *int
+	butlerModel           *string
+	recommenderModel      *string
+	conciergeModel        *string
 }
 
 func Command() *command {
+	defaultModel := ""
+	ret := command{
+		classificationModel:   &defaultModel,
+		recommenderModel:      &defaultModel,
+		butlerModel:           &defaultModel,
+		conciergeModel:        &defaultModel,
+		classificationWorkers: misc.Pointer(5),
+	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		ancli.Errf("failed to find user config dir: %v", err)
 	}
-	kinoviewConfigDir := path.Join(configDir, "kinoview")
-	r, _ := os.Executable()
 
-	defaultModel := ""
-	return &command{
-		binPath:             r,
-		configDir:           kinoviewConfigDir,
-		classificationModel: &defaultModel,
-		recommenderModel:    &defaultModel,
-		butlerModel:         &defaultModel,
-		conciergeModel:      &defaultModel,
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		ancli.Errf("failed to find user cache dir: %v", err)
 	}
+
+	kinoviewConfigDir := path.Join(configDir, "kinoview")
+	kinoviewCacheDir := path.Join(cacheDir, "kinoview")
+	err = os.MkdirAll(kinoviewConfigDir, 0o755)
+	if err != nil {
+		ancli.Errf("failed to create: '%v'", kinoviewConfigDir)
+	}
+	err = os.MkdirAll(kinoviewCacheDir, 0o755)
+	if err != nil {
+		ancli.Errf("failed to create: '%v'", kinoviewCacheDir)
+	}
+	r, err := os.Executable()
+	if err != nil {
+		ancli.Errf("failed to find bin path: %v", err)
+	}
+	ret.binPath = r
+	ret.configDir = &kinoviewConfigDir
+	ret.cacheDir = &kinoviewCacheDir
+	return &ret
 }
 
 func (c *command) startServeRoutine(mux *http.ServeMux, serverErrChan chan error) func(context.Context) error {
@@ -137,7 +161,7 @@ func (c *command) Run(ctx context.Context) error {
 }
 
 func (c *command) Help() string {
-	return "Serve some filesystem. Set the directory as the second argument: wd-41 serve <dir>. If omitted, current wd will be used."
+	return "Serve some filesystem. Set the directory as the second argument: kinoview serve <dir>. If omitted, current wd will be used."
 }
 
 func (c *command) Describe() string {
@@ -148,12 +172,17 @@ func (c *command) Flagset() *flag.FlagSet {
 	fs := flag.NewFlagSet("server", flag.ContinueOnError)
 	c.host = fs.String("host", "localhost", "hostname to serve on")
 	c.port = fs.Int("port", 8080, "port to serve on")
+
+	fs.StringVar(c.cacheDir, "cacheDir", *c.cacheDir, "Set to custom cache dir")
+	fs.StringVar(c.configDir, "configDir", *c.configDir, "Set to custom config dir")
+
 	c.cacheControl = fs.String("cacheControl", "no-cache", "set to configure the cache-control header")
 
 	c.tlsCertPath = fs.String("tlsCertPath", "", "set to a path to a cert, requires tlsKeyPath to be set")
 	c.tlsKeyPath = fs.String("tlsKeyPath", "", "set to a path to a key, requires tlsCertPath to be set")
 
 	c.classificationModel = fs.String("classifier", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.classificationWorkers = fs.Int("classifierWorkers", 5, "set amount of workers used for classification")
 	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")

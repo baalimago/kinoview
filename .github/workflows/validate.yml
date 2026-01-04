@@ -10,5 +10,5 @@ jobs:
   call-workflow:
     uses: baalimago/simple-go-pipeline/.github/workflows/validate.yml@main
     with:
-      go-version: "1.24"
+      go-version: "1.25"
       prerun-step-cmd: "sudo apt update; sudo apt install ffmpeg -y"

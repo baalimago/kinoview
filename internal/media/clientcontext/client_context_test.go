@@ -8,8 +8,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
 )
+
+func Test_New(t *testing.T) {
+	t.Run("it should error on empty cacheDir", func(t *testing.T) {
+		_, got := New("")
+		testboil.AssertStringContains(t, got.Error(), "cacheDir can't be nil")
+	})
+}
 
 func TestMergeDeltas(t *testing.T) {
 	now := time.Now()

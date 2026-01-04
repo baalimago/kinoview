@@ -5,16 +5,18 @@ import (
 	"os"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/cmd"
+	"github.com/baalimago/go_away_boilerplate/pkg/cmd/version"
 	"github.com/baalimago/go_away_boilerplate/pkg/shutdown"
 	"github.com/baalimago/kinoview/cmd/classify"
+	k_debug "github.com/baalimago/kinoview/cmd/debug"
 	"github.com/baalimago/kinoview/cmd/serve"
-	"github.com/baalimago/wd-41/cmd"
-	"github.com/baalimago/wd-41/cmd/version"
 )
 
 var commands = map[string]cmd.Command{
 	"s|serve":    serve.Command(),
 	"c|classify": classify.Command(),
+	"d|debug":    k_debug.Command(),
 	"v|version":  version.Command(),
 }
 

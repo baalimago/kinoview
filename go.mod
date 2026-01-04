@@ -1,10 +1,10 @@
 module github.com/baalimago/kinoview
 
-go 1.24.3
+go 1.25
 
 require (
-	github.com/baalimago/clai v1.9.2-rc8
-	github.com/baalimago/go_away_boilerplate v1.3.333337
+	github.com/baalimago/clai v1.9.2-rc10
+	github.com/baalimago/go_away_boilerplate v1.33.1
 	github.com/baalimago/wd-41 v1.0.1
 	github.com/fsnotify/fsnotify v1.7.0
 	golang.org/x/exp v0.0.0-20240119083558-1b970713d09a

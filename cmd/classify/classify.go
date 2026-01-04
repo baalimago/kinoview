@@ -170,7 +170,7 @@ func (c *command) Run(ctx context.Context) error {
 }
 
 func (c *command) Flagset() *flag.FlagSet {
-	fs := flag.NewFlagSet("server", flag.ContinueOnError)
+	fs := flag.NewFlagSet("classify", flag.ContinueOnError)
 
 	c.model = fs.String("model", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
 	c.workers = fs.Int("workers", 5, "set amount of workers to classify the media with")

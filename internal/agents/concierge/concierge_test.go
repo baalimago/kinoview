@@ -183,6 +183,7 @@ func TestConcierge_Setup_NoUserContextManager(t *testing.T) {
 	ss := &mockSubtitleSelector{}
 
 	c, err := New(
+		WithConfigDir(t.TempDir()),
 		WithItemGetter(ig),
 		WithMetadataManager(mm),
 		WithSuggestionManager(sm),
@@ -212,6 +213,7 @@ func TestConcierge_Setup_WithUserContextManager(t *testing.T) {
 	ucm := &mockUserContextManager{}
 
 	c, err := New(
+		WithConfigDir(t.TempDir()),
 		WithItemGetter(ig),
 		WithMetadataManager(mm),
 		WithSuggestionManager(sm),

@@ -16,8 +16,6 @@ import (
 )
 
 // Manager stores client contexts in-memory and persists them incrementally to disk.
-// Data is stored under: $XDG_CACHE_HOME/kinoview/userContext/contexts.log
-// (or os.UserCacheDir() fallback).
 // Uses append-only JSONL format for incremental updates.
 type Manager struct {
 	mu       sync.Mutex
@@ -27,17 +25,11 @@ type Manager struct {
 }
 
 // New creates a new user context manager.
-// If cacheDir is empty, os.UserCacheDir() is used.
 func New(cacheDir string) (*Manager, error) {
 	if cacheDir == "" {
-		d, err := os.UserCacheDir()
-		if err != nil {
-			return nil, fmt.Errorf("user cache dir: %w", err)
-		}
-		cacheDir = d
+		return nil, errors.New("cacheDir can't be nil")
 	}
-
-	p := filepath.Join(cacheDir, "kinoview", "client", "context.log")
+	p := filepath.Join(cacheDir, "client", "context.log")
 	m := &Manager{logPath: p}
 	if err := m.load(); err != nil {
 		return nil, err
