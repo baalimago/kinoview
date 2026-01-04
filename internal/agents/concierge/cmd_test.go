@@ -6,6 +6,8 @@ import (
 	"flag"
 	"strings"
 	"testing"
+
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 )
 
 type stubConcierge struct {
@@ -72,9 +74,12 @@ func TestCommand_Flagset_NilPointersPanics_RegressionGuard(t *testing.T) {
 }
 
 func TestCommand_Run_WrapsConciergeError(t *testing.T) {
-	c := &command{con: stubConcierge{runFn: func(ctx context.Context) (string, error) {
-		return "", errors.New("boom")
-	}}}
+	c := &command{
+		con: stubConcierge{runFn: func(ctx context.Context) (string, error) {
+			return "", errors.New("boom")
+		}},
+		model: misc.Pointer("gpt-5.2"),
+	}
 
 	err := c.Run(context.Background())
 	if err == nil {
@@ -86,9 +91,12 @@ func TestCommand_Run_WrapsConciergeError(t *testing.T) {
 }
 
 func TestCommand_Run_SuccessReturnsNil(t *testing.T) {
-	c := &command{con: stubConcierge{runFn: func(ctx context.Context) (string, error) {
-		return "resp", nil
-	}}}
+	c := &command{
+		con: stubConcierge{runFn: func(ctx context.Context) (string, error) {
+			return "resp", nil
+		}},
+		model: misc.Pointer("gpt-5.2"),
+	}
 	if err := c.Run(context.Background()); err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
