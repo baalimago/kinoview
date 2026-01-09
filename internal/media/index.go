@@ -295,7 +295,7 @@ func (i *Indexer) Start(ctx context.Context) error {
 
 	if i.concierge != nil {
 		conciergeErrChan := make(chan error, 1)
-		tick := time.NewTicker(time.Minute * 15)
+		tick := time.NewTicker(time.Hour * 6)
 		go func() {
 			do := func() {
 				ancli.Okf("Running concierge")
