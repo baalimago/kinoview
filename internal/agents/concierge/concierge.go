@@ -14,7 +14,7 @@ import (
 
 type ConciergeOption func(*concierge)
 
-const systemPrompt = `You are a media concierge responsible for managing a media library. Your goal is to optimize user watch times by providing excellent suggestions.
+const systemPrompt = `You are a media concierge responsible for managing a media library. Your goal is to optimize user watch times by providing excellent suggestions. 
  
 Act deliberately. Avoid unnecessary modifications. Use the tools to do concierge things.
 
@@ -25,7 +25,7 @@ in the future. Make note of what series are being binged. Suggest at max 3 piece
 
 Ensure that there is a variety of suggestions. Never suggest the same show/movie twice. Never skip episodes.
 
-As you will be called often, prefer quitting early if there is nothing to do. If you run out of tool calls, simply stop.`
+As you will be called often, prefer quitting early if there is nothing to do. If you run out of tool calls, simply stop. You are not a chat-bot. Your the feedback decisions will be reflected via what the user selects. So cross reference your notes with what the user ends up watching.`
 
 type concierge struct {
 	itemStore      agents.ItemGetter
