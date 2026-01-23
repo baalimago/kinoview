@@ -50,3 +50,8 @@ gofumpt -w -l .
 - Use `fmt.Errorf` for error wrapping with `%w` verb
 - Use `ancli.Errf` for logging errors in CLI context, `ancli.Noticef` and `ancli.Okf` for logging other information
 - Propagate errors up the call stack with context
+
+## Planning
+
+Always persist plan in a new markdown file inside agent*notebook. This is to persist the planning and implementation details over time.
+File structure of notes should be: yyyy-mm-dd*\[plan-summary\].md.

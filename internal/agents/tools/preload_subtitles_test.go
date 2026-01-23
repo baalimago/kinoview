@@ -10,7 +10,7 @@ import (
 func TestPreloadSubtitlesTool_Call(t *testing.T) {
 	item := model.Item{ID: "test-id", Name: "Test Media"}
 	ig := &mockItemGetter{item: item}
-	sm := &mockSubtitleManager{extractedPath: "/tmp/subs.srt"}
+	sm := &mockSubtitleManager{extractedPath: "/tmp/subs.vtt"}
 	ss := &mockSubtitleSelector{selectedIdx: 1}
 
 	tool, err := NewPreloadSubtitlesTool(ig, sm, ss)
@@ -27,7 +27,7 @@ func TestPreloadSubtitlesTool_Call(t *testing.T) {
 		t.Fatalf("tool call failed: %v", err)
 	}
 
-	expectedResp := "successfully preloaded subtitles for item: 'Test Media'"
+	expectedResp := "successfully preloaded subtitles for item: 'Test Media' (subtitleID=1)"
 	if resp != expectedResp {
 		t.Errorf("expected response %q, got %q", expectedResp, resp)
 	}

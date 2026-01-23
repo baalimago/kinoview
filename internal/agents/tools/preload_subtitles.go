@@ -54,12 +54,17 @@ func (pst *preloadSubtitlesTool) Call(input models.Input) (string, error) {
 		return "", fmt.Errorf("failed to select subtitle stream: %w", err)
 	}
 
-	_, err = pst.subMgr.ExtractSubtitles(item, strconv.Itoa(streamIdx))
+	streamIdxStr := strconv.Itoa(streamIdx)
+
+	_, err = pst.subMgr.ExtractSubtitles(item, streamIdxStr)
 	if err != nil {
 		return "", fmt.Errorf("failed to extract subtitles: %w", err)
 	}
 
-	return fmt.Sprintf("successfully preloaded subtitles for item: '%v'", item.Name), nil
+	// NOTE: This tool only warms the subtitle cache by extracting the selected stream.
+	// Persisting the subtitle choice is the responsibility of whoever is generating
+	// suggestions (Suggestion.SubtitleID), not the media Item itself.
+	return fmt.Sprintf("successfully preloaded subtitles for item: '%v' (subtitleID=%s)", item.Name, streamIdxStr), nil
 }
 
 func (pst *preloadSubtitlesTool) Specification() models.Specification {
