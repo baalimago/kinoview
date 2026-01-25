@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
@@ -123,7 +124,14 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 	// This avoids taking the cache lock once per file.
 	newCache := make(map[string]model.Item, len(files))
 
-	for _, file := range files {
+	tot := len(files)
+	increments := tot / 10
+	ancli.Noticef("found: %v media items to load", tot)
+	t0 := time.Now()
+	for i, file := range files {
+		if i%increments == 0 {
+			ancli.Noticef("(%v/%v), estimated done at: %v", i, tot, time.Duration(int(time.Since(t0).Nanoseconds())*(i*1000/tot*1000))/1000)
+		}
 		if file.IsDir() {
 			continue
 		}
