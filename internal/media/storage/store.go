@@ -130,7 +130,14 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 	t0 := time.Now()
 	for i, file := range files {
 		if i%increments == 0 {
-			ancli.Noticef("(%v/%v), estimated done at: %v", i, tot, time.Duration(int(time.Since(t0).Nanoseconds())*(i*1000/tot*1000))/1000)
+			elapsed := time.Since(t0)
+			if i > 0 {
+				avgPerItem := elapsed / time.Duration(i)
+				remaining := time.Duration(tot-i) * avgPerItem
+				ancli.Noticef("(%v/%v), estimated done in: %v", i, tot, remaining)
+			} else {
+				ancli.Noticef("(%v/%v), estimated done in: %v", i, tot, time.Duration(0))
+			}
 		}
 		if file.IsDir() {
 			continue
