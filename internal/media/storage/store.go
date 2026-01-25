@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"strings"
@@ -117,35 +118,58 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 	if err != nil {
 		return fmt.Errorf("failed to list directory: '%v', err: %w", storeDirPath, err)
 	}
+
+	// Build up a new cache and swap it in one shot to minimize lock contention.
+	// This avoids taking the cache lock once per file.
+	newCache := make(map[string]model.Item, len(files))
+
 	for _, file := range files {
 		if file.IsDir() {
 			continue
 		}
 		filePath := path.Join(storeDirPath, file.Name())
+
 		f, err := os.Open(filePath)
 		if err != nil {
 			ancli.Warnf("failed to open file: '%v', err: %v", filePath, err)
 			continue
 		}
+
 		var item model.Item
-		if err := json.NewDecoder(f).Decode(&item); err != nil {
-			ancli.Warnf("failed to decode items in file: '%v', err: %v", filePath, err)
-			f.Close()
+		decErr := json.NewDecoder(f).Decode(&item)
+		closeErr := f.Close()
+		if decErr != nil {
+			ancli.Warnf("failed to decode items in file: '%v', err: %v", filePath, decErr)
 			continue
 		}
-		f.Close()
+		if closeErr != nil {
+			ancli.Warnf("failed to close file: '%v', err: %v", filePath, closeErr)
+		}
+
 		underlyingFilePath := item.Path
-
-		if _, err := os.Stat(underlyingFilePath); os.IsNotExist(err) {
-			ancli.Warnf("couldnt find underlying file: '%v', removing index: '%v'", underlyingFilePath, filePath)
-			os.Remove(filePath)
+		if _, err := os.Stat(underlyingFilePath); err != nil {
+			if os.IsNotExist(err) {
+				ancli.Warnf("couldnt find underlying file: '%v', removing index: '%v'", underlyingFilePath, filePath)
+				// Best-effort cleanup.
+				if remErr := os.Remove(filePath); remErr != nil && !os.IsNotExist(remErr) {
+					ancli.Warnf("failed to remove stale index: '%v', err: %v", filePath, remErr)
+				}
+				continue
+			}
+			ancli.Warnf("failed to stat underlying file: '%v' (index: '%v'), err: %v", underlyingFilePath, filePath, err)
 			continue
 		}
 
-		s.cacheMu.Lock()
-		s.cache[item.ID] = item
-		s.cacheMu.Unlock()
+		if item.ID == "" {
+			ancli.Warnf("skipping item with empty ID from file: '%v'", filePath)
+			continue
+		}
+		newCache[item.ID] = item
 	}
+
+	s.cacheMu.Lock()
+	maps.Copy(s.cache, newCache)
+	s.cacheMu.Unlock()
 	return nil
 }
 
