@@ -11,6 +11,7 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/loghandler"
@@ -257,6 +258,9 @@ func (i *Indexer) Setup(ctx context.Context) error {
 }
 
 func (i *Indexer) handleNewItem(ctx context.Context, item model.Item) error {
+	if misc.Truthy(os.Getenv("DEBUG_NEW_ITEMS")) {
+		ancli.Noticef("found: %v", item.Path)
+	}
 	err := i.store.Store(ctx, item)
 	if err != nil {
 		return fmt.Errorf("Indexer failed to handle new item: %w", err)
