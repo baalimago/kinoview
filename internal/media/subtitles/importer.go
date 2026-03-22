@@ -113,13 +113,14 @@ func (i *embeddedImporter) Import(ctx context.Context, req ImportEmbeddedRequest
 	}
 
 	now := i.now()
+	label := embeddedSubtitleLabel(mediaInfo.Streams, streamIdx)
 	resource = model.SubtitleResource{
 		ID:         subtitleID,
 		ItemID:     item.ID,
 		Source:     model.SubtitleSourceEmbedded,
 		Origin:     model.SubtitleOriginEmbedded,
 		Format:     model.SubtitleFormatVTT,
-		Label:      fmt.Sprintf("Embedded subtitle stream %d", streamIdx),
+		Label:      label,
 		StorageKey: canonicalKey,
 		SizeBytes:  int64(len(subtitleBytes)),
 		SourceRef:  sourceRef,
@@ -173,4 +174,74 @@ func (i *embeddedImporter) maybeSetDefault(ctx context.Context, itemID, subtitle
 		return false, fmt.Errorf("persist default subtitle binding for item %q: %w", itemID, err)
 	}
 	return true, nil
+}
+
+func embeddedSubtitleLabel(streams []model.Stream, selectedIndex int) string {
+	stream, ok := selectedSubtitleStream(streams, selectedIndex)
+	if !ok {
+		return fmt.Sprintf("Embedded subtitle stream %d", selectedIndex)
+	}
+
+	base := subtitleLanguageLabel(stream.Tags.Language)
+	if base == "" {
+		base = strings.TrimSpace(stream.Tags.Title)
+	}
+	if base == "" {
+		base = "Embedded subtitle"
+	}
+
+	qualifiers := make([]string, 0, 2)
+	titleLower := strings.ToLower(strings.TrimSpace(stream.Tags.Title))
+	if stream.Disposition.Forced == 1 || strings.Contains(titleLower, "forced") {
+		qualifiers = append(qualifiers, "Forced")
+	}
+	if stream.Disposition.HearingImpaired == 1 || strings.Contains(titleLower, "sdh") || strings.Contains(titleLower, "hearing impaired") || strings.Contains(titleLower, "hoh") {
+		qualifiers = append(qualifiers, "SDH")
+	}
+
+	label := base
+	if len(qualifiers) > 0 {
+		label = fmt.Sprintf("%s (%s)", label, strings.Join(qualifiers, ", "))
+	}
+	return fmt.Sprintf("%s — stream %d", label, selectedIndex)
+}
+
+func selectedSubtitleStream(streams []model.Stream, selectedIndex int) (model.Stream, bool) {
+	for _, stream := range streams {
+		if stream.Index == selectedIndex {
+			return stream, true
+		}
+	}
+	return model.Stream{}, false
+}
+
+func subtitleLanguageLabel(language string) string {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "en", "eng", "english":
+		return "English"
+	case "fi", "fin", "finland", "finnish":
+		return "Finnish"
+	case "sv", "swe", "swedish":
+		return "Swedish"
+	case "da", "dan", "danish":
+		return "Danish"
+	case "no", "nor", "nob", "nno", "norwegian":
+		return "Norwegian"
+	case "de", "ger", "deu", "german":
+		return "German"
+	case "fr", "fre", "fra", "french":
+		return "French"
+	case "es", "spa", "spanish":
+		return "Spanish"
+	case "it", "ita", "italian":
+		return "Italian"
+	case "ja", "jpn", "japanese":
+		return "Japanese"
+	case "ko", "kor", "korean":
+		return "Korean"
+	case "zh", "zho", "chi", "chinese":
+		return "Chinese"
+	default:
+		return ""
+	}
 }

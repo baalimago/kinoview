@@ -402,3 +402,101 @@ type mockImporter struct {
 func (m *mockImporter) Import(ctx context.Context, req ImportEmbeddedRequest) (ImportEmbeddedResult, error) {
 	return m.result, m.err
 }
+
+type importerTestItemGetter struct {
+	item model.Item
+}
+
+func (g *importerTestItemGetter) GetItemByID(ID string) (model.Item, error) {
+	if g.item.ID != ID {
+		return model.Item{}, errors.New("item not found")
+	}
+	return g.item, nil
+}
+
+func (g *importerTestItemGetter) GetItemByName(name string) (model.Item, error) {
+	if g.item.Name != name {
+		return model.Item{}, errors.New("item not found")
+	}
+	return g.item, nil
+}
+
+type importerTestStreamManager struct {
+	info        model.MediaInfo
+	extractedTo string
+}
+
+func (m *importerTestStreamManager) Find(item model.Item) (model.MediaInfo, error) {
+	return m.info, nil
+}
+
+func (m *importerTestStreamManager) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
+	return m.extractedTo, nil
+}
+
+type importerTestSelector struct {
+	selected int
+}
+
+func (s *importerTestSelector) Select(ctx context.Context, streams []model.Stream) (int, error) {
+	return s.selected, nil
+}
+
+func TestEmbeddedImporter_UsesHumanReadableLabelFromStreamMetadata(t *testing.T) {
+	t.Parallel()
+
+	root := t.TempDir()
+	repo, err := NewRepository(filepath.Join(root, "repo"))
+	if err != nil {
+		t.Fatalf("NewRepository failed: %v", err)
+	}
+	fileStore, err := NewFileStore(filepath.Join(root, "files"))
+	if err != nil {
+		t.Fatalf("NewFileStore failed: %v", err)
+	}
+
+	extractedPath := filepath.Join(root, "imported.vtt")
+	if err := os.WriteFile(extractedPath, []byte("WEBVTT"), 0o644); err != nil {
+		t.Fatalf("WriteFile extracted subtitle failed: %v", err)
+	}
+
+	importer, err := NewEmbeddedImporter(
+		&importerTestItemGetter{item: model.Item{ID: "item-1", Name: "Video"}},
+		&importerTestStreamManager{
+			info: model.MediaInfo{
+				Streams: []model.Stream{
+					{
+						Index: 3,
+						Tags: model.Tags{
+							Language: "eng",
+							Title:    "English SDH",
+						},
+						Disposition: model.Disposition{
+							Default:         1,
+							HearingImpaired: 1,
+						},
+					},
+				},
+			},
+			extractedTo: extractedPath,
+		},
+		&importerTestSelector{selected: 3},
+		repo,
+		fileStore,
+	)
+	if err != nil {
+		t.Fatalf("NewEmbeddedImporter failed: %v", err)
+	}
+
+	result, err := importer.Import(context.Background(), ImportEmbeddedRequest{
+		ItemID:      "item-1",
+		MakeDefault: true,
+	})
+	if err != nil {
+		t.Fatalf("Import failed: %v", err)
+	}
+
+	if result.Resource.Label != "English (SDH) — stream 3" {
+		t.Fatalf("expected human-readable label, got %q", result.Resource.Label)
+	}
+}
