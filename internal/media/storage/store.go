@@ -72,15 +72,19 @@ func WithClassificationWorkers(amWorkers int) StoreOption {
 
 func WithSubtitleRuntime(runtime *subtitles.Runtime) StoreOption {
 	return func(s *store) {
-		if runtime == nil {
-			return
-		}
-		s.subtitleRepository = runtime.Repository
-		s.subtitleFileStore = runtime.FileStore
-		s.subtitleImporter = runtime.Importer
-		s.subtitleResolver = runtime.Resolver
+		s.SetSubtitleRuntime(runtime)
 	}
+}
+
+func (s *store) SetSubtitleRuntime(runtime *subtitles.Runtime) {
+	if runtime == nil {
+		return
 	}
+	s.subtitleRepository = runtime.Repository
+	s.subtitleFileStore = runtime.FileStore
+	s.subtitleImporter = runtime.Importer
+	s.subtitleResolver = runtime.Resolver
+}
 
 func NewStore(opts ...StoreOption) *store {
 	cfgDir, err := os.UserConfigDir()

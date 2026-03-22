@@ -120,13 +120,7 @@ func (c *command) Setup(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("create subtitle runtime: %w", err)
 	}
-	store = storage.NewStore(
-		storage.WithStorePath(storePath),
-		storage.WithSubtitlesManager(subsManager),
-		storage.WithClassificationWorkers(*c.classificationWorkers),
-		storage.WithClassifier(clifier),
-		storage.WithSubtitleRuntime(subtitleRuntime),
-	)
+	store.SetSubtitleRuntime(subtitleRuntime)
 
 	////////////
 	// User context setup
