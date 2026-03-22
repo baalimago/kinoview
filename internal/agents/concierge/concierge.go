@@ -10,6 +10,7 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/tools"
+	"github.com/baalimago/kinoview/internal/media/subtitles"
 )
 
 type ConciergeOption func(*concierge)
@@ -42,6 +43,7 @@ type concierge struct {
 	subtitlesMgr   agents.StreamManager
 	subSelector    agents.SubtitleSelector
 	userContextMgr agents.ClientContextManager
+	subtitleRuntime *subtitles.Runtime
 
 	storeDir string
 
@@ -129,6 +131,12 @@ func WithModel(m string) ConciergeOption {
 	}
 }
 
+func WithSubtitleRuntime(runtime *subtitles.Runtime) ConciergeOption {
+	return func(c *concierge) {
+		c.subtitleRuntime = runtime
+	}
+}
+
 // New Concierge, hosting tools:
 // 1. UpdateMetadata
 // 2. PreloadSubtitles
@@ -189,11 +197,20 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		llmTools = append(llmTools, umt)
 	}
 
-	pst, err := tools.NewPreloadSubtitlesTool(c.itemStore, c.subtitlesMgr, c.subSelector)
-	if err != nil {
-		ancli.Errf("concierge failed to setup preloadSubtitlesTool: %v", err)
+	if c.subtitleRuntime != nil {
+		pst, err := tools.NewPreloadSubtitlesToolWithImporter(c.subtitleRuntime.Importer)
+		if err != nil {
+			ancli.Errf("concierge failed to setup preloadSubtitlesTool: %v", err)
+		} else {
+			llmTools = append(llmTools, pst)
+		}
 	} else {
-		llmTools = append(llmTools, pst)
+		pst, err := tools.NewPreloadSubtitlesTool(c.itemStore, c.subtitlesMgr, c.subSelector)
+		if err != nil {
+			ancli.Errf("concierge failed to setup preloadSubtitlesTool: %v", err)
+		} else {
+			llmTools = append(llmTools, pst)
+		}
 	}
 
 	lst, err := tools.NewCheckSuggestionsTool(c.suggestionMgr)

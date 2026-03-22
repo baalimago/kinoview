@@ -1,19 +1,27 @@
 package tools
 
 import (
+	"context"
 	"testing"
 
 	"github.com/baalimago/clai/pkg/text/models"
+	"github.com/baalimago/kinoview/internal/media/subtitles"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
 func TestPreloadSubtitlesTool_Call(t *testing.T) {
-	item := model.Item{ID: "test-id", Name: "Test Media"}
-	ig := &mockItemGetter{item: item}
-	sm := &mockSubtitleManager{extractedPath: "/tmp/subs.vtt"}
-	ss := &mockSubtitleSelector{selectedIdx: 1}
+	importer := &mockPreloadImporter{
+		result: subtitles.ImportEmbeddedResult{
+			Resource: model.SubtitleResource{
+				ID:     "sub-123",
+				ItemID: "test-id",
+			},
+			AlreadyExists: true,
+			BecameDefault: false,
+		},
+	}
 
-	tool, err := NewPreloadSubtitlesTool(ig, sm, ss)
+	tool, err := NewPreloadSubtitlesToolWithImporter(importer)
 	if err != nil {
 		t.Fatalf("failed to create tool: %v", err)
 	}
@@ -27,8 +35,17 @@ func TestPreloadSubtitlesTool_Call(t *testing.T) {
 		t.Fatalf("tool call failed: %v", err)
 	}
 
-	expectedResp := "successfully preloaded subtitles for item: 'Test Media' (subtitleID=1)"
+	expectedResp := "preloaded subtitle resource sub-123 for item test-id (already_existed=true default_set=false)"
 	if resp != expectedResp {
 		t.Errorf("expected response %q, got %q", expectedResp, resp)
 	}
+}
+
+type mockPreloadImporter struct {
+	result subtitles.ImportEmbeddedResult
+	err    error
+}
+
+func (m *mockPreloadImporter) Import(ctx context.Context, req subtitles.ImportEmbeddedRequest) (subtitles.ImportEmbeddedResult, error) {
+	return m.result, m.err
 }

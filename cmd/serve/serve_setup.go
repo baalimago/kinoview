@@ -20,6 +20,7 @@ import (
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
 	"github.com/baalimago/kinoview/internal/media/storage"
 	"github.com/baalimago/kinoview/internal/media/stream"
+	"github.com/baalimago/kinoview/internal/media/subtitles"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
@@ -86,6 +87,11 @@ func (c *command) Setup(ctx context.Context) error {
 	subsManager, err := stream.NewManager(stream.WithStoragePath(
 		subsPath,
 	))
+	selector := butler.NewSelector(models.Configurations{
+		Model:     *c.classificationModel,
+		ConfigDir: *c.configDir,
+	})
+	var subtitleRuntime *subtitles.Runtime
 	var alfred agents.Butler
 	if *c.butlerModel != "" {
 		if err != nil {
@@ -110,6 +116,18 @@ func (c *command) Setup(ctx context.Context) error {
 		storage.WithClassifier(clifier),
 	)
 
+	subtitleRuntime, err = subtitles.NewRuntime(*c.configDir, store, subsManager, selector)
+	if err != nil {
+		return fmt.Errorf("create subtitle runtime: %w", err)
+	}
+	store = storage.NewStore(
+		storage.WithStorePath(storePath),
+		storage.WithSubtitlesManager(subsManager),
+		storage.WithClassificationWorkers(*c.classificationWorkers),
+		storage.WithClassifier(clifier),
+		storage.WithSubtitleRuntime(subtitleRuntime),
+	)
+
 	////////////
 	// User context setup
 	////////////
@@ -128,15 +146,13 @@ func (c *command) Setup(ctx context.Context) error {
 			concierge.WithMetadataManager(store),
 			concierge.WithSubtitleManager(subsManager),
 			concierge.WithSuggestionManager(suggestionsManager),
-			concierge.WithSubtitleSelector(butler.NewSelector(models.Configurations{
-				Model:     *c.classificationModel,
-				ConfigDir: *c.configDir,
-			})),
+			concierge.WithSubtitleSelector(selector),
 			concierge.WithConfigDir(*c.configDir),
 			concierge.WithStoreDir(storePath),
 			concierge.WithCacheDir(*c.cacheDir),
 			concierge.WithUserContextManager(userContextMgr),
 			concierge.WithModel(*c.conciergeModel),
+			concierge.WithSubtitleRuntime(subtitleRuntime),
 		)
 		if err == nil {
 			ancli.Noticef("concierge setup OK")

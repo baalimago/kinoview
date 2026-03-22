@@ -35,6 +35,10 @@ type Storage interface {
 	ImageHandlerFunc() http.HandlerFunc
 	StreamListHandlerFunc() http.HandlerFunc
 	StreamHandlerFunc() http.HandlerFunc
+	SubtitleListHandlerFunc() http.HandlerFunc
+	SubtitleGetHandlerFunc() http.HandlerFunc
+	SubtitleDefaultHandlerFunc() http.HandlerFunc
+	SubtitleImportHandlerFunc() http.HandlerFunc
 }
 
 type watcher interface {
@@ -346,6 +350,10 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/video/{id}", i.store.VideoHandlerFunc())
 	mux.HandleFunc("/streams/{vid}", i.store.StreamListHandlerFunc())
 	mux.HandleFunc("/streams/{vid}/stream/{stream_idx}", i.store.StreamHandlerFunc())
+	mux.HandleFunc("/subtitles/item/{item_id}", i.store.SubtitleListHandlerFunc())
+	mux.HandleFunc("/subtitles/item/{item_id}/default", i.store.SubtitleDefaultHandlerFunc())
+	mux.HandleFunc("/subtitles/item/{item_id}/import", i.store.SubtitleImportHandlerFunc())
+	mux.HandleFunc("/subtitles/resource/{subtitle_id}", i.store.SubtitleGetHandlerFunc())
 	mux.HandleFunc("/image/{id}", i.store.ImageHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())

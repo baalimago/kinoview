@@ -1,7 +1,9 @@
 package storage
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -11,8 +13,13 @@ import (
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/media/thumbnail"
+	"github.com/baalimago/kinoview/internal/media/subtitles"
 	"github.com/baalimago/kinoview/internal/model"
 )
+
+type subtitleDefaultRequest struct {
+	SubtitleID string `json:"subtitleID"`
+}
 
 // handleImageItem by:
 // 1. Checking if thumbnail exists
@@ -300,5 +307,157 @@ func (s *store) ImageHandlerFunc() http.HandlerFunc {
 
 		modTime := info.ModTime()
 		http.ServeContent(w, r, item.Name, modTime, file)
+	}
+}
+
+func (s *store) SubtitleListHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		itemID := r.PathValue("item_id")
+		if itemID == "" {
+			http.Error(w, "missing item id", http.StatusBadRequest)
+			return
+		}
+		if s.subtitleRepository == nil {
+			http.Error(w, "subtitle repository not configured", http.StatusNotImplemented)
+			return
+		}
+
+		resources, err := s.subtitleRepository.ListByItemID(r.Context(), itemID)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("list subtitles for item %q: %v", itemID, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(resources); err != nil {
+			http.Error(w, "failed to encode subtitle list", http.StatusInternalServerError)
+			return
+		}
+	}
+}
+
+func (s *store) SubtitleGetHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		subtitleID := r.PathValue("subtitle_id")
+		if subtitleID == "" {
+			http.Error(w, "missing subtitle id", http.StatusBadRequest)
+			return
+		}
+		if s.subtitleRepository == nil || s.subtitleFileStore == nil {
+			http.Error(w, "subtitle storage not configured", http.StatusNotImplemented)
+			return
+		}
+
+		resource, err := s.subtitleRepository.GetByID(r.Context(), subtitleID)
+		if err != nil {
+			status := http.StatusInternalServerError
+			if errors.Is(err, subtitles.ErrSubtitleNotFound) {
+				status = http.StatusNotFound
+			}
+			http.Error(w, fmt.Sprintf("get subtitle resource %q: %v", subtitleID, err), status)
+			return
+		}
+
+		subtitlePath, err := s.subtitleFileStore.ResolvePath(resource.StorageKey)
+		if err != nil {
+			http.Error(w, fmt.Sprintf("resolve subtitle path for resource %q: %v", subtitleID, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/vtt; charset=utf-8")
+		http.ServeFile(w, r, subtitlePath)
+	}
+}
+
+func (s *store) SubtitleDefaultHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		itemID := r.PathValue("item_id")
+		if itemID == "" {
+			http.Error(w, "missing item id", http.StatusBadRequest)
+			return
+		}
+		if s.subtitleRepository == nil {
+			http.Error(w, "subtitle repository not configured", http.StatusNotImplemented)
+			return
+		}
+
+		switch r.Method {
+		case http.MethodGet:
+			binding, resource, err := s.subtitleRepository.GetDefault(r.Context(), itemID)
+			if err != nil {
+				status := http.StatusInternalServerError
+				if errors.Is(err, subtitles.ErrBindingNotFound) || errors.Is(err, subtitles.ErrSubtitleNotFound) {
+					status = http.StatusNotFound
+				}
+				http.Error(w, fmt.Sprintf("get default subtitle for item %q: %v", itemID, err), status)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(struct {
+				Binding  model.SubtitleBinding  `json:"binding"`
+				Resource model.SubtitleResource `json:"resource"`
+			}{Binding: binding, Resource: resource}); err != nil {
+				http.Error(w, "failed to encode default subtitle", http.StatusInternalServerError)
+				return
+			}
+		case http.MethodPost:
+			defer r.Body.Close()
+			var req subtitleDefaultRequest
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, fmt.Sprintf("decode default subtitle request for item %q: %v", itemID, err), http.StatusBadRequest)
+				return
+			}
+			binding, err := s.subtitleRepository.SetDefault(r.Context(), model.SubtitleBinding{
+				ItemID:            itemID,
+				DefaultSubtitleID: req.SubtitleID,
+			})
+			if err != nil {
+				http.Error(w, fmt.Sprintf("set default subtitle for item %q: %v", itemID, err), http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			if err := json.NewEncoder(w).Encode(binding); err != nil {
+				http.Error(w, "failed to encode subtitle binding", http.StatusInternalServerError)
+				return
+			}
+		default:
+			w.Header().Set("Allow", http.MethodGet+", "+http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}
+	}
+}
+
+func (s *store) SubtitleImportHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		itemID := r.PathValue("item_id")
+		if itemID == "" {
+			http.Error(w, "missing item id", http.StatusBadRequest)
+			return
+		}
+		if s.subtitleImporter == nil {
+			http.Error(w, "subtitle importer not configured", http.StatusNotImplemented)
+			return
+		}
+
+		result, err := s.subtitleImporter.Import(context.Background(), subtitles.ImportEmbeddedRequest{
+			ItemID:      itemID,
+			MakeDefault: true,
+		})
+		if err != nil {
+			http.Error(w, fmt.Sprintf("import embedded subtitle for item %q: %v", itemID, err), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		if err := json.NewEncoder(w).Encode(result); err != nil {
+			http.Error(w, "failed to encode import result", http.StatusInternalServerError)
+			return
+		}
 	}
 }

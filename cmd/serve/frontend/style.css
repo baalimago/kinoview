@@ -135,12 +135,48 @@ body {
   background: var(--accent-hover);
 }
 
+.btn-secondary {
+  background: transparent;
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  padding: 0.65rem 1rem;
+  border-radius: 8px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.btn-secondary:disabled,
+.btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
 /* Status Text */
 .status-text {
   font-size: 0.875rem;
   color: var(--text-secondary);
   margin-top: 0.25rem;
   min-height: 1.25em;
+}
+
+.subtitle-actions {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.status-text.success {
+  color: #22c55e;
+}
+
+.status-text.error {
+  color: #ef4444;
 }
 
 /* Butler Suggestions */

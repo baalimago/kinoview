@@ -87,6 +87,11 @@
                 <option value="">Select subtitles</option>
               </select>
             </div>
+            <div class="subtitle-actions">
+              <button id="subtitleImportBtn" class="btn-secondary" onclick="manualImportSubtitles()">Import embedded subtitles</button>
+              <button id="subtitleDefaultBtn" class="btn-secondary" onclick="saveDefaultSubtitle()">Save subtitle as default</button>
+            </div>
+            <p id="subtitleStatus" class="status-text"></p>
           </div>
         </div>
       </main>

@@ -48,6 +48,22 @@ func (m *mockStore) ImageHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {}
 }
 
+func (m *mockStore) SubtitleListHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {}
+}
+
+func (m *mockStore) SubtitleGetHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {}
+}
+
+func (m *mockStore) SubtitleDefaultHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {}
+}
+
+func (m *mockStore) SubtitleImportHandlerFunc() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {}
+}
+
 func (m *mockStore) Snapshot() []model.Item {
 	return m.items
 }

@@ -111,6 +111,11 @@ fetch('/gallery?start=0&am=1000&mime=video')
 var mostRecentID = "";
 var sessionID = "";
 var sessionStartTime = null;
+const subtitleState = {
+  byItemID: {},
+  loading: false,
+  selectedByItemID: {},
+};
 
 function getSessionID() {
   if (!sessionID) {
@@ -141,6 +146,8 @@ function selectMedia(id) {
   video.src = `/gallery/video/${id}`;
   video.style.display = "initial"
   loadStreams(id);
+  loadSubtitleResources(id);
+  setSubtitleStatus(`Loading subtitles for ${media[id]?.Name || id}...`);
 }
 
 function constuctClientContext() {
@@ -277,6 +284,195 @@ function loadStreams(id) {
     })
 }
 
+function subtitleLabel(resource) {
+	if (resource.label) {
+		return resource.label;
+	}
+	const parts = [];
+	if (resource.language) {
+		parts.push(resource.language);
+	}
+	if (resource.source) {
+		parts.push(resource.source);
+	}
+	if (resource.id) {
+		parts.push(resource.id);
+	}
+	return parts.join(" - ") || "Subtitle";
+}
+
+function subtitleResourceURL(subtitleID) {
+	return `/gallery/subtitles/resource/${subtitleID}`;
+}
+
+function setSubtitleStatus(message, kind = "") {
+	const status = document.getElementById("subtitleStatus");
+	if (!status) {
+		return;
+	}
+	status.innerText = message || "";
+	status.classList.remove("success", "error");
+	if (kind) {
+		status.classList.add(kind);
+	}
+}
+
+function setSubtitleLoading(isLoading) {
+	subtitleState.loading = isLoading;
+	const importBtn = document.getElementById("subtitleImportBtn");
+	const defaultBtn = document.getElementById("subtitleDefaultBtn");
+	const selector = document.getElementById("debugSubsSelector");
+	if (importBtn) {
+		importBtn.disabled = isLoading || !mostRecentID;
+	}
+	if (defaultBtn) {
+		defaultBtn.disabled = isLoading || !mostRecentID;
+	}
+	if (selector) {
+		selector.disabled = isLoading;
+	}
+}
+
+function currentSubtitleResources(itemID) {
+	return subtitleState.byItemID[itemID] || [];
+}
+
+function findSubtitleResource(itemID, subtitleID) {
+	return currentSubtitleResources(itemID).find(resource => resource.id === subtitleID);
+}
+
+function resetSubtitleSelectorsForResources() {
+	const subMenu = document.getElementById("subsMenu");
+	const debugSubs = document.getElementById("debugSubsSelector");
+
+	if (subMenu) {
+		subMenu.innerHTML = "";
+		const offBtn = createDropdownItem("Off", () => {
+			selectSubtitle("off");
+			updateActiveItem(subMenu, offBtn);
+		}, true);
+		subMenu.appendChild(offBtn);
+	}
+
+	if (debugSubs) {
+		debugSubs.length = 0;
+		const optOff = document.createElement("option");
+		optOff.value = "";
+		optOff.innerText = "Select subtitles";
+		debugSubs.append(optOff);
+	}
+}
+
+function appendSubtitleOption(label, value, onSelect, isActive = false) {
+	const subMenu = document.getElementById("subsMenu");
+	const debugSubs = document.getElementById("debugSubsSelector");
+
+	if (subMenu) {
+		const btn = createDropdownItem(label, () => {
+			onSelect();
+			updateActiveItem(subMenu, btn);
+		}, isActive);
+		subMenu.appendChild(btn);
+	}
+
+	if (debugSubs) {
+		const opt = document.createElement("option");
+		opt.value = value;
+		opt.innerText = label;
+		debugSubs.append(opt);
+	}
+}
+
+function populateSubtitleResources(itemID, resources, defaultSubtitleID) {
+	resetSubtitleSelectorsForResources();
+
+	resources.forEach(resource => {
+		const subtitleID = resource.id;
+		const label = subtitleLabel(resource);
+		appendSubtitleOption(label, subtitleID, () => {
+			selectSubtitle(subtitleID);
+		}, subtitleID === defaultSubtitleID);
+	});
+
+	if (defaultSubtitleID) {
+		subtitleState.selectedByItemID[itemID] = defaultSubtitleID;
+		selectSubtitle(defaultSubtitleID);
+		const debugSubs = document.getElementById("debugSubsSelector");
+		if (debugSubs) {
+			debugSubs.value = defaultSubtitleID;
+		}
+		setSubtitleStatus("Loaded default subtitle.", "success");
+		return;
+	}
+
+	if (resources.length > 0) {
+		setSubtitleStatus("Loaded available subtitle resources.", "success");
+	} else {
+		setSubtitleStatus("No subtitles available for this item yet.");
+	}
+}
+
+function loadSubtitleResources(itemID) {
+	if (!itemID) {
+		resetSubtitleSelectorsForResources();
+		setSubtitleStatus("");
+		return;
+	}
+
+	setSubtitleLoading(true);
+	Promise.all([
+		fetch(`/gallery/subtitles/item/${itemID}`).then(resp => {
+			if (!resp.ok) throw new Error(`subtitle list status ${resp.status}`);
+			return resp.json();
+		}),
+		fetch(`/gallery/subtitles/item/${itemID}/default`).then(resp => {
+			if (resp.status === 404) return null;
+			if (!resp.ok) throw new Error(`subtitle default status ${resp.status}`);
+			return resp.json();
+		}),
+	])
+		.then(([resources, defaultPayload]) => {
+			subtitleState.byItemID[itemID] = resources || [];
+			const defaultSubtitleID = defaultPayload && defaultPayload.binding ? defaultPayload.binding.defaultSubtitleID : "";
+			if ((resources || []).length > 0) {
+				populateSubtitleResources(itemID, resources, defaultSubtitleID);
+				return;
+			}
+
+			setSubtitleStatus("No subtitle resources found, importing embedded subtitles...");
+			return importEmbeddedSubtitle(itemID)
+				.then(result => {
+					subtitleState.byItemID[itemID] = [result.resource];
+					populateSubtitleResources(itemID, [result.resource], result.resource.id);
+					setSubtitleStatus(result.alreadyExists ? "Reused embedded subtitle resource." : "Imported embedded subtitles.", "success");
+				})
+				.catch(err => {
+					console.error(`Failed to import embedded subtitles for ${itemID}: ${err}`);
+					resetSubtitleSelectorsForResources();
+					setSubtitleStatus("Failed to import embedded subtitles.", "error");
+				});
+		})
+		.catch(err => {
+			console.error(`Failed to load subtitle resources for ${itemID}: ${err}`);
+			resetSubtitleSelectorsForResources();
+			setSubtitleStatus("Failed to load subtitles.", "error");
+		})
+		.finally(() => {
+			setSubtitleLoading(false);
+		});
+}
+
+function importEmbeddedSubtitle(itemID) {
+	return fetch(`/gallery/subtitles/item/${itemID}/import`, {
+		method: "POST",
+	}).then(resp => {
+		if (!resp.ok) {
+			throw new Error(`subtitle import status ${resp.status}`);
+		}
+		return resp.json();
+	});
+}
+
 function toggleMenu(menuId) {
   const menu = document.getElementById(menuId);
   if (!menu) return;
@@ -328,13 +524,87 @@ function selectSubtitle(id) {
     console.log("Disabling subtitles");
     track.src = "";
     track.removeAttribute("src");
+    subtitleState.selectedByItemID[mostRecentID] = "";
     if (debugSubs) debugSubs.value = "";
+    setSubtitleStatus("Subtitles disabled.");
   } else {
-    console.log(`Attempting to set subs to: /gallery/streams/${mostRecentID}/stream/${id}`)
-    track.src = `/gallery/streams/${mostRecentID}/stream/${id}`;
-    // Sync debug selector keying off numeric stream index usually
+    const subtitleResource = findSubtitleResource(mostRecentID, id);
+    if (subtitleResource) {
+      console.log(`Attempting to set subtitle resource: ${subtitleResourceURL(id)}`);
+      track.src = subtitleResourceURL(id);
+      subtitleState.selectedByItemID[mostRecentID] = id;
+      setSubtitleStatus(`Selected subtitle: ${subtitleLabel(subtitleResource)}`, "success");
+    } else {
+      console.log(`Attempting to set legacy subtitle stream: /gallery/streams/${mostRecentID}/stream/${id}`);
+      track.src = `/gallery/streams/${mostRecentID}/stream/${id}`;
+      subtitleState.selectedByItemID[mostRecentID] = id;
+      setSubtitleStatus("Selected legacy stream subtitle.");
+    }
     if (debugSubs) debugSubs.value = id;
   }
+}
+
+function saveDefaultSubtitle() {
+	if (!mostRecentID) {
+		setSubtitleStatus("Select a video before saving a default subtitle.", "error");
+		return;
+	}
+	const subtitleID = subtitleState.selectedByItemID[mostRecentID];
+	if (!subtitleID) {
+		setSubtitleStatus("Select a subtitle resource before saving default.", "error");
+		return;
+	}
+
+	setSubtitleLoading(true);
+	setSubtitleStatus("Saving default subtitle...");
+	fetch(`/gallery/subtitles/item/${mostRecentID}/default`, {
+		method: "POST",
+		headers: {
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({ subtitleID }),
+	})
+		.then(resp => {
+			if (!resp.ok) {
+				throw new Error(`save default subtitle status ${resp.status}`);
+			}
+			return resp.json();
+		})
+		.then(() => {
+			setSubtitleStatus("Saved default subtitle.", "success");
+		})
+		.catch(err => {
+			console.error(`Failed to save default subtitle for ${mostRecentID}: ${err}`);
+			setSubtitleStatus("Failed to save default subtitle.", "error");
+		})
+		.finally(() => {
+			setSubtitleLoading(false);
+		});
+}
+
+function manualImportSubtitles() {
+	if (!mostRecentID) {
+		setSubtitleStatus("Select a video before importing subtitles.", "error");
+		return;
+	}
+
+	setSubtitleLoading(true);
+	setSubtitleStatus("Importing embedded subtitles...");
+	importEmbeddedSubtitle(mostRecentID)
+		.then(result => {
+			const current = currentSubtitleResources(mostRecentID);
+			const withoutExisting = current.filter(resource => resource.id !== result.resource.id);
+			subtitleState.byItemID[mostRecentID] = [...withoutExisting, result.resource];
+			populateSubtitleResources(mostRecentID, subtitleState.byItemID[mostRecentID], result.resource.id);
+			setSubtitleStatus(result.alreadyExists ? "Subtitle resource already existed and was reused." : "Embedded subtitles imported successfully.", "success");
+		})
+		.catch(err => {
+			console.error(`Manual subtitle import failed for ${mostRecentID}: ${err}`);
+			setSubtitleStatus("Failed to import embedded subtitles.", "error");
+		})
+		.finally(() => {
+			setSubtitleLoading(false);
+		});
 }
 
 // Integrate events.js
@@ -369,10 +639,11 @@ function loadSuggestions() {
         itemDiv.onclick = () => {
           selectMedia(rec.ID);
           if (rec.subtitleID) {
-            // Wait small delay for subs to load/options to populate if needed
             setTimeout(() => {
               const subSel = document.getElementById("debugSubsSelector");
-              subSel.value = rec.subtitleID;
+              if (subSel) {
+                subSel.value = rec.subtitleID;
+              }
               selectSubtitle(rec.subtitleID);
             }, 500);
           }

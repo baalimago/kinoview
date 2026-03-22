@@ -18,6 +18,7 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/classifier"
+	"github.com/baalimago/kinoview/internal/media/subtitles"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -36,6 +37,11 @@ type store struct {
 	readyChan chan struct{}
 
 	debug bool
+
+	subtitleRepository subtitles.Repository
+	subtitleFileStore  subtitles.FileStore
+	subtitleImporter   subtitles.EmbeddedImporter
+	subtitleResolver   subtitles.Resolver
 }
 
 type StoreOption func(*store)
@@ -63,6 +69,18 @@ func WithClassificationWorkers(amWorkers int) StoreOption {
 		s.classificationWorkers = amWorkers
 	}
 }
+
+func WithSubtitleRuntime(runtime *subtitles.Runtime) StoreOption {
+	return func(s *store) {
+		if runtime == nil {
+			return
+		}
+		s.subtitleRepository = runtime.Repository
+		s.subtitleFileStore = runtime.FileStore
+		s.subtitleImporter = runtime.Importer
+		s.subtitleResolver = runtime.Resolver
+	}
+	}
 
 func NewStore(opts ...StoreOption) *store {
 	cfgDir, err := os.UserConfigDir()
@@ -126,6 +144,9 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 
 	tot := len(files)
 	increments := tot / 10
+	if increments == 0 {
+		increments = 1
+	}
 	ancli.Noticef("found: %v media items to load", tot)
 	t0 := time.Now()
 	for i, file := range files {

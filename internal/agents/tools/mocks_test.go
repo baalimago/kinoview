@@ -66,6 +66,12 @@ func (m *mockSubtitleSelector) Select(ctx context.Context, streams []model.Strea
 	return m.selectedIdx, m.err
 }
 
+type mockEmbeddedImporter struct {
+	result any
+	err    error
+	req    any
+}
+
 type mockSuggestionManager struct {
 	suggestions []model.Suggestion
 	removedID   string

@@ -69,6 +69,22 @@ func (m *mockStorage) StreamHandlerFunc() http.HandlerFunc {
 	return nil
 }
 
+func (m *mockStorage) SubtitleListHandlerFunc() http.HandlerFunc {
+	return nil
+}
+
+func (m *mockStorage) SubtitleGetHandlerFunc() http.HandlerFunc {
+	return nil
+}
+
+func (m *mockStorage) SubtitleDefaultHandlerFunc() http.HandlerFunc {
+	return nil
+}
+
+func (m *mockStorage) SubtitleImportHandlerFunc() http.HandlerFunc {
+	return nil
+}
+
 func (m *mockStorage) AddToClassificationQueue(i model.Item) {
 	m.addToClassificationCalls++
 	m.addedItems = append(m.addedItems, i)
