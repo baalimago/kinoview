@@ -19,9 +19,9 @@ type ImportEmbeddedRequest struct {
 }
 
 type ImportEmbeddedResult struct {
-	Resource      model.SubtitleResource
-	AlreadyExists bool
-	BecameDefault bool
+	Resource      model.SubtitleResource `json:"resource"`
+	AlreadyExists bool                   `json:"already_exists"`
+	BecameDefault bool                   `json:"became_default"`
 }
 
 type EmbeddedImporter interface {
