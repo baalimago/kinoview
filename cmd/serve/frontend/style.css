@@ -43,7 +43,53 @@ body {
   color: var(--text-primary);
 }
 
-/* Navigation */
+/* Header decor - Pixar-esque */
+.header {
+  position: relative;
+}
+
+.header::after {
+  content: '';
+  display: block;
+  width: 60px;
+  height: 3px;
+  background: linear-gradient(90deg, var(--accent), transparent);
+  margin: 1rem auto 0;
+  border-radius: 2px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  justify-content: center;
+}
+
+.logo-icon {
+  color: var(--accent);
+  filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.4));
+  animation: logoPulse 4s ease-in-out infinite;
+}
+
+@keyframes logoPulse {
+  0%, 100% { filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.4)); }
+  50%      { filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.7)); }
+}
+
+.logo-text {
+  margin: 0;
+  font-weight: 700;
+  font-size: 1.65rem;
+  letter-spacing: -0.03em;
+  color: var(--text-primary);
+}
+
+.logo-accent {
+  color: var(--accent);
+  font-weight: 600;
+}
+
 .nav-bar {
   display: flex;
   align-items: center;

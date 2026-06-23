@@ -12,10 +12,11 @@ import (
 func Test_extractShowMetadata(t *testing.T) {
 	t.Parallel()
 
-	t.Run("metadata populated", func(t *testing.T) {
-		raw := json.RawMessage(`{"name":"Breaking Bad","season":1,"episode":1}`)
+	t.Run("metadata season+episode, show name from filename", func(t *testing.T) {
+		raw := json.RawMessage(`{"name":"Ethon","season":9,"episode":15}`)
 		it := model.Item{
-			Name:     "Breaking.Bad.S01E01.mkv",
+			Name:     "Stargate.SG-1.S09E15.Ethon.mkv",
+			Path:     "/media/Stargate.SG-1.S09E15.Ethon.mkv",
 			MIMEType: "video/x-matroska",
 			Metadata: &raw,
 		}
@@ -23,21 +24,22 @@ func Test_extractShowMetadata(t *testing.T) {
 		if !ok {
 			t.Fatal("expected ok=true")
 		}
-		if show != "Breaking Bad" {
-			t.Fatalf("expected 'Breaking Bad', got '%s'", show)
+		if show != "Stargate SG-1" {
+			t.Fatalf("expected 'Stargate SG-1', got '%s'", show)
 		}
-		if season != 1 {
-			t.Fatalf("expected season 1, got %d", season)
+		if season != 9 {
+			t.Fatalf("expected season 9, got %d", season)
 		}
-		if ep != 1 {
-			t.Fatalf("expected episode 1, got %d", ep)
+		if ep != 15 {
+			t.Fatalf("expected episode 15, got %d", ep)
 		}
 	})
 
-	t.Run("metadata alt_name", func(t *testing.T) {
-		raw := json.RawMessage(`{"alt_name":"Better Call Saul","season":2,"episode":3}`)
+	t.Run("metadata from From series example", func(t *testing.T) {
+		raw := json.RawMessage(`{"name":"From (2022) - S02E06 - Pas de Deux","season":2,"episode":6}`)
 		it := model.Item{
-			Name:     "somefile.mkv",
+			Name:     "From (2022) - S02E06 - Pas de Deux (1080p AMZN WEB-DL x265 t3nzin).mkv",
+			Path:     "/media/From (2022) - S02E06 - Pas de Deux (1080p AMZN WEB-DL x265 t3nzin).mkv",
 			MIMEType: "video/x-matroska",
 			Metadata: &raw,
 		}
@@ -45,14 +47,14 @@ func Test_extractShowMetadata(t *testing.T) {
 		if !ok {
 			t.Fatal("expected ok=true")
 		}
-		if show != "Better Call Saul" {
-			t.Fatalf("expected 'Better Call Saul', got '%s'", show)
+		if show != "From (2022)" {
+			t.Fatalf("expected 'From (2022)', got '%s'", show)
 		}
 		if season != 2 {
 			t.Fatalf("expected season 2, got %d", season)
 		}
-		if ep != 3 {
-			t.Fatalf("expected episode 3, got %d", ep)
+		if ep != 6 {
+			t.Fatalf("expected episode 6, got %d", ep)
 		}
 	})
 
@@ -153,15 +155,19 @@ func Test_extractShowMetadata(t *testing.T) {
 	})
 
 	t.Run("metadata floats as ints", func(t *testing.T) {
-		raw := json.RawMessage(`{"name":"Test Show","season":4.0,"episode":5.0}`)
+		raw := json.RawMessage(`{"name":"Irrelevant Episode Title","season":4.0,"episode":5.0}`)
 		it := model.Item{
-			Name:     "test.mkv",
+			Name:     "Test.Show.S04E05.mkv",
+			Path:     "/media/Test.Show.S04E05.mkv",
 			MIMEType: "video/x-matroska",
 			Metadata: &raw,
 		}
-		_, season, ep, ok := extractShowMetadata(it)
+		show, season, ep, ok := extractShowMetadata(it)
 		if !ok {
 			t.Fatal("expected ok=true")
+		}
+		if show != "Test Show" {
+			t.Fatalf("expected 'Test Show', got '%s'", show)
 		}
 		if season != 4 {
 			t.Fatalf("expected season 4, got %d", season)
@@ -172,15 +178,19 @@ func Test_extractShowMetadata(t *testing.T) {
 	})
 
 	t.Run("metadata string season/episode", func(t *testing.T) {
-		raw := json.RawMessage(`{"name":"Test Show 2","season":"3","episode":"7"}`)
+		raw := json.RawMessage(`{"name":"Ep Title","season":"3","episode":"7"}`)
 		it := model.Item{
-			Name:     "test2.mkv",
+			Name:     "Another.Show.S03E07.mkv",
+			Path:     "/media/Another.Show.S03E07.mkv",
 			MIMEType: "video/x-matroska",
 			Metadata: &raw,
 		}
-		_, season, ep, ok := extractShowMetadata(it)
+		show, season, ep, ok := extractShowMetadata(it)
 		if !ok {
 			t.Fatal("expected ok=true")
+		}
+		if show != "Another Show" {
+			t.Fatalf("expected 'Another Show', got '%s'", show)
 		}
 		if season != 3 {
 			t.Fatalf("expected season 3, got %d", season)
@@ -189,33 +199,98 @@ func Test_extractShowMetadata(t *testing.T) {
 			t.Fatalf("expected episode 7, got %d", ep)
 		}
 	})
+
+	t.Run("metadata with season but no show name in path", func(t *testing.T) {
+		raw := json.RawMessage(`{"season":1,"episode":5}`)
+		it := model.Item{
+			Name:     "00105.mkv",
+			Path:     "/media/00105.mkv",
+			MIMEType: "video/x-matroska",
+			Metadata: &raw,
+		}
+		_, _, _, ok := extractShowMetadata(it)
+		if ok {
+			t.Fatal("expected ok=false when path has no show name and metadata name is absent")
+		}
+	})
+
+	t.Run("metadata with name but no season/episode in filename, fallback to metadata name as show", func(t *testing.T) {
+		// Has metadata name, but no season/episode in metadata
+		raw := json.RawMessage(`{"name":"Breaking Bad","season":1,"episode":1}`)
+		it := model.Item{
+			Name:     "Breaking.Bad.S01E01.Pilot.mkv",
+			Path:     "/media/Breaking.Bad.S01E01.Pilot.mkv",
+			MIMEType: "video/x-matroska",
+			Metadata: &raw,
+		}
+		show, season, ep, ok := extractShowMetadata(it)
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		// Show name from path, not from metadata 'name'
+		if show != "Breaking Bad" {
+			t.Fatalf("expected 'Breaking Bad', got '%s'", show)
+		}
+		if season != 1 {
+			t.Fatalf("expected season 1, got %d", season)
+		}
+		if ep != 1 {
+			t.Fatalf("expected episode 1, got %d", ep)
+		}
+	})
+
+	t.Run("space race episode with metadata", func(t *testing.T) {
+		raw := json.RawMessage(`{"name":"Space Race","season":7,"episode":8}`)
+		it := model.Item{
+			Name:     "Stargate.SG-1.S07E08.Space.Race.1080p.BluRay.mkv",
+			Path:     "/media/Stargate.SG-1.S07E08.Space.Race.1080p.BluRay.mkv",
+			MIMEType: "video/x-matroska",
+			Metadata: &raw,
+		}
+		show, season, ep, ok := extractShowMetadata(it)
+		if !ok {
+			t.Fatal("expected ok=true")
+		}
+		if show != "Stargate SG-1" {
+			t.Fatalf("expected 'Stargate SG-1', got '%s'", show)
+		}
+		if season != 7 {
+			t.Fatalf("expected season 7, got %d", season)
+		}
+		if ep != 8 {
+			t.Fatalf("expected episode 8, got %d", ep)
+		}
+	})
 }
 
 func Test_showsHandler(t *testing.T) {
 	t.Parallel()
 
-	t.Run("groups shows correctly", func(t *testing.T) {
-		raw1 := json.RawMessage(`{"name":"Breaking Bad","season":1,"episode":1}`)
-		raw2 := json.RawMessage(`{"name":"Breaking Bad","season":1,"episode":2}`)
-		raw3 := json.RawMessage(`{"name":"Breaking Bad","season":2,"episode":1}`)
+	t.Run("groups shows correctly with metadata", func(t *testing.T) {
+		raw1 := json.RawMessage(`{"name":"Ethon","season":9,"episode":15}`)
+		raw2 := json.RawMessage(`{"name":"Space Race","season":7,"episode":8}`)
+		raw3 := json.RawMessage(`{"name":"Another S9 Episode","season":9,"episode":16}`)
 
 		store := &mockStore{
 			items: []model.Item{
 				{
 					ID:       "1",
-					Name:     "bb_s01e01.mkv",
+					Name:     "Stargate.SG-1.S09E15.Ethon.mkv",
+					Path:     "/media/Stargate.SG-1.S09E15.Ethon.mkv",
 					MIMEType: "video/x-matroska",
 					Metadata: &raw1,
 				},
 				{
 					ID:       "2",
-					Name:     "bb_s01e02.mkv",
+					Name:     "Stargate.SG-1.S07E08.Space.Race.mkv",
+					Path:     "/media/Stargate.SG-1.S07E08.Space.Race.mkv",
 					MIMEType: "video/x-matroska",
 					Metadata: &raw2,
 				},
 				{
 					ID:       "3",
-					Name:     "bb_s02e01.mkv",
+					Name:     "Stargate.SG-1.S09E16.Ep16.mkv",
+					Path:     "/media/Stargate.SG-1.S09E16.Ep16.mkv",
 					MIMEType: "video/x-matroska",
 					Metadata: &raw3,
 				},
@@ -243,27 +318,27 @@ func Test_showsHandler(t *testing.T) {
 		}
 
 		show := resp.Shows[0]
-		if show.Name != "Breaking Bad" {
-			t.Fatalf("expected 'Breaking Bad', got '%s'", show.Name)
+		if show.Name != "Stargate SG-1" {
+			t.Fatalf("expected 'Stargate SG-1', got '%s'", show.Name)
 		}
 		if len(show.Seasons) != 2 {
 			t.Fatalf("expected 2 seasons, got %d", len(show.Seasons))
 		}
 
-		// Season 1
-		if show.Seasons[0].Season != 1 {
-			t.Fatalf("expected season 1, got %d", show.Seasons[0].Season)
+		// Season 7
+		if show.Seasons[0].Season != 7 {
+			t.Fatalf("expected season 7, got %d", show.Seasons[0].Season)
 		}
-		if len(show.Seasons[0].Episodes) != 2 {
-			t.Fatalf("expected 2 episodes in season 1, got %d", len(show.Seasons[0].Episodes))
+		if len(show.Seasons[0].Episodes) != 1 {
+			t.Fatalf("expected 1 episode in season 7, got %d", len(show.Seasons[0].Episodes))
 		}
 
-		// Season 2
-		if show.Seasons[1].Season != 2 {
-			t.Fatalf("expected season 2, got %d", show.Seasons[1].Season)
+		// Season 9
+		if show.Seasons[1].Season != 9 {
+			t.Fatalf("expected season 9, got %d", show.Seasons[1].Season)
 		}
-		if len(show.Seasons[1].Episodes) != 1 {
-			t.Fatalf("expected 1 episode in season 2, got %d", len(show.Seasons[1].Episodes))
+		if len(show.Seasons[1].Episodes) != 2 {
+			t.Fatalf("expected 2 episodes in season 9, got %d", len(show.Seasons[1].Episodes))
 		}
 	})
 
@@ -296,6 +371,7 @@ func Test_showsHandler(t *testing.T) {
 				{
 					ID:       "img1",
 					Name:     "image.jpg",
+					Path:     "/media/image.jpg",
 					MIMEType: "image/jpeg",
 					Metadata: &raw,
 				},
@@ -367,6 +443,51 @@ func Test_showsHandler(t *testing.T) {
 		}
 		if resp.Shows[0].Name != "Game of Thrones" {
 			t.Fatalf("expected 'Game of Thrones', got '%s'", resp.Shows[0].Name)
+		}
+	})
+
+	t.Run("multiple shows from From and Stargate", func(t *testing.T) {
+		rawFrom := json.RawMessage(`{"name":"Pas de Deux","season":2,"episode":6}`)
+		rawSG := json.RawMessage(`{"name":"Ethon","season":9,"episode":15}`)
+		store := &mockStore{
+			items: []model.Item{
+				{
+					ID:       "from1",
+					Name:     "From (2022) - S02E06 - Pas de Deux.mkv",
+					Path:     "/media/From (2022) - S02E06 - Pas de Deux.mkv",
+					MIMEType: "video/x-matroska",
+					Metadata: &rawFrom,
+				},
+				{
+					ID:       "sg1",
+					Name:     "Stargate.SG-1.S09E15.Ethon.mkv",
+					Path:     "/media/Stargate.SG-1.S09E15.Ethon.mkv",
+					MIMEType: "video/x-matroska",
+					Metadata: &rawSG,
+				},
+			},
+		}
+		idx := &Indexer{store: store}
+		handler := idx.showsHandler()
+
+		req := httptest.NewRequest(http.MethodGet, "/shows", nil)
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, req)
+
+		var resp model.ShowsResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("failed to unmarshal: %v", err)
+		}
+		if len(resp.Shows) != 2 {
+			t.Fatalf("expected 2 shows, got %d", len(resp.Shows))
+		}
+
+		// Shows should be alphabetically sorted
+		if resp.Shows[0].Name != "From (2022)" {
+			t.Fatalf("expected first show 'From (2022)', got '%s'", resp.Shows[0].Name)
+		}
+		if resp.Shows[1].Name != "Stargate SG-1" {
+			t.Fatalf("expected second show 'Stargate SG-1', got '%s'", resp.Shows[1].Name)
 		}
 	})
 }

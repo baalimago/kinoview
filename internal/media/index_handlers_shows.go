@@ -14,8 +14,8 @@ import (
 
 // showRE holds a compiled regex and whether it captures season+episode or just episode.
 type showRE struct {
-	re         *regexp.Regexp
-	hasSeason  bool // false means the regex captures only episode (season assumed 1)
+	re        *regexp.Regexp
+	hasSeason bool // false means the regex captures only episode (season assumed 1)
 }
 
 var showREs = []showRE{
@@ -29,78 +29,104 @@ var showREs = []showRE{
 	{re: regexp.MustCompile(`(?i)^(.+?)[.\s\-_]*[Ee](\d{1,3})`), hasSeason: false},
 }
 
-// extractShowMetadata attempts to extract show name, season, episode from Metadata JSON,
-// and falls back to filename regex parsing.
-func extractShowMetadata(it model.Item) (showName string, season int, episode int, ok bool) {
-	// 1. Try Metadata
-	if it.Metadata != nil {
-		var md map[string]interface{}
-		if err := json.Unmarshal(*it.Metadata, &md); err == nil {
-			if n, found := md["name"]; found {
-				if s, is := n.(string); is && s != "" {
-					showName = s
-				}
-			}
-			// alt_name can override
-			if an, found := md["alt_name"]; found {
-				if s, is := an.(string); is && s != "" && showName == "" {
-					showName = s
-				}
-			}
-			if s, found := md["season"]; found {
-				switch v := s.(type) {
-				case float64:
-					season = int(v)
-				case string:
-					season, _ = strconv.Atoi(v)
-				}
-			}
-			if e, found := md["episode"]; found {
-				switch v := e.(type) {
-				case float64:
-					episode = int(v)
-				case string:
-					episode, _ = strconv.Atoi(v)
-				}
-			}
-			if season > 0 && episode > 0 && showName != "" {
-				ok = true
-				return
-			}
-		}
-	}
-
-	// 2. Fallback: filename regex
-	base := filepath.Base(it.Path)
+// extractShowNameFromPath runs filename regex to get the show name.
+func extractShowNameFromPath(path string) string {
+	base := filepath.Base(path)
 	ext := filepath.Ext(base)
 	stem := strings.TrimSuffix(base, ext)
+	stem = strings.ReplaceAll(stem, ".", " ")
+	stem = strings.ReplaceAll(stem, "_", " ")
 
-	// Clean up common separators
+	for _, sre := range showREs {
+		matches := sre.re.FindStringSubmatch(stem)
+		if len(matches) >= 2 {
+			return strings.TrimSpace(matches[1])
+		}
+	}
+	return ""
+}
+
+// parseSeasonEpisodeFromMetadata extracts season and episode from Metadata JSON.
+func parseSeasonEpisodeFromMetadata(it model.Item) (season int, episode int, ok bool) {
+	if it.Metadata == nil {
+		return 0, 0, false
+	}
+	var md map[string]interface{}
+	if err := json.Unmarshal(*it.Metadata, &md); err != nil {
+		return 0, 0, false
+	}
+	if s, found := md["season"]; found {
+		switch v := s.(type) {
+		case float64:
+			season = int(v)
+		case string:
+			season, _ = strconv.Atoi(v)
+		}
+	}
+	if e, found := md["episode"]; found {
+		switch v := e.(type) {
+		case float64:
+			episode = int(v)
+		case string:
+			episode, _ = strconv.Atoi(v)
+		}
+	}
+	if season > 0 && episode > 0 {
+		return season, episode, true
+	}
+	return 0, 0, false
+}
+
+// parseSeasonEpisodeFromPath runs filename regex to extract season and episode.
+func parseSeasonEpisodeFromPath(path string) (season int, episode int, ok bool) {
+	base := filepath.Base(path)
+	ext := filepath.Ext(base)
+	stem := strings.TrimSuffix(base, ext)
 	stem = strings.ReplaceAll(stem, ".", " ")
 	stem = strings.ReplaceAll(stem, "_", " ")
 
 	for _, sre := range showREs {
 		matches := sre.re.FindStringSubmatch(stem)
 		if sre.hasSeason && len(matches) >= 4 {
-			showName = strings.TrimSpace(matches[1])
 			season, _ = strconv.Atoi(matches[2])
 			episode, _ = strconv.Atoi(matches[3])
-			if showName != "" && season > 0 && episode > 0 {
-				ok = true
-				return
+			if season > 0 && episode > 0 {
+				return season, episode, true
 			}
 		} else if !sre.hasSeason && len(matches) >= 3 {
-			showName = strings.TrimSpace(matches[1])
 			season = 1
 			episode, _ = strconv.Atoi(matches[2])
-			if showName != "" && episode > 0 {
-				ok = true
-				return
+			if episode > 0 {
+				return season, episode, true
 			}
 		}
 	}
+	return 0, 0, false
+}
 
-	return "", 0, 0, false
+// extractShowMetadata extracts show name, season, episode.
+// Strategy:
+//  1. If Metadata has season+episode → use those, and extract show name from filename.
+//  2. Fallback: filename regex for everything.
+func extractShowMetadata(it model.Item) (showName string, season int, episode int, ok bool) {
+	season, episode, hasMeta := parseSeasonEpisodeFromMetadata(it)
+	if hasMeta {
+		showName = extractShowNameFromPath(it.Path)
+		if showName != "" {
+			return showName, season, episode, true
+		}
+	}
+
+	// Full filename fallback
+	showName = extractShowNameFromPath(it.Path)
+	if showName == "" {
+		return "", 0, 0, false
+	}
+	season, episode, ok = parseSeasonEpisodeFromPath(it.Path)
+	if !ok {
+		return "", 0, 0, false
+	}
+	return showName, season, episode, true
 }
 
 // normalizeShowName produces a canonical key for grouping.
