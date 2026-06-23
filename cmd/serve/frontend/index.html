@@ -50,14 +50,17 @@
         <div id="selection-wrapper" class="control-panel">
           <div class="control-group">
             <label for="searchInput">Search videos</label>
-            <div class="select-wrapper">
+            <div class="search-wrapper">
               <input
                 id="searchInput"
                 class="mediaSelector input-field"
                 type="text"
                 placeholder="Search by name, path, or metadata..."
                 onkeyup="searchMedia()"
+                onfocus="searchMedia()"
+                autocomplete="off"
               />
+              <div id="searchResults" class="search-results hidden"></div>
             </div>
           </div>
 

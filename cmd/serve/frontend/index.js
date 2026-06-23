@@ -90,7 +90,8 @@ fetch('/gallery?start=0&am=1000&mime=video')
   });
 
 let searchDebounceTimer = null;
-const SEARCH_DEBOUNCE_MS = 300;
+const SEARCH_DEBOUNCE_MS = 250;
+const MAX_SEARCH_RESULTS = 5;
 
 function searchMedia() {
   clearTimeout(searchDebounceTimer);
@@ -104,12 +105,57 @@ function searchMedia() {
       .then(response => response.json())
       .then(data => {
         populateMediaDropdown(data.items);
+        populateSearchResults(data.items, query);
       })
       .catch(err => {
         console.error('Error searching media:');
         console.error(err);
       });
   }, SEARCH_DEBOUNCE_MS);
+}
+
+function populateSearchResults(items, query) {
+  const resultsDiv = document.getElementById("searchResults");
+  resultsDiv.innerHTML = '';
+
+  if (!query || items.length === 0) {
+    resultsDiv.classList.add('hidden');
+    return;
+  }
+
+  const topItems = items.slice(0, MAX_SEARCH_RESULTS);
+  for (const it of topItems) {
+    const row = document.createElement('div');
+    row.className = 'search-result-item';
+
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'result-name';
+    nameSpan.textContent = videoNameWithProgress(it.ID, it.Name);
+
+    const pathSpan = document.createElement('span');
+    pathSpan.className = 'result-path';
+    pathSpan.textContent = it.Path || '';
+
+    row.appendChild(nameSpan);
+    row.appendChild(pathSpan);
+
+    row.addEventListener('click', () => {
+      selectMedia(it.ID);
+      document.getElementById("searchInput").value = it.Name;
+      document.getElementById("searchResults").classList.add('hidden');
+    });
+
+    resultsDiv.appendChild(row);
+  }
+
+  if (items.length > MAX_SEARCH_RESULTS) {
+    const more = document.createElement('div');
+    more.className = 'search-results-empty';
+    more.textContent = `... and ${items.length - MAX_SEARCH_RESULTS} more (refine search)`;
+    resultsDiv.appendChild(more);
+  }
+
+  resultsDiv.classList.remove('hidden');
 }
 
 function populateMediaDropdown(items) {
@@ -319,6 +365,9 @@ function toggleMenu(menuId) {
 document.addEventListener('click', (e) => {
   if (!e.target.closest('.dropdown-group')) {
     document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.add('hidden'));
+  }
+  if (!e.target.closest('.search-wrapper')) {
+    document.getElementById('searchResults').classList.add('hidden');
   }
 });
 
