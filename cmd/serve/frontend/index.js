@@ -518,19 +518,24 @@ setTimeout(() => {
   if (!sidebar) return;
 
   var sidebarShows = [];
-  var activeShowIdx = -1;
-  var activeSeasonIdx = {};  // show index → season index
+  var activeShowIdx = -1;       // which show is expanded (-1 = none)
+  var activeSeasonIdx = {};     // show index → season index (-1 = none selected)
 
   function fetchShows() {
     sidebar.innerHTML = '<div class="sidebar-loading">Loading…</div>';
     fetch('/gallery/shows')
-      .then(function (r) { return r.json(); })
+      .then(function (r) {
+        if (!r.ok) throw new Error('HTTP ' + r.status);
+        return r.json();
+      })
       .then(function (data) {
         sidebarShows = data.shows || [];
         activeSeasonIdx = {};
+        for (var i = 0; i < sidebarShows.length; i++) activeSeasonIdx[i] = -1;
         render();
       })
-      .catch(function () {
+      .catch(function (err) {
+        console.error('Sidebar: failed to fetch shows:', err);
         sidebar.innerHTML = '<div class="sidebar-empty">Unavailable</div>';
       });
   }
@@ -540,7 +545,6 @@ setTimeout(() => {
       var mn = ep.Metadata.name;
       if (!/[Ss]\d{1,2}[Ee]\d{1,3}/.test(mn) && !/\d{1,2}x\d{1,3}/i.test(mn)) return mn;
     }
-    // Clean filename fallback
     var raw = ep.Name || '';
     raw = raw.replace(/\.[^.]+$/, '');
     raw = raw.replace(/[._-]/g, ' ').replace(/\s+/g, ' ').trim();
@@ -550,10 +554,19 @@ setTimeout(() => {
   function episodeWatched(epID) {
     var m = getPersistedMedia();
     var item = m[epID];
-    if (!item) return 'none';
-    if (item.viewedAt && item.playedFor > 0) return 'watched';
-    if (item.playedFor > 30) return 'progress';
-    return 'none';
+    if (!item) return { status: 'none' };
+    if (item.viewedAt && item.playedFor > 0) return { status: 'watched', playedFor: item.playedFor };
+    if (item.playedFor > 30) return { status: 'progress', playedFor: item.playedFor };
+    return { status: 'none' };
+  }
+
+  function selectSeason(si, ssi) {
+    if (activeSeasonIdx[si] === ssi) {
+      activeSeasonIdx[si] = -1; // deselect
+    } else {
+      activeSeasonIdx[si] = ssi;
+    }
+    render();
   }
 
   function render() {
@@ -564,15 +577,20 @@ setTimeout(() => {
     }
     for (var si = 0; si < sidebarShows.length; si++) {
       var show = sidebarShows[si];
-      if (activeSeasonIdx[si] === undefined) activeSeasonIdx[si] = 0;
+      if (activeSeasonIdx[si] === undefined) activeSeasonIdx[si] = -1;
       var isOpen = (si === activeShowIdx);
+      var hasEpisodes = isOpen && activeSeasonIdx[si] >= 0;
 
       var div = document.createElement('div');
       div.className = 'sidebar-show' + (isOpen ? ' open' : '');
 
+      // Show header
       var hdr = document.createElement('div');
       hdr.className = 'sidebar-show-header';
+      var epCount = 0;
+      for (var sc = 0; sc < show.seasons.length; sc++) epCount += show.seasons[sc].episodes.length;
       hdr.innerHTML = '<span>' + esc(show.name) + '</span>' +
+        '<span style="font-size:0.7rem;color:var(--text-secondary);margin-left:auto;margin-right:6px">' + epCount + '</span>' +
         '<svg class="sidebar-show-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>';
       hdr.onclick = function (idx) {
         return function () {
@@ -583,66 +601,81 @@ setTimeout(() => {
       }(si);
       div.appendChild(hdr);
 
-      var body = document.createElement('div');
-      body.className = 'sidebar-show-body';
+      if (isOpen) {
+        var body = document.createElement('div');
+        body.className = 'sidebar-show-body';
 
-      // Season pills
-      var seasonRow = document.createElement('div');
-      seasonRow.className = 'sidebar-seasons';
-      for (var ssi = 0; ssi < show.seasons.length; ssi++) {
-        var ssn = show.seasons[ssi];
-        var pill = document.createElement('button');
-        pill.className = 'sidebar-season-pill';
-        if (ssi === activeSeasonIdx[si]) pill.classList.add('active');
-        pill.textContent = 'S' + ssn.season;
-        pill.onclick = (function (sIdx, ssIdx) {
-          return function (e) { e.stopPropagation(); activeSeasonIdx[sIdx] = ssIdx; render(); };
-        })(si, ssi);
-        seasonRow.appendChild(pill);
-      }
-      body.appendChild(seasonRow);
-
-      // Episodes
-      var epContainer = document.createElement('div');
-      epContainer.className = 'sidebar-episodes';
-      var activeSeas = show.seasons[activeSeasonIdx[si]];
-      if (activeSeas) {
-        for (var ei = 0; ei < activeSeas.episodes.length; ei++) {
-          var ep = activeSeas.episodes[ei];
-          var epRow = document.createElement('div');
-          epRow.className = 'sidebar-ep';
-          if (ep.ID === mostRecentID) epRow.classList.add('playing');
-
-          var num = document.createElement('span');
-          num.className = 'sidebar-ep-num';
-          num.textContent = ep.episode;
-          epRow.appendChild(num);
-
-          var name = document.createElement('span');
-          name.className = 'sidebar-ep-name';
-          name.textContent = episodeDisplayName(ep);
-          epRow.appendChild(name);
-
-          // Watch status dot
-          var ws = episodeWatched(ep.ID);
-          if (ws === 'watched') {
-            var dot = document.createElement('span');
-            dot.className = 'sidebar-ep-watched';
-            epRow.appendChild(dot);
-          } else if (ws === 'progress') {
-            var dot = document.createElement('span');
-            dot.className = 'sidebar-ep-progress';
-            epRow.appendChild(dot);
-          }
-
-          epRow.onclick = (function (epID) {
-            return function () { selectMedia(epID); };
-          })(ep.ID);
-          epContainer.appendChild(epRow);
+        // Season pills
+        var seasonRow = document.createElement('div');
+        seasonRow.className = 'sidebar-seasons';
+        for (var ssi = 0; ssi < show.seasons.length; ssi++) {
+          var ssn = show.seasons[ssi];
+          var pill = document.createElement('button');
+          pill.className = 'sidebar-season-pill';
+          if (ssi === activeSeasonIdx[si]) pill.classList.add('active');
+          pill.textContent = 'S' + ssn.season + ' (' + ssn.episodes.length + ')';
+          pill.onclick = (function (sIdx, ssIdx) {
+            return function (e) { e.stopPropagation(); selectSeason(sIdx, ssIdx); };
+          })(si, ssi);
+          seasonRow.appendChild(pill);
         }
+        body.appendChild(seasonRow);
+
+        // Episodes (only if a season is selected)
+        if (hasEpisodes) {
+          var epContainer = document.createElement('div');
+          epContainer.className = 'sidebar-episodes';
+          var activeSeas = show.seasons[activeSeasonIdx[si]];
+          if (activeSeas) {
+            for (var ei = 0; ei < activeSeas.episodes.length; ei++) {
+              var ep = activeSeas.episodes[ei];
+              var epRow = document.createElement('div');
+              epRow.className = 'sidebar-ep';
+              if (ep.ID === mostRecentID) epRow.classList.add('playing');
+
+              var num = document.createElement('span');
+              num.className = 'sidebar-ep-num';
+              num.textContent = ep.episode;
+              epRow.appendChild(num);
+
+              var name = document.createElement('span');
+              name.className = 'sidebar-ep-name';
+              name.textContent = episodeDisplayName(ep);
+              epRow.appendChild(name);
+
+              var ws = episodeWatched(ep.ID);
+              if (ws.status === 'watched') {
+                var dot = document.createElement('span');
+                dot.className = 'sidebar-ep-watched';
+                epRow.appendChild(dot);
+                epRow.style.opacity = '0.7';
+              } else if (ws.status === 'progress') {
+                var pct = 0;
+                if (ep.Metadata && typeof ep.Metadata === 'object' && ep.Metadata.duration_min) {
+                  var totalSec = parseFloat(ep.Metadata.duration_min) * 60;
+                  if (totalSec > 0) pct = Math.min(100, Math.round((ws.playedFor / totalSec) * 100));
+                }
+                var prog = document.createElement('span');
+                prog.className = 'sidebar-ep-progress-text';
+                prog.textContent = Math.round(ws.playedFor / 60) + 'm';
+                epRow.appendChild(prog);
+                // Thin progress bar
+                var bar = document.createElement('span');
+                bar.className = 'sidebar-ep-progress-bar';
+                bar.innerHTML = '<span style="width:' + pct + '%"></span>';
+                epRow.appendChild(bar);
+              }
+
+              epRow.onclick = (function (epID) {
+                return function () { selectMedia(epID); };
+              })(ep.ID);
+              epContainer.appendChild(epRow);
+            }
+          }
+          body.appendChild(epContainer);
+        }
+        div.appendChild(body);
       }
-      body.appendChild(epContainer);
-      div.appendChild(body);
       sidebar.appendChild(div);
     }
   }
@@ -653,7 +686,7 @@ setTimeout(() => {
     return d.innerHTML;
   }
 
-  // Refresh watch-status dots periodically
+  // Refresh watch dots periodically
   setInterval(function () {
     if (sidebarShows.length > 0) render();
   }, 30000);
