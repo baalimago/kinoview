@@ -83,6 +83,8 @@ fetch('/gallery?start=0&am=1000&mime=video')
   .then(response => response.json())
   .then(data => {
     populateMediaDropdown(data.items)
+    // Handle deep-link play from shows page
+    autoPlayFromQuery();
   })
   .catch(err => {
     console.error('Error fetching gallery:');
@@ -92,6 +94,19 @@ fetch('/gallery?start=0&am=1000&mime=video')
 let searchDebounceTimer = null;
 const SEARCH_DEBOUNCE_MS = 250;
 const MAX_SEARCH_RESULTS = 5;
+
+// Auto-play an episode when navigated from shows page via ?play=ID
+function autoPlayFromQuery() {
+  const params = new URLSearchParams(window.location.search);
+  const playID = params.get('play');
+  if (playID && media[playID]) {
+    selectMedia(playID);
+    // Clean URL without reload
+    const url = new URL(window.location);
+    url.searchParams.delete('play');
+    window.history.replaceState({}, '', url);
+  }
+}
 
 function searchMedia() {
   clearTimeout(searchDebounceTimer);

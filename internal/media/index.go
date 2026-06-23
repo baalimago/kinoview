@@ -349,6 +349,7 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/image/{id}", i.store.ImageHandlerFunc())
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())
+	mux.HandleFunc("/shows", i.showsHandler())
 	mux.HandleFunc("/log", loghandler.Func())
 	mux.HandleFunc("/ws", i.eventStream())
 	return mux
