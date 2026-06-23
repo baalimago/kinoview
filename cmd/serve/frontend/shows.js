@@ -69,6 +69,34 @@
     });
   }
 
+  /**
+   * Build a human-readable episode display name.
+   * Uses metadata 'name' (episode title like "Ethon") if available,
+   * otherwise cleans up the filename.
+   */
+  function episodeDisplayName(ep) {
+    // 1. Metadata name (episode title)
+    if (ep.Metadata && typeof ep.Metadata === 'object' && ep.Metadata.name) {
+      var mn = ep.Metadata.name;
+      // Skip if it looks like a raw filename
+      if (!/[Ss]\d{1,2}[Ee]\d{1,3}/.test(mn) && !/\d{1,2}x\d{1,3}/i.test(mn)) {
+        return mn;
+      }
+    }
+    // 2. Cleaned-up filename
+    var raw = ep.Name || '';
+    raw = raw.replace(/\.[^.]+$/, '');
+    if (ep.ShowName) {
+      var escaped = ep.ShowName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      raw = raw.replace(new RegExp('^' + escaped + '[.\\s\\-_]*', 'i'), '');
+    }
+    raw = raw.replace(/[Ss]\d{1,2}[Ee]\d{1,3}/g, '');
+    raw = raw.replace(/\d{1,2}x\d{1,3}/gi, '');
+    raw = raw.replace(/[._-]/g, ' ').replace(/\s+/g, ' ').trim();
+    if (!raw) raw = ep.Name;
+    return raw;
+  }
+
   function renderSeasonView(show) {
     grid.innerHTML = '';
     const view = seasonViewTpl.content.cloneNode(true);
@@ -86,7 +114,6 @@
     const episodeList = view.querySelector('.episode-list');
     let activeSeasonIdx = 0;
 
-    // Build tabs
     show.seasons.forEach(function (season, idx) {
       const tab = document.createElement('button');
       tab.className = 'season-tab';
@@ -111,28 +138,21 @@
       season.episodes.forEach(function (ep) {
         const row = episodeRowTpl.content.cloneNode(true);
         row.querySelector('.episode-number').textContent = ep.episode;
-        row.querySelector('.episode-name').textContent = ep.Name;
+        row.querySelector('.episode-name').textContent = episodeDisplayName(ep);
 
         // Duration from metadata if present
         let durationStr = '';
-        if (ep.Metadata) {
-          try {
-            // Metadata is already a JSON object from the API response
-            if (typeof ep.Metadata === 'object' && ep.Metadata.duration_min) {
-              const mins = parseInt(ep.Metadata.duration_min, 10);
-              if (mins) durationStr = mins + ' min';
-            }
-          } catch (_) { /* ignore */ }
+        if (ep.Metadata && typeof ep.Metadata === 'object' && ep.Metadata.duration_min) {
+          var mins = parseInt(ep.Metadata.duration_min, 10);
+          if (mins) durationStr = mins + ' min';
         }
         row.querySelector('.episode-duration').textContent = durationStr;
 
-        // Play button
         row.querySelector('.episode-play-btn').addEventListener('click', function (e) {
           e.stopPropagation();
           playEpisode(ep);
         });
 
-        // Click row to play
         row.querySelector('.episode-row').addEventListener('click', function () {
           playEpisode(ep);
         });
@@ -146,20 +166,17 @@
   }
 
   function playEpisode(ep) {
-    // Store media info for the player page
     try {
-      const mediaStore = JSON.parse(localStorage.getItem('media') || '{}');
+      var mediaStore = JSON.parse(localStorage.getItem('media') || '{}');
       mediaStore[ep.ID] = mediaStore[ep.ID] || {};
       mediaStore[ep.ID].name = ep.Name;
       mediaStore[ep.ID].playedFor = mediaStore[ep.ID].playedFor || 0;
       localStorage.setItem('media', JSON.stringify(mediaStore));
     } catch (_) { /* ignore */ }
 
-    // Navigate to player with the episode pre-selected
     window.location.href = '/?play=' + encodeURIComponent(ep.ID);
   }
 
-  // On load, fetch shows
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', fetchShows);
   } else {

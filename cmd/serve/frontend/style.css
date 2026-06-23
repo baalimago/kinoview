@@ -14,6 +14,10 @@
 
 body {
   background-color: var(--bg-color);
+  background-image:
+    radial-gradient(ellipse at 50% 0%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
+    radial-gradient(ellipse at 85% 100%, rgba(59, 130, 246, 0.04) 0%, transparent 50%);
+  background-attachment: fixed;
   color: var(--text-primary);
   font-family: var(--font-family);
   margin: 0;
@@ -27,6 +31,7 @@ body {
   max-width: 1200px;
   margin: 0 auto;
   padding: 2rem;
+  padding-top: max(2rem, env(safe-area-inset-top, 0px));
   width: 100%;
   box-sizing: border-box;
 }
@@ -34,6 +39,7 @@ body {
 .header {
   margin-bottom: 2rem;
   text-align: center;
+  padding-top: 0.5rem;
 }
 
 .header h1 {
@@ -44,18 +50,15 @@ body {
 }
 
 /* Header decor - Pixar-esque */
-.header {
-  position: relative;
-}
-
 .header::after {
   content: '';
   display: block;
-  width: 60px;
-  height: 3px;
-  background: linear-gradient(90deg, var(--accent), transparent);
-  margin: 1rem auto 0;
+  width: 80px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  margin: 0.75rem auto 0;
   border-radius: 2px;
+  opacity: 0.6;
 }
 
 .logo {
