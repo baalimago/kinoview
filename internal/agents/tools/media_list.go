@@ -67,10 +67,8 @@ func (t *mediaListTool) Call(input models.Input) (string, error) {
 	items := t.lister.Snapshot()
 	filtered := make([]model.Item, 0, len(items))
 	for _, it := range items {
-		if needle != "" {
-			if !matchesGlobalSearch(it, needle) {
-				continue
-			}
+		if !model.MatchesGlobalSearch(it, needle) {
+			continue
 		}
 
 		if mimeTypeFilter != "" {
@@ -179,48 +177,3 @@ func (t *mediaListTool) Specification() models.Specification {
 
 // sanity compile-time guard; unused in current implementation but kept for future richer filters.
 var _ = fmt.Sprintf
-
-// matchesGlobalSearch performs a global search across item metadata and basic fields.
-// It searches through the item's name, path, and metadata fields for the given needle.
-func matchesGlobalSearch(it model.Item, needle string) bool {
-	// Search name and path
-	if strings.Contains(strings.ToLower(it.Name), needle) ||
-		strings.Contains(strings.ToLower(it.Path), needle) {
-		return true
-	}
-
-	// Search through metadata if present
-	if it.Metadata != nil {
-		var metadata map[string]interface{}
-		if err := json.Unmarshal(*it.Metadata, &metadata); err == nil {
-			if searchMetadata(metadata, needle) {
-				return true
-			}
-		}
-	}
-
-	return false
-}
-
-// searchMetadata recursively searches through metadata for a substring match.
-func searchMetadata(data interface{}, needle string) bool {
-	switch v := data.(type) {
-	case map[string]interface{}:
-		for _, val := range v {
-			if searchMetadata(val, needle) {
-				return true
-			}
-		}
-	case []interface{}:
-		for _, val := range v {
-			if searchMetadata(val, needle) {
-				return true
-			}
-		}
-	case string:
-		if strings.Contains(strings.ToLower(v), needle) {
-			return true
-		}
-	}
-	return false
-}

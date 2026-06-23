@@ -3,12 +3,15 @@ package model
 import (
 	"encoding/json"
 	"image"
+	"strings"
 	"time"
 )
 
 type PaginatedRequest struct {
 	Start    int    `json:"start"`
 	Am       int    `json:"amount"`
+	// Search is an optional global search query (case-insensitive) across name, path, and metadata.
+	Search   string `json:"search"`
 	MIMEType string `json:"MIMEType"`
 }
 
@@ -119,4 +122,52 @@ type Suggestion struct {
 	Item
 	Motivation string `json:"motivation"`
 	SubtitleID string `json:"subtitleID"`
+}
+
+// MatchesGlobalSearch performs a global search across item metadata and basic fields.
+// It searches through the item's name, path, and metadata fields for the given needle.
+// An empty needle matches everything.
+func MatchesGlobalSearch(it Item, needle string) bool {
+	if needle == "" {
+		return true
+	}
+	needle = strings.ToLower(needle)
+
+	if strings.Contains(strings.ToLower(it.Name), needle) ||
+		strings.Contains(strings.ToLower(it.Path), needle) {
+		return true
+	}
+
+	if it.Metadata != nil {
+		var metadata map[string]interface{}
+		if err := json.Unmarshal(*it.Metadata, &metadata); err == nil {
+			if SearchMetadata(metadata, needle) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// SearchMetadata recursively searches through metadata for a substring match.
+func SearchMetadata(data interface{}, needle string) bool {
+	switch v := data.(type) {
+	case map[string]interface{}:
+		for _, val := range v {
+			if SearchMetadata(val, needle) {
+				return true
+			}
+		}
+	case []interface{}:
+		for _, val := range v {
+			if SearchMetadata(val, needle) {
+				return true
+			}
+		}
+	case string:
+		if strings.Contains(strings.ToLower(v), needle) {
+			return true
+		}
+	}
+	return false
 }

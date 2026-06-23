@@ -214,8 +214,7 @@ func TestViewMetadataUnmarshalJSON_RFC3339Format(t *testing.T) {
 }
 
 func TestClientContextRoundTrip(t *testing.T) {
-	// Test that marshaling and unmarshaling preserves time values
-	now := time.Now().UTC().Truncate(time.Second) // Truncate to seconds for JSON precision
+	now := time.Now().UTC().Truncate(time.Second)
 
 	original := ClientContext{
 		SessionID: "test-session",
@@ -230,20 +229,17 @@ func TestClientContextRoundTrip(t *testing.T) {
 		LastPlayedName: "movie1",
 	}
 
-	// Marshal to JSON
 	jsonData, err := json.Marshal(original)
 	if err != nil {
 		t.Fatalf("failed to marshal: %v", err)
 	}
 
-	// Unmarshal back
 	var unmarshaled ClientContext
 	err = json.Unmarshal(jsonData, &unmarshaled)
 	if err != nil {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	// Verify times match
 	if !original.StartTime.Equal(unmarshaled.StartTime) {
 		t.Errorf("StartTime mismatch: expected %v, got %v", original.StartTime, unmarshaled.StartTime)
 	}
@@ -260,7 +256,6 @@ func TestClientContextRoundTrip(t *testing.T) {
 }
 
 func TestClientContextTimeNotZero(t *testing.T) {
-	// This is the critical test - ensure times are NOT defaulting to zero
 	jsonData := `{
 		"sessionId": "critical-test",
 		"startTime": "2024-03-15T14:30:00Z",
@@ -275,12 +270,10 @@ func TestClientContextTimeNotZero(t *testing.T) {
 		t.Fatalf("failed to unmarshal: %v", err)
 	}
 
-	// THE KEY ASSERTION: StartTime must NOT be zero
 	if cc.StartTime.IsZero() {
 		t.Fatal("CRITICAL: StartTime is zero! Time unmarshaling failed.")
 	}
 
-	// Additional checks
 	expectedYear := 2024
 	expectedMonth := time.March
 	expectedDay := 15
@@ -294,4 +287,118 @@ func TestClientContextTimeNotZero(t *testing.T) {
 	if cc.StartTime.Day() != expectedDay {
 		t.Errorf("day mismatch: expected %d, got %d", expectedDay, cc.StartTime.Day())
 	}
+}
+
+func TestMatchesGlobalSearch(t *testing.T) {
+	t.Run("empty needle matches everything", func(t *testing.T) {
+		it := Item{Name: "test", Path: "/path"}
+		if !MatchesGlobalSearch(it, "") {
+			t.Fatal("empty needle should match")
+		}
+	})
+
+	t.Run("matches name case-insensitive", func(t *testing.T) {
+		it := Item{Name: "TheMatrix.mp4", Path: "/movies/"}
+		if !MatchesGlobalSearch(it, "matrix") {
+			t.Fatal("should match name")
+		}
+		if !MatchesGlobalSearch(it, "THEMATRIX") {
+			t.Fatal("should match name case-insensitively")
+		}
+	})
+
+	t.Run("matches path case-insensitive", func(t *testing.T) {
+		it := Item{Name: "movie", Path: "/Movies/Action/film.mp4"}
+		if !MatchesGlobalSearch(it, "action") {
+			t.Fatal("should match path")
+		}
+	})
+
+	t.Run("no match returns false", func(t *testing.T) {
+		it := Item{Name: "comedy.mp4", Path: "/videos/"}
+		if MatchesGlobalSearch(it, "horror") {
+			t.Fatal("should not match")
+		}
+	})
+
+	t.Run("matches metadata fields", func(t *testing.T) {
+		md := json.RawMessage(`{"title":"Inception","director":"Christopher Nolan"}`)
+		it := Item{Name: "movie.mp4", Path: "/v/", Metadata: &md}
+		if !MatchesGlobalSearch(it, "nolan") {
+			t.Fatal("should match metadata director")
+		}
+		if !MatchesGlobalSearch(it, "inception") {
+			t.Fatal("should match metadata title")
+		}
+	})
+
+	t.Run("matches metadata array values", func(t *testing.T) {
+		md := json.RawMessage(`{"tags":["action","sci-fi"]}`)
+		it := Item{Name: "f.mp4", Path: "/p/", Metadata: &md}
+		if !MatchesGlobalSearch(it, "sci-fi") {
+			t.Fatal("should match tag")
+		}
+	})
+
+	t.Run("handles nil metadata", func(t *testing.T) {
+		it := Item{Name: "plain.mp4", Path: "/v/", Metadata: nil}
+		if MatchesGlobalSearch(it, "nonexistent") {
+			t.Fatal("should not match nil metadata")
+		}
+		if !MatchesGlobalSearch(it, "plain") {
+			t.Fatal("should still match name with nil metadata")
+		}
+	})
+
+	t.Run("handles invalid JSON metadata gracefully", func(t *testing.T) {
+		md := json.RawMessage(`not valid json`)
+		it := Item{Name: "broken.mp4", Path: "/v/", Metadata: &md}
+		if MatchesGlobalSearch(it, "valid") {
+			t.Fatal("should not panic on invalid metadata JSON")
+		}
+		if !MatchesGlobalSearch(it, "broken") {
+			t.Fatal("should match name despite invalid metadata")
+		}
+	})
+}
+
+func TestSearchMetadata(t *testing.T) {
+	t.Run("finds string in map", func(t *testing.T) {
+		m := map[string]interface{}{"key": "hello world"}
+		if !SearchMetadata(m, "hello") {
+			t.Fatal("should find substring in map value")
+		}
+	})
+
+	t.Run("finds string in nested map", func(t *testing.T) {
+		m := map[string]interface{}{
+			"parent": map[string]interface{}{
+				"child": "deep value",
+			},
+		}
+		if !SearchMetadata(m, "deep") {
+			t.Fatal("should find substring in nested map")
+		}
+	})
+
+	t.Run("finds string in array", func(t *testing.T) {
+		a := []interface{}{"one", "two three", "four"}
+		if !SearchMetadata(a, "three") {
+			t.Fatal("should find substring in array element")
+		}
+	})
+
+	t.Run("case insensitive", func(t *testing.T) {
+		m := map[string]interface{}{"title": "The Matrix"}
+		if !SearchMetadata(m, "matrix") {
+			t.Fatal("should match case-insensitively")
+		}
+	})
+
+	t.Run("no match returns false", func(t *testing.T) {
+		m := map[string]interface{}{"key": "abc"}
+		if SearchMetadata(m, "xyz") {
+			t.Fatal("should not find non-matching string")
+		}
+	})
 }

@@ -58,10 +58,10 @@ func (s *store) handleVideoItem(i model.Item) error {
 
 // handlePaginatedRequest by:
 // 1. Verifying that Start is a positive number less than totalAm
-// 2. Read start, am, mime from URL path parameters
+// 2. Read start, am, mime, search from URL query parameters
 // 3. Verify that start is a positive number less than totalAm
 // 4. Set requested am to totalAm if it's larger
-// 5. Unarshal into model.PaginatedRequest
+// 5. Return model.PaginatedRequest
 func handlePaginatedRequest(
 	totalAm int,
 	r *http.Request,
@@ -89,6 +89,7 @@ func handlePaginatedRequest(
 			fmt.Errorf("invalid start: '%v'", startStr)
 	}
 	mime := r.URL.Query().Get("mime")
+	search := r.URL.Query().Get("search")
 	retAm := start + am
 	if retAm >= totalAm {
 		retAm = totalAm
@@ -97,6 +98,7 @@ func handlePaginatedRequest(
 		Start:    start,
 		Am:       retAm,
 		MIMEType: mime,
+		Search:   search,
 	}, nil
 }
 
@@ -117,6 +119,9 @@ func (s *store) ListHandlerFunc() http.HandlerFunc {
 		keys := make([]string, 0, len(s.cache))
 		for key, v := range s.cache {
 			if paginatedRequest.MIMEType != "" && !strings.Contains(v.MIMEType, paginatedRequest.MIMEType) {
+				continue
+			}
+			if paginatedRequest.Search != "" && !model.MatchesGlobalSearch(v, paginatedRequest.Search) {
 				continue
 			}
 			keys = append(keys, key)

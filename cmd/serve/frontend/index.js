@@ -82,8 +82,39 @@ function videoNameWithProgress(vID, vidName) {
 fetch('/gallery?start=0&am=1000&mime=video')
   .then(response => response.json())
   .then(data => {
+    populateMediaDropdown(data.items)
+  })
+  .catch(err => {
+    console.error('Error fetching gallery:');
+    console.error(err)
+  });
+
+let searchDebounceTimer = null;
+const SEARCH_DEBOUNCE_MS = 300;
+
+function searchMedia() {
+  clearTimeout(searchDebounceTimer);
+  searchDebounceTimer = setTimeout(() => {
+    const query = document.getElementById("searchInput").value.trim();
+    let url = '/gallery?start=0&am=1000&mime=video';
+    if (query) {
+      url += '&search=' + encodeURIComponent(query);
+    }
+    fetch(url)
+      .then(response => response.json())
+      .then(data => {
+        populateMediaDropdown(data.items);
+      })
+      .catch(err => {
+        console.error('Error searching media:');
+        console.error(err);
+      });
+  }, SEARCH_DEBOUNCE_MS);
+}
+
+function populateMediaDropdown(items) {
     const options = document.getElementById("debugMediaSelector")
-    items = data.items
+    options.innerHTML = '<option value="">Select video</option>';
     items.sort((a, b) => a.Name.localeCompare(b.Name))
     const persistedMedia = getPersistedMedia()
     for (const i of items) {
@@ -101,11 +132,7 @@ fetch('/gallery?start=0&am=1000&mime=video')
       options.append(opt)
     }
     localStorage.setItem("media", JSON.stringify(persistedMedia))
-  })
-  .catch(err => {
-    console.error('Error fetching gallery:');
-    console.error(err)
-  });
+}
 
 
 var mostRecentID = "";

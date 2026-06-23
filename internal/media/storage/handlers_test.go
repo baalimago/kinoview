@@ -18,6 +18,236 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
+func Test_store_ListHandlerFunc_search(t *testing.T) {
+	s := newTestStore(t)
+	h := s.ListHandlerFunc()
+
+	md := json.RawMessage(`{"title":"The Matrix","director":"Wachowski"}`)
+	s.cacheMu.Lock()
+	s.cache = map[string]model.Item{
+		"1": {ID: "1", Name: "matrix.mp4", Path: "/movies/matrix.mp4", MIMEType: "video/mp4", Metadata: &md},
+		"2": {ID: "2", Name: "inception.mp4", Path: "/movies/inception.mp4", MIMEType: "video/mp4"},
+		"3": {ID: "3", Name: "comedy.mkv", Path: "/movies/comedy.mkv", MIMEType: "video/x-matroska"},
+	}
+	s.cacheMu.Unlock()
+
+	t.Run("search by name", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=matrix", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 1 {
+			t.Fatalf("expected 1 result, got %d", resp.Total)
+		}
+		if resp.Items[0].ID != "1" {
+			t.Fatalf("expected item 1, got %s", resp.Items[0].ID)
+		}
+	})
+
+	t.Run("search by path", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=inception", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 1 {
+			t.Fatalf("expected 1 result, got %d", resp.Total)
+		}
+		if resp.Items[0].ID != "2" {
+			t.Fatalf("expected item 2, got %s", resp.Items[0].ID)
+		}
+	})
+
+	t.Run("search by metadata", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=wachowski", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 1 {
+			t.Fatalf("expected 1 result, got %d", resp.Total)
+		}
+		if resp.Items[0].ID != "1" {
+			t.Fatalf("expected item 1 (matrix, metadata has wachowski), got %s", resp.Items[0].ID)
+		}
+	})
+
+	t.Run("no search results returns empty", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=nonexistent", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 0 {
+			t.Fatalf("expected 0 results, got %d", resp.Total)
+		}
+	})
+
+	t.Run("empty search returns all items", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 3 {
+			t.Fatalf("expected 3 results, got %d", resp.Total)
+		}
+	})
+
+	t.Run("search with mime filter", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=comedy&mime=video", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 1 {
+			t.Fatalf("expected 1 result, got %d", resp.Total)
+		}
+		if resp.Items[0].ID != "3" {
+			t.Fatalf("expected item 3 (comedy.mkv), got %s", resp.Items[0].ID)
+		}
+	})
+}
+
+// TestStoreSearchE2E primes the store via Setup, then queries with search.
+func TestStoreSearchE2E(t *testing.T) {
+	tmpDir := t.TempDir()
+	s := NewStore(WithStorePath(tmpDir))
+	s.classifier = &mockClassifier{
+		SetupFunc: func(ctx context.Context) error { return nil },
+		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
+			return i, nil
+		},
+	}
+
+	_, err := s.Setup(context.Background())
+	if err != nil {
+		t.Fatalf("Setup failed: %v", err)
+	}
+
+	mdJSON := json.RawMessage(`{"director":"Christopher Nolan","year":2010}`)
+	s.cacheMu.Lock()
+	s.cache = map[string]model.Item{
+		"inception": {ID: "inception", Name: "Inception (2010).mp4", Path: "/films/scifi/inception.mp4", MIMEType: "video/mp4", Metadata: &mdJSON},
+		"tenet":     {ID: "tenet", Name: "Tenet (2020).mkv", Path: "/films/action/tenet.mkv", MIMEType: "video/x-matroska"},
+		"dunkirk":   {ID: "dunkirk", Name: "Dunkirk (2017).mp4", Path: "/films/war/dunkirk.mp4", MIMEType: "video/mp4"},
+	}
+	s.cacheMu.Unlock()
+
+	h := s.ListHandlerFunc()
+
+	t.Run("e2e search across name", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=dunkirk", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 1 || resp.Items[0].ID != "dunkirk" {
+			t.Fatalf("expected dunkirk, got %v", resp)
+		}
+	})
+
+	t.Run("e2e search across path", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=action", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 1 || resp.Items[0].ID != "tenet" {
+			t.Fatalf("expected tenet (path has 'action'), got %v", resp)
+		}
+	})
+
+	t.Run("e2e search across metadata", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=nolan", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 1 || resp.Items[0].ID != "inception" {
+			t.Fatalf("expected inception (metadata has 'Christopher Nolan'), got %v", resp)
+		}
+	})
+
+	t.Run("e2e no match returns empty", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=tarantino", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 0 {
+			t.Fatalf("expected 0 results, got %d", resp.Total)
+		}
+	})
+
+	t.Run("e2e omitting search returns all", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10", nil)
+		rr := httptest.NewRecorder()
+		h.ServeHTTP(rr, req)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("want 200, got %d", rr.Code)
+		}
+		var resp model.PaginatedResponse[model.Item]
+		if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		if resp.Total != 3 {
+			t.Fatalf("expected 3 results, got %d", resp.Total)
+		}
+	})
+}
+
 func Test_store_ListHandlerFunc_basic(t *testing.T) {
 	s := newTestStore(t)
 	h := s.ListHandlerFunc()
@@ -542,6 +772,53 @@ func Test_handlePaginatedRequest_errors(t *testing.T) {
 		_, err := handlePaginatedRequest(10, req)
 		if err == nil {
 			t.Fatal("expected error")
+		}
+	})
+}
+
+func Test_handlePaginatedRequest_withSearch(t *testing.T) {
+	t.Run("extracts search query param", func(t *testing.T) {
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/x?start=0&am=5&search=matrix",
+			nil,
+		)
+		got, err := handlePaginatedRequest(10, req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Search != "matrix" {
+			t.Fatalf("Search=%q, want matrix", got.Search)
+		}
+	})
+
+	t.Run("empty search param is allowed", func(t *testing.T) {
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/x?start=0&am=5&search=",
+			nil,
+		)
+		got, err := handlePaginatedRequest(10, req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Search != "" {
+			t.Fatalf("Search=%q, want empty", got.Search)
+		}
+	})
+
+	t.Run("omitted search param defaults to empty", func(t *testing.T) {
+		req := httptest.NewRequest(
+			http.MethodGet,
+			"/x?start=0&am=5",
+			nil,
+		)
+		got, err := handlePaginatedRequest(10, req)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got.Search != "" {
+			t.Fatalf("Search=%q, want empty", got.Search)
 		}
 	})
 }
