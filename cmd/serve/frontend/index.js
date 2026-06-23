@@ -229,6 +229,9 @@ function selectMedia(id) {
   video.src = `/gallery/video/${id}`;
   video.style.display = "initial"
   loadStreams(id);
+  // Hide hero placeholder
+  const hero = document.getElementById('heroSection');
+  if (hero) hero.classList.add('hidden');
 }
 
 function constuctClientContext() {
@@ -508,3 +511,152 @@ setTimeout(() => {
     }
   });
 }, 10)
+
+// ── Sidebar Shows Browser ──
+(function () {
+  const sidebar = document.getElementById('sidebarBody');
+  if (!sidebar) return;
+
+  var sidebarShows = [];
+  var activeShowIdx = -1;
+  var activeSeasonIdx = {};  // show index → season index
+
+  function fetchShows() {
+    sidebar.innerHTML = '<div class="sidebar-loading">Loading…</div>';
+    fetch('/gallery/shows')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        sidebarShows = data.shows || [];
+        activeSeasonIdx = {};
+        render();
+      })
+      .catch(function () {
+        sidebar.innerHTML = '<div class="sidebar-empty">Unavailable</div>';
+      });
+  }
+
+  function episodeDisplayName(ep) {
+    if (ep.Metadata && typeof ep.Metadata === 'object' && ep.Metadata.name) {
+      var mn = ep.Metadata.name;
+      if (!/[Ss]\d{1,2}[Ee]\d{1,3}/.test(mn) && !/\d{1,2}x\d{1,3}/i.test(mn)) return mn;
+    }
+    // Clean filename fallback
+    var raw = ep.Name || '';
+    raw = raw.replace(/\.[^.]+$/, '');
+    raw = raw.replace(/[._-]/g, ' ').replace(/\s+/g, ' ').trim();
+    return raw || ep.Name;
+  }
+
+  function episodeWatched(epID) {
+    var m = getPersistedMedia();
+    var item = m[epID];
+    if (!item) return 'none';
+    if (item.viewedAt && item.playedFor > 0) return 'watched';
+    if (item.playedFor > 30) return 'progress';
+    return 'none';
+  }
+
+  function render() {
+    sidebar.innerHTML = '';
+    if (sidebarShows.length === 0) {
+      sidebar.innerHTML = '<div class="sidebar-empty">No shows detected</div>';
+      return;
+    }
+    for (var si = 0; si < sidebarShows.length; si++) {
+      var show = sidebarShows[si];
+      if (activeSeasonIdx[si] === undefined) activeSeasonIdx[si] = 0;
+      var isOpen = (si === activeShowIdx);
+
+      var div = document.createElement('div');
+      div.className = 'sidebar-show' + (isOpen ? ' open' : '');
+
+      var hdr = document.createElement('div');
+      hdr.className = 'sidebar-show-header';
+      hdr.innerHTML = '<span>' + esc(show.name) + '</span>' +
+        '<svg class="sidebar-show-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+      hdr.onclick = function (idx) {
+        return function () {
+          if (activeShowIdx === idx) { activeShowIdx = -1; }
+          else { activeShowIdx = idx; }
+          render();
+        };
+      }(si);
+      div.appendChild(hdr);
+
+      var body = document.createElement('div');
+      body.className = 'sidebar-show-body';
+
+      // Season pills
+      var seasonRow = document.createElement('div');
+      seasonRow.className = 'sidebar-seasons';
+      for (var ssi = 0; ssi < show.seasons.length; ssi++) {
+        var ssn = show.seasons[ssi];
+        var pill = document.createElement('button');
+        pill.className = 'sidebar-season-pill';
+        if (ssi === activeSeasonIdx[si]) pill.classList.add('active');
+        pill.textContent = 'S' + ssn.season;
+        pill.onclick = (function (sIdx, ssIdx) {
+          return function (e) { e.stopPropagation(); activeSeasonIdx[sIdx] = ssIdx; render(); };
+        })(si, ssi);
+        seasonRow.appendChild(pill);
+      }
+      body.appendChild(seasonRow);
+
+      // Episodes
+      var epContainer = document.createElement('div');
+      epContainer.className = 'sidebar-episodes';
+      var activeSeas = show.seasons[activeSeasonIdx[si]];
+      if (activeSeas) {
+        for (var ei = 0; ei < activeSeas.episodes.length; ei++) {
+          var ep = activeSeas.episodes[ei];
+          var epRow = document.createElement('div');
+          epRow.className = 'sidebar-ep';
+          if (ep.ID === mostRecentID) epRow.classList.add('playing');
+
+          var num = document.createElement('span');
+          num.className = 'sidebar-ep-num';
+          num.textContent = ep.episode;
+          epRow.appendChild(num);
+
+          var name = document.createElement('span');
+          name.className = 'sidebar-ep-name';
+          name.textContent = episodeDisplayName(ep);
+          epRow.appendChild(name);
+
+          // Watch status dot
+          var ws = episodeWatched(ep.ID);
+          if (ws === 'watched') {
+            var dot = document.createElement('span');
+            dot.className = 'sidebar-ep-watched';
+            epRow.appendChild(dot);
+          } else if (ws === 'progress') {
+            var dot = document.createElement('span');
+            dot.className = 'sidebar-ep-progress';
+            epRow.appendChild(dot);
+          }
+
+          epRow.onclick = (function (epID) {
+            return function () { selectMedia(epID); };
+          })(ep.ID);
+          epContainer.appendChild(epRow);
+        }
+      }
+      body.appendChild(epContainer);
+      div.appendChild(body);
+      sidebar.appendChild(div);
+    }
+  }
+
+  function esc(s) {
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  // Refresh watch-status dots periodically
+  setInterval(function () {
+    if (sidebarShows.length > 0) render();
+  }, 30000);
+
+  fetchShows();
+})();
