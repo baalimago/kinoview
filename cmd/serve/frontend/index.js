@@ -489,29 +489,6 @@ function loadSuggestions() {
     });
 }
 
-setTimeout(() => {
-  const screen = document.getElementById("screen")
-  screen.addEventListener("timeupdate", function () {
-    const item = loadPersistedMediaItem(mostRecentID);
-    item.playedFor = this.currentTime
-    item.viewedAt = new Date().toISOString()
-
-    const persistedMedia = getPersistedMedia()
-    persistedMedia[mostRecentID] = item
-    localStorage.setItem("media", JSON.stringify(persistedMedia));
-  });
-
-
-  screen.addEventListener("loadeddata", function () {
-    const item = loadPersistedMediaItem(mostRecentID)
-    const playedForSec = item.playedFor
-    if (playedForSec) {
-      console.log(`Setting played for to: ${playedForSec}`)
-      screen.currentTime = playedForSec
-    }
-  });
-}, 10)
-
 // ── Sidebar Shows Browser ──
 (function () {
   const sidebar = document.getElementById('sidebarBody');
@@ -693,3 +670,27 @@ setTimeout(() => {
 
   fetchShows();
 })();
+
+// Defer video sync setup safely after sidebar is alive
+if (typeof setTimeout === 'function') {
+  setTimeout(function () {
+    var screen = document.getElementById("screen");
+    if (!screen) return;
+    screen.addEventListener("timeupdate", function () {
+      var item = loadPersistedMediaItem(mostRecentID);
+      item.playedFor = this.currentTime;
+      item.viewedAt = new Date().toISOString();
+      var persistedMedia = getPersistedMedia();
+      persistedMedia[mostRecentID] = item;
+      localStorage.setItem("media", JSON.stringify(persistedMedia));
+    });
+    screen.addEventListener("loadeddata", function () {
+      var item = loadPersistedMediaItem(mostRecentID);
+      var playedForSec = item.playedFor;
+      if (playedForSec) {
+        ogConsoleLog("Setting played for to: " + playedForSec);
+        screen.currentTime = playedForSec;
+      }
+    });
+  }, 10);
+}
