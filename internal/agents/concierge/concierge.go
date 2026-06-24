@@ -132,12 +132,13 @@ func WithModel(m string) ConciergeOption {
 // New Concierge, hosting tools:
 // 1. UpdateMetadata
 // 2. PreloadSubtitles
-// 3. CheckSuggestions
-// 4. RemoveSuggestion
-// 5. AddSuggestion
-// 6. MediaGetItem
-// 7. MediaList
-// 8. MediaStats
+// 3. FetchSubtitles (OpenSubtitles, for movies without embedded subs)
+// 4. CheckSuggestions
+// 5. RemoveSuggestion
+// 6. AddSuggestion
+// 7. MediaGetItem
+// 8. MediaList
+// 9. MediaStats
 func New(opts ...ConciergeOption) (agents.Concierge, error) {
 	c := concierge{
 		interval: 6 * time.Hour,
@@ -201,6 +202,13 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		ancli.Errf("concierge failed to setup checkSuggestionsTool: %v", err)
 	} else {
 		llmTools = append(llmTools, lst)
+	}
+
+	// Fetch subtitles from OpenSubtitles for movies without embedded subtitles.
+	// Returns nil if OPENSUBTITLES_API_KEY is not configured (tool silently omitted).
+	fst := tools.NewFetchSubtitlesTool(c.itemStore, c.subtitlesMgr, c.cacheDir)
+	if fst != nil {
+		llmTools = append(llmTools, fst)
 	}
 
 	rst, err := tools.NewRemoveSuggestionTool(c.suggestionMgr)
