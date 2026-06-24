@@ -125,7 +125,7 @@ func (s *store) loadPersistedItems(storeDirPath string) error {
 	newCache := make(map[string]model.Item, len(files))
 
 	tot := len(files)
-	increments := tot / 10
+	increments := max(tot/10, 1)
 	ancli.Noticef("found: %v media items to load", tot)
 	t0 := time.Now()
 	for i, file := range files {
