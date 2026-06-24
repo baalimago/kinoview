@@ -12,6 +12,9 @@ type Stream struct {
 	CodecType          string      `json:"codec_type"`
 	CodecTagString     string      `json:"codec_tag_string"`
 	CodecTag           string      `json:"codec_tag"`
+	// ExternalPath is the absolute path to an external subtitle file (sidecar .srt/.vtt).
+	// Only populated for externally discovered subtitles; empty for embedded streams.
+	ExternalPath       string      `json:"external_path,omitempty"`
 	Width              int         `json:"width,omitempty"`
 	Height             int         `json:"height,omitempty"`
 	CodedWidth         int         `json:"coded_width,omitempty"`
