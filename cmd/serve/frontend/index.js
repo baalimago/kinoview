@@ -528,13 +528,19 @@ function loadSuggestions() {
     return raw || ep.Name;
   }
 
-  function episodeWatched(epID) {
+  function episodeWatched(epID, epMeta) {
     var m = getPersistedMedia();
     var item = m[epID];
-    if (!item) return { status: 'none' };
-    if (item.viewedAt && item.playedFor > 0) return { status: 'watched', playedFor: item.playedFor };
-    if (item.playedFor > 30) return { status: 'progress', playedFor: item.playedFor };
-    return { status: 'none' };
+    if (!item || !item.playedFor || item.playedFor < 5) return { status: 'none' };
+    // Determine total duration in seconds from metadata
+    var totalSec = 0;
+    if (epMeta && typeof epMeta === 'object' && epMeta.duration_min) {
+      totalSec = parseFloat(epMeta.duration_min) * 60;
+    }
+    // Consider watched if ≥90% of duration has been played, or if no duration metadata and played > 5 min
+    if (totalSec > 0 && item.playedFor >= totalSec * 0.9) return { status: 'watched', playedFor: item.playedFor };
+    if (totalSec === 0 && item.playedFor > 300) return { status: 'watched', playedFor: item.playedFor };
+    return { status: 'progress', playedFor: item.playedFor };
   }
 
   function selectSeason(si, ssi) {
@@ -620,7 +626,7 @@ function loadSuggestions() {
               name.textContent = episodeDisplayName(ep);
               epRow.appendChild(name);
 
-              var ws = episodeWatched(ep.ID);
+              var ws = episodeWatched(ep.ID, ep.Metadata);
               if (ws.status === 'watched') {
                 var dot = document.createElement('span');
                 dot.className = 'sidebar-ep-watched';

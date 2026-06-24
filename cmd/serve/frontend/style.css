@@ -181,20 +181,6 @@ body {
   justify-content: space-between;
 }
 
-.sidebar-full-link {
-  color: var(--text-secondary);
-  display: flex;
-  align-items: center;
-  padding: 4px;
-  border-radius: 4px;
-  transition: color 0.2s, background 0.2s;
-}
-
-.sidebar-full-link:hover {
-  color: var(--text-primary);
-  background: rgba(59, 130, 246, 0.1);
-}
-
 .sidebar-title {
   margin: 0;
   font-size: 0.85rem;
