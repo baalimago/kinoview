@@ -52,6 +52,11 @@ func WithClassifier(classifier agents.Classifier) StoreOption {
 	}
 }
 
+// SetClassifier allows updating the classifier after store creation.
+func (s *store) SetClassifier(c agents.Classifier) {
+	s.classifier = c
+}
+
 func WithStorePath(storePath string) StoreOption {
 	return func(s *store) {
 		s.storePath = storePath

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/baalimago/clai/pkg/agent"
 	"github.com/baalimago/clai/pkg/text"
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/kinoview/internal/agents"
@@ -30,17 +31,57 @@ OUTPUT ONLY IN THE FOLLOWING FORMAT:
 const userPrompt = `Information about the media to classify: %v`
 
 type classifier struct {
+	model     string
+	configDir string
+	usesAgent bool
+	tools     []models.LLMTool
+	// conf holds the legacy config for SetOutput compat
 	conf *models.Configurations
 	llm  text.FullResponse
 }
 
-// New configured by models.Configurations
+// New configured by models.Configurations. No custom tools.
 func New(c models.Configurations) agents.Classifier {
 	c.SystemPrompt = fmt.Sprintf(systemPrompt, constants.MetadataFormat)
 	return &classifier{
-		llm:  text.NewFullResponseQuerier(c),
-		conf: &c,
+		model:     c.Model,
+		configDir: c.ConfigDir,
+		usesAgent: false,
+		llm:       text.NewFullResponseQuerier(c),
+		conf:      &c,
 	}
+}
+
+// NewWithTools creates a classifier with custom LLM tools registered.
+func NewWithTools(c models.Configurations, tools []models.LLMTool) agents.Classifier {
+	cls := &classifier{
+		model:     c.Model,
+		configDir: c.ConfigDir,
+		usesAgent: true,
+		tools:     tools,
+		conf:      &c,
+	}
+	cls.buildAgent(tools, c.InternalTools, c.Out)
+	return cls
+}
+
+func (c *classifier) buildAgent(tools []models.LLMTool, internalTools []models.ToolName, out io.Writer) {
+	toolGlobs := make([]string, len(internalTools))
+	for i, t := range internalTools {
+		toolGlobs[i] = string(t)
+	}
+	opts := []agent.Option{
+		agent.WithModel(c.model),
+		agent.WithPrompt(fmt.Sprintf(systemPrompt, constants.MetadataFormat)),
+		agent.WithConfigDir(c.configDir),
+		agent.WithTools(tools),
+		agent.WithToolGlobs(toolGlobs...),
+	}
+	if out != nil {
+		opts = append(opts, agent.WithOutputTo(out))
+	}
+	a := agent.New(opts...)
+	c.llm = &a
 }
 
 func (c *classifier) Setup(ctx context.Context) error {
@@ -52,6 +93,10 @@ func (c *classifier) Setup(ctx context.Context) error {
 }
 
 func (c *classifier) SetOutput(w io.Writer) error {
+	if c.usesAgent {
+		c.buildAgent(c.tools, c.conf.InternalTools, w)
+		return nil
+	}
 	if c.conf == nil {
 		return errors.New("no previous config set, can only set output on initialized classfier")
 	}

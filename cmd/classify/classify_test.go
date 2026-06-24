@@ -12,6 +12,7 @@ import (
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
+	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -90,6 +91,17 @@ func (m *mockStorage) Ready() <-chan struct{} {
 		m.readyChan = make(chan struct{})
 	}
 	return m.readyChan
+}
+
+func (m *mockStorage) GetItemByID(id string) (model.Item, error) {
+	return model.Item{}, nil
+}
+
+func (m *mockStorage) GetItemByName(name string) (model.Item, error) {
+	return model.Item{}, nil
+}
+
+func (m *mockStorage) SetClassifier(_ agents.Classifier) {
 }
 
 func TestCommand_Describe(t *testing.T) {

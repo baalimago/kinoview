@@ -13,15 +13,21 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/classifier"
+	"github.com/baalimago/kinoview/internal/agents/tools"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/storage"
+	"github.com/baalimago/kinoview/internal/media/stream"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
 type stationStorage interface {
 	storage.ClassificationStation
 	media.Storage
+	agents.ItemGetter
+
+	SetClassifier(agents.Classifier)
 }
 
 type command struct {
@@ -69,22 +75,53 @@ func (c *command) Help() string {
 }
 
 func (c *command) Setup(ctx context.Context) error {
+	subsPath := path.Join(c.configDir, "subtitles")
+	cacheDir, _ := os.UserCacheDir()
+	subsCacheDir := path.Join(cacheDir, "kinoview")
+
+	// Create subtitle stream manager for fetch_subtitles tool
+	subsManager, err := stream.NewManager(
+		stream.WithStoragePath(subsPath),
+		stream.WithSubtitleCachePath(subsCacheDir),
+	)
+	if err != nil {
+		ancli.Warnf("failed to create subtitle stream manager: %v", err)
+		subsManager = nil
+	}
+
+	// Create store first so it can be passed as ItemGetter to the tool
 	c.store = storage.NewStore(
 		storage.WithStorePath(c.storePath),
 		storage.WithClassificationWorkers(5),
-		storage.WithClassifier(classifier.New(models.Configurations{
-			Model:     *c.model,
-			ConfigDir: c.configDir,
-			InternalTools: []models.ToolName{
-				models.CatTool,
-				models.FindTool,
-				models.FFProbeTool,
-				models.WebsiteTextTool,
-				models.RipGrepTool,
-			},
-		})),
+		storage.WithSubtitlesManager(subsManager),
 	)
-	_, err := c.store.Setup(ctx)
+
+	classifierConf := models.Configurations{
+		Model:     *c.model,
+		ConfigDir: c.configDir,
+		InternalTools: []models.ToolName{
+			models.CatTool,
+			models.FindTool,
+			models.FFProbeTool,
+			models.WebsiteTextTool,
+			models.RipGrepTool,
+		},
+	}
+
+	// Fetch subtitles tool (if OpenSubtitles API key is configured)
+	if subsManager != nil {
+		fetchTool := tools.NewFetchSubtitlesTool(c.store, subsManager, subsCacheDir)
+		if fetchTool != nil {
+			c.store.SetClassifier(classifier.NewWithTools(classifierConf, []models.LLMTool{fetchTool}))
+		} else {
+			ancli.Warnf("OPENSUBTITLES_API_KEY not set — fetch_subtitles tool will not be available")
+			c.store.SetClassifier(classifier.New(classifierConf))
+		}
+	} else {
+		c.store.SetClassifier(classifier.New(classifierConf))
+	}
+
+	_, err = c.store.Setup(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to setup store: %w", err)
 	}

@@ -16,6 +16,7 @@ import (
 	"github.com/baalimago/kinoview/internal/agents/classifier"
 	"github.com/baalimago/kinoview/internal/agents/concierge"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
+	"github.com/baalimago/kinoview/internal/agents/tools"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
 	"github.com/baalimago/kinoview/internal/media/storage"
@@ -44,10 +45,32 @@ func (c *command) Setup(ctx context.Context) error {
 
 	storePath := path.Join(*c.configDir, "store")
 	subsPath := path.Join(*c.configDir, "subtitles")
+
+	////////////
+	// Subtitle stream manager setup
+	////////////
+	subsManager, err := stream.NewManager(
+		stream.WithStoragePath(subsPath),
+		stream.WithSubtitleCachePath(*c.cacheDir),
+	)
+	if err != nil {
+		ancli.Warnf("failed to create subtitle stream manager, some features may not work: %v", err)
+		subsManager = nil
+	}
+
 	suggestionsManager, err := suggestions.NewManager(*c.cacheDir)
 	if err != nil {
 		return fmt.Errorf("failed to create suggestions manager: %w", err)
 	}
+
+	////////////
+	// Storage setup (early, without classifier for circular dep resolution)
+	////////////
+	store := storage.NewStore(
+		storage.WithStorePath(storePath),
+		storage.WithSubtitlesManager(subsManager),
+		storage.WithClassificationWorkers(*c.classificationWorkers),
+	)
 
 	////////////
 	// Classifier setup
@@ -55,7 +78,7 @@ func (c *command) Setup(ctx context.Context) error {
 	var clifier agents.Classifier
 	if *c.classificationModel != "" {
 		ancli.Noticef("creating new classifier")
-		clifier = classifier.New(models.Configurations{
+		classifierConf := models.Configurations{
 			Model:     *c.classificationModel,
 			ConfigDir: *c.configDir,
 			InternalTools: []models.ToolName{
@@ -65,7 +88,16 @@ func (c *command) Setup(ctx context.Context) error {
 				models.WebsiteTextTool,
 				models.RipGrepTool,
 			},
-		})
+		}
+		// Fetch subtitles tool (if OpenSubtitles API key is configured)
+		fetchTool := tools.NewFetchSubtitlesTool(store, subsManager, *c.cacheDir)
+		if fetchTool != nil {
+			clifier = classifier.NewWithTools(classifierConf, []models.LLMTool{fetchTool})
+		} else {
+			ancli.Warnf("OPENSUBTITLES_API_KEY not set — fetch_subtitles tool will not be available")
+			clifier = classifier.New(classifierConf)
+		}
+		store.SetClassifier(clifier)
 	}
 
 	////////////
@@ -83,13 +115,10 @@ func (c *command) Setup(ctx context.Context) error {
 	////////////
 	// Butler setup
 	////////////
-	subsManager, err := stream.NewManager(stream.WithStoragePath(
-		subsPath,
-	))
 	var alfred agents.Butler
 	if *c.butlerModel != "" {
-		if err != nil {
-			ancli.Warnf("failed to setup subsManager, skipping butler setup. subsManager error: %v", err)
+		if subsManager == nil {
+			ancli.Warnf("subsManager not available, skipping butler setup")
 		} else {
 			alfred = butler.New(models.Configurations{
 				Model:         *c.butlerModel,
@@ -99,16 +128,6 @@ func (c *command) Setup(ctx context.Context) error {
 			)
 		}
 	}
-
-	////////////
-	// Storage setup
-	////////////
-	store := storage.NewStore(
-		storage.WithStorePath(storePath),
-		storage.WithSubtitlesManager(subsManager),
-		storage.WithClassificationWorkers(*c.classificationWorkers),
-		storage.WithClassifier(clifier),
-	)
 
 	////////////
 	// User context setup

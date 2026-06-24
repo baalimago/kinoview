@@ -50,8 +50,9 @@ func (d defaultRunner) Output(ctx context.Context, name string, args ...string) 
 }
 
 type Manager struct {
-	storePath string
-	runner    CommandRunner
+	storePath         string
+	subtitleCachePath string
+	runner            CommandRunner
 
 	debug bool
 
@@ -68,6 +69,14 @@ type Option func(*Manager)
 func WithStoragePath(path string) Option {
 	return func(m *Manager) {
 		m.storePath = path
+	}
+}
+
+// WithSubtitleCachePath sets the directory where downloaded subtitles are cached.
+// In findExternal, <subtitleCachePath>/subtitles/<item.ID>/ will be scanned.
+func WithSubtitleCachePath(path string) Option {
+	return func(m *Manager) {
+		m.subtitleCachePath = path
 	}
 }
 
@@ -155,8 +164,9 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 //
 // Patterns scanned:
 //  1. {dir}/Subs/{basename}/*.srt, *.vtt       (exact match on episode dir)
-//  2. {dir}/{basename}.srt, {basename}.vtt      (same-name sidecar)
-//  3. {dir}/Subs/*.srt, *.vtt                   (flat Subs directory fallback)
+//  2. {subtitleCachePath}/subtitles/{item.ID}/*.srt, *.vtt (downloaded cache)
+//  3. {dir}/{basename}.srt, {basename}.vtt      (same-name sidecar)
+//  4. {dir}/Subs/*.srt, *.vtt                   (flat Subs directory fallback)
 //
 // Indices start from -1, decrementing.
 func (m *Manager) findExternal(item model.Item) []model.Stream {
@@ -169,10 +179,16 @@ func (m *Manager) findExternal(item model.Item) []model.Stream {
 	subsDir := filepath.Join(dir, "Subs", basename)
 	paths = append(paths, globFiles(subsDir)...)
 
-	// Pattern 2: {basename}.srt, {basename}.vtt in same dir
+	// Pattern 2: subtitle cache path (<cache>/subtitles/<item.ID>/*.srt, *.vtt)
+	if m.subtitleCachePath != "" {
+		cacheDir := filepath.Join(m.subtitleCachePath, "subtitles", item.ID)
+		paths = append(paths, globFiles(cacheDir)...)
+	}
+
+	// Pattern 3: {basename}.srt, {basename}.vtt in same dir
 	paths = append(paths, sidecarFiles(dir, basename)...)
 
-	// Pattern 3: flat Subs/*.srt, *.vtt
+	// Pattern 4: flat Subs/*.srt, *.vtt
 	flatSubsDir := filepath.Join(dir, "Subs")
 	paths = append(paths, globFiles(flatSubsDir)...)
 
