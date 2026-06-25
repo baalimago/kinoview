@@ -95,6 +95,10 @@ func (c *classifier) Setup(ctx context.Context) error {
 func (c *classifier) SetOutput(w io.Writer) error {
 	if c.usesAgent {
 		c.buildAgent(c.tools, c.conf.InternalTools, w)
+		err := c.llm.Setup(context.Background())
+		if err != nil {
+			return fmt.Errorf("failed to setup agent after output change: %w", err)
+		}
 		return nil
 	}
 	if c.conf == nil {

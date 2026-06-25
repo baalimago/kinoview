@@ -60,6 +60,10 @@ func (t *fetchSubtitlesTool) Call(input models.Input) (string, error) {
 		return "", fmt.Errorf("failed to get item: %w", err)
 	}
 
+	if t.subMgr == nil {
+		return "", errors.New("subtitle manager not configured for fetch_subtitles tool")
+	}
+
 	// Check existing subtitles
 	info, err := t.subMgr.Find(item)
 	if err != nil {
