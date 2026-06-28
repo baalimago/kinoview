@@ -75,6 +75,11 @@ body {
   animation: logoPulse 4s ease-in-out infinite;
 }
 
+/* Low-perf: disable logo pulse */
+.low-perf .logo-icon {
+  animation: none;
+}
+
 @keyframes logoPulse {
   0%, 100% { filter: drop-shadow(0 0 12px rgba(59, 130, 246, 0.4)); }
   50%      { filter: drop-shadow(0 0 20px rgba(59, 130, 246, 0.7)); }
@@ -786,6 +791,14 @@ body {
   transition: background 0.5s ease-out, opacity 0.5s ease-out;
 }
 
+/* Low-perf: instant background, still fade out */
+.low-perf .intro-overlay {
+  transition: background 0s, opacity 0.5s ease-out;
+}
+.low-perf .intro-overlay.bg-reveal {
+  transition: background 0s, opacity 0.5s ease-out;
+}
+
 .intro-overlay.bg-reveal {
   background: #0f172a;
 }
@@ -811,10 +824,20 @@ body {
   will-change: transform, opacity, filter;
 }
 
+/* Low-perf: strip expensive GPU hints */
+.low-perf .intro-logo {
+  will-change: auto;
+}
+
 .intro-logo.reveal {
   animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards,
              introLogoBlow 0.7s ease-in-out 0.6s infinite;
   filter: drop-shadow(0 0 24px rgba(59, 130, 246, 0.55));
+}
+
+/* Low-perf: disable blow pulse, keep static glow */
+.low-perf .intro-logo.reveal {
+  animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 @keyframes introLogoReveal {

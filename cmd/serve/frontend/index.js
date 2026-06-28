@@ -1,5 +1,33 @@
 const media = {}
 
+// ── Lag detection ──
+;(function() {
+  var samples = [];
+  var MAX_SAMPLES = 20;
+  var lastTime = performance.now();
+  var threshold = 40; // ms — flag if avg frame > 40ms (below ~25fps)
+
+  function measureFrame() {
+    var now = performance.now();
+    var delta = now - lastTime;
+    lastTime = now;
+    if (samples.length < MAX_SAMPLES) {
+      samples.push(delta);
+      requestAnimationFrame(measureFrame);
+    } else {
+      var sum = 0;
+      for (var i = 0; i < samples.length; i++) sum += samples[i];
+      var avg = sum / samples.length;
+      if (avg > threshold) {
+        document.body.classList.add('low-perf');
+        console.info('low-perf mode: avg frame ' + avg.toFixed(1) + 'ms');
+      }
+    }
+  }
+
+  requestAnimationFrame(measureFrame);
+})();
+
 // ── Intro animation loader ──
 ;(function() {
   const MIN_INTRO_MS = 3000;
@@ -36,66 +64,102 @@ const media = {}
   function scheduleBassWhoosh(ctx) {
       var now = ctx.currentTime;
 
-      // ── Shared blow-pulse LFO (fades in after crescendo) ──
+      // ── Randomised meow parameters ──
+      var startFreq  = 500 + Math.random() * 500;   // 500–1000 Hz
+      var endFreq    = 140 + Math.random() * 300;   // 140–440 Hz
+      var dur        = 0.35 + Math.random() * 0.45;  // 0.35–0.80 s
+      var peakGain   = 0.14 + Math.random() * 0.12;  // 0.14–0.26
+      var vibRate    = 6 + Math.random() * 7;        // 6–13 Hz vibrato
+      var vibDepth   = 18 + Math.random() * 22;      // frequency wobble depth (Hz)
+      var doDouble   = Math.random() < 0.35;         // ~35% chance of double-meow
+
+      // ── Vibrato LFO ──
       var lfo = ctx.createOscillator();
       lfo.type = 'sine';
-      lfo.frequency.value = 1.6;
+      lfo.frequency.value = vibRate;
       var lfoDepth = ctx.createGain();
-      lfoDepth.gain.setValueAtTime(0, now);
-      lfoDepth.gain.linearRampToValueAtTime(0.22, now + 0.7);
-      lfoDepth.gain.linearRampToValueAtTime(0.32, now + 1.1);
-      lfoDepth.gain.exponentialRampToValueAtTime(0.001, now + 1.9);
-      var blowGain = ctx.createGain();
-      blowGain.gain.value = 1.0;
+      lfoDepth.gain.value = vibDepth;
       lfo.connect(lfoDepth);
-      lfoDepth.connect(blowGain.gain);
       lfo.start(now);
-      lfo.stop(now + 2.0);
+      lfo.stop(now + dur + 0.25);
 
-      // ── Layer 1: Sawtooth downward sweep through closing lowpass ──
-      var saw = ctx.createOscillator();
-      saw.type = 'sawtooth';
-      saw.frequency.setValueAtTime(200, now);
-      saw.frequency.exponentialRampToValueAtTime(32, now + 1.8);
+      // ── Main meow oscillator ──
+      var osc = ctx.createOscillator();
+      osc.type = 'triangle';
+      osc.frequency.setValueAtTime(startFreq, now);
+      osc.frequency.exponentialRampToValueAtTime(endFreq, now + dur);
+      lfoDepth.connect(osc.frequency);  // vibrato
 
-      var lowpass = ctx.createBiquadFilter();
-      lowpass.type = 'lowpass';
-      lowpass.frequency.setValueAtTime(400, now);
-      lowpass.frequency.exponentialRampToValueAtTime(35, now + 1.6);
-      lowpass.Q.value = 0.6;
+      // Bandpass filter — tracks the voice, slightly ahead
+      var bp = ctx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(startFreq * 1.05, now);
+      bp.frequency.exponentialRampToValueAtTime(endFreq * 0.95, now + dur);
+      bp.Q.value = 2.5 + Math.random() * 3.0;
 
-      var sawEnv = ctx.createGain();
-      sawEnv.gain.setValueAtTime(0.01, now);
-      sawEnv.gain.linearRampToValueAtTime(0.20, now + 0.6);    // crescendo
-      sawEnv.gain.setValueAtTime(0.20, now + 0.6);
-      sawEnv.gain.exponentialRampToValueAtTime(0.001, now + 1.9); // decay
+      // Gain envelope: quick attack → hold → quick release
+      var env = ctx.createGain();
+      env.gain.setValueAtTime(0.001, now);
+      env.gain.linearRampToValueAtTime(peakGain, now + 0.04);
+      env.gain.setValueAtTime(peakGain, now + dur * 0.5);
+      env.gain.exponentialRampToValueAtTime(0.001, now + dur);
 
-      saw.connect(lowpass);
-      lowpass.connect(sawEnv);
-      sawEnv.connect(blowGain);
-      blowGain.connect(ctx.destination);
-      saw.start(now);
-      saw.stop(now + 2.0);
+      osc.connect(bp);
+      bp.connect(env);
+      env.connect(ctx.destination);
+      osc.start(now);
+      osc.stop(now + dur + 0.1);
 
-      // ── Layer 2: Sub-bass sine for chest weight ──
-      var sub = ctx.createOscillator();
-      sub.type = 'sine';
-      sub.frequency.setValueAtTime(58, now);
-      sub.frequency.exponentialRampToValueAtTime(30, now + 1.8);
+      // ── Optional double-meow ──
+      if (doDouble) {
+        var gap = 0.12 + Math.random() * 0.25;
+        var dStart = now + gap;
+        var dStartFreq = startFreq * (0.7 + Math.random() * 0.35);
+        var dEndFreq   = endFreq * (0.65 + Math.random() * 0.4);
+        var dDur       = dur * (0.5 + Math.random() * 0.4);
+        var dPeak      = peakGain * (0.45 + Math.random() * 0.35);
 
-      var subEnv = ctx.createGain();
-      subEnv.gain.setValueAtTime(0.01, now);
-      subEnv.gain.linearRampToValueAtTime(0.15, now + 0.6);     // crescendo
-      subEnv.gain.setValueAtTime(0.15, now + 0.6);
-      subEnv.gain.exponentialRampToValueAtTime(0.001, now + 1.9);
+        var dLfo = ctx.createOscillator();
+        dLfo.type = 'sine';
+        dLfo.frequency.value = vibRate * (0.8 + Math.random() * 0.5);
+        var dLfoDepth = ctx.createGain();
+        dLfoDepth.gain.value = vibDepth * (0.5 + Math.random() * 0.5);
+        dLfo.connect(dLfoDepth);
+        dLfo.start(dStart);
+        dLfo.stop(dStart + dDur + 0.25);
 
-      sub.connect(subEnv);
-      subEnv.connect(blowGain);  // share blow pulse with saw layer
-      sub.start(now);
-      sub.stop(now + 2.0);
+        var dOsc = ctx.createOscillator();
+        dOsc.type = 'triangle';
+        dOsc.frequency.setValueAtTime(dStartFreq, dStart);
+        dOsc.frequency.exponentialRampToValueAtTime(dEndFreq, dStart + dDur);
+        dLfoDepth.connect(dOsc.frequency);
 
+        var dBp = ctx.createBiquadFilter();
+        dBp.type = 'bandpass';
+        dBp.frequency.setValueAtTime(dStartFreq * 1.05, dStart);
+        dBp.frequency.exponentialRampToValueAtTime(dEndFreq * 0.95, dStart + dDur);
+        dBp.Q.value = 2.0 + Math.random() * 3.5;
+
+        var dEnv = ctx.createGain();
+        dEnv.gain.setValueAtTime(0.001, dStart);
+        dEnv.gain.linearRampToValueAtTime(dPeak, dStart + 0.03);
+        dEnv.gain.setValueAtTime(dPeak, dStart + dDur * 0.4);
+        dEnv.gain.exponentialRampToValueAtTime(0.001, dStart + dDur);
+
+        dOsc.connect(dBp);
+        dBp.connect(dEnv);
+        dEnv.connect(ctx.destination);
+        dOsc.start(dStart);
+        dOsc.stop(dStart + dDur + 0.1);
+      }
+
+      var maxEnd = now + dur + 0.15;
+      if (doDouble) {
+        var doubleEnd = now + 0.37 + dur * 0.9 + 0.15;
+        if (doubleEnd > maxEnd) maxEnd = doubleEnd;
+      }
       // Close context after sound finishes
-      setTimeout(function() { ctx.close(); }, 2100);
+      setTimeout(function() { ctx.close(); }, Math.ceil((maxEnd - now) * 1000) + 100);
   }
 
   window.__introMarkLoaded = function() {
