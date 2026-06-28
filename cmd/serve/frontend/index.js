@@ -1,5 +1,49 @@
 const media = {}
 
+// ── Intro animation loader ──
+;(function() {
+  const MIN_INTRO_MS = 1000;
+  const pageStart = performance.now();
+  const overlay = document.getElementById('intro-overlay');
+  const logo = overlay ? overlay.querySelector('.intro-logo') : null;
+  let pending = 3; // shows, usage (gallery), suggestions
+  let dismissed = false;
+
+  // Phase 1: fade bg from black to marine blue
+  requestAnimationFrame(function() {
+    if (overlay) overlay.classList.add('bg-reveal');
+  });
+
+  // Phase 2: after bg transition, reveal logo with scale+pulse
+  setTimeout(function() {
+    if (logo) logo.classList.add('reveal');
+  }, 350);
+
+  window.__introMarkLoaded = function() {
+    pending--;
+    if (pending <= 0 && !dismissed) {
+      var elapsed = performance.now() - pageStart;
+      var remaining = Math.max(0, MIN_INTRO_MS - elapsed);
+      setTimeout(dismissIntro, remaining);
+    }
+  };
+
+  window.__introMarkFailed = function() {
+    // Still count as done on failure so we don't hang
+    window.__introMarkLoaded();
+  };
+
+  function dismissIntro() {
+    if (dismissed || !overlay) return;
+    dismissed = true;
+    overlay.classList.add('dismiss');
+    // Remove from DOM after transition
+    setTimeout(function() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }, 550);
+  }
+})();
+
 const ogConsoleLog = console.log
 const ogConsoleError = console.error
 
@@ -85,10 +129,12 @@ fetch('/gallery?start=0&am=1000&mime=video')
     populateMediaDropdown(data.items)
     // Handle deep-link play from shows page
     autoPlayFromQuery();
+    window.__introMarkLoaded();
   })
   .catch(err => {
     console.error('Error fetching gallery:');
     console.error(err)
+    window.__introMarkFailed();
   });
 
 let searchDebounceTimer = null;
@@ -448,7 +494,10 @@ function loadSuggestions() {
       return response.json();
     })
     .then(suggestions => {
-      if (!suggestions || suggestions.length === 0) return;
+      if (!suggestions || suggestions.length === 0) {
+        window.__introMarkLoaded();
+        return;
+      }
 
       const container = document.getElementById("butler-suggestions");
       const list = document.getElementById("suggestions-list");
@@ -483,9 +532,11 @@ function loadSuggestions() {
 
         list.appendChild(itemDiv);
       });
+      window.__introMarkLoaded();
     })
     .catch(err => {
       console.error("Failed to load suggestions:", err);
+      window.__introMarkFailed();
     });
 }
 
@@ -510,10 +561,12 @@ function loadSuggestions() {
         activeSeasonIdx = {};
         for (var i = 0; i < sidebarShows.length; i++) activeSeasonIdx[i] = -1;
         render();
+        window.__introMarkLoaded();
       })
       .catch(function (err) {
         console.error('Sidebar: failed to fetch shows:', err);
         sidebar.innerHTML = '<div class="sidebar-empty">Unavailable</div>';
+        window.__introMarkFailed();
       });
   }
 
