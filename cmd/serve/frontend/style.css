@@ -820,19 +820,13 @@ body {
   height: auto;
   opacity: 0;
   transform: scale(0.57);
-  filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0));
-  will-change: transform, opacity, filter;
 }
 
-/* Low-perf: strip expensive GPU hints */
-.low-perf .intro-logo {
-  will-change: auto;
-}
+/* Low-perf: no extra properties needed */
 
 .intro-logo.reveal {
   animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards,
-             introLogoBlow 0.7s ease-in-out 0.6s infinite;
-  filter: drop-shadow(0 0 24px rgba(59, 130, 246, 0.55));
+             introLogoBlow 0.7s ease-in-out 0.6s;
 }
 
 /* Low-perf: disable blow pulse, keep static glow */
@@ -844,7 +838,6 @@ body {
   0% {
     opacity: 0;
     transform: scale(0.57);
-    filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0));
   }
   100% {
     opacity: 1;
