@@ -2,7 +2,7 @@ const media = {}
 
 // ── Intro animation loader ──
 ;(function() {
-  const MIN_INTRO_MS = 1000;
+  const MIN_INTRO_MS = 3000;
   const pageStart = performance.now();
   const overlay = document.getElementById('intro-overlay');
   const logo = overlay ? overlay.querySelector('.intro-logo') : null;

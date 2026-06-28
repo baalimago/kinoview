@@ -765,22 +765,23 @@ body {
 }
 
 .intro-logo {
-  width: 120px;
+  width: 70vw;
+  max-width: 700px;
   height: auto;
   opacity: 0;
-  transform: scale(0.6);
+  transform: scale(0.57);
   filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0));
 }
 
 .intro-logo.reveal {
-  animation: introLogoReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards,
-             introLogoPulse 2.2s ease-in-out 0.7s infinite;
+  animation: introLogoReveal 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+             introLogoPulse 3s ease-in-out 0.8s infinite;
 }
 
 @keyframes introLogoReveal {
   0% {
     opacity: 0;
-    transform: scale(0.6);
+    transform: scale(0.57);
     filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0));
   }
   100% {
