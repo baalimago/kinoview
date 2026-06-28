@@ -9,82 +9,72 @@ const media = {}
   let pending = 3; // shows, usage (gallery), suggestions
   let dismissed = false;
 
-  // Phase 1: fade bg from black to marine blue
-  requestAnimationFrame(function() {
-    if (overlay) overlay.classList.add('bg-reveal');
-  });
-
-  // Phase 2: after bg transition, reveal logo with scale+pulse + swoosh sound
+  // Phase 1: logo emerges on black — nearly immediate
   setTimeout(function() {
     if (logo) logo.classList.add('reveal');
-    playIntroSwoosh();
-  }, 350);
+    playIntroBassWhoosh();
+  }, 50);
 
-  function playIntroSwoosh() {
+  // Phase 2: background fades from black to marine blue behind the logo
+  setTimeout(function() {
+    if (overlay) overlay.classList.add('bg-reveal');
+  }, 400);
+
+  function playIntroBassWhoosh() {
     try {
       var ctx = new (window.AudioContext || window.webkitAudioContext)();
       if (ctx.state === 'suspended') {
-        ctx.resume().then(function() { scheduleSwoosh(ctx); });
+        ctx.resume().then(function() { scheduleBassWhoosh(ctx); });
       } else {
-        scheduleSwoosh(ctx);
+        scheduleBassWhoosh(ctx);
       }
     } catch(e) {
       // Silently fail if AudioContext unavailable
     }
   }
 
-  function scheduleSwoosh(ctx) {
-      var noiseLen = 0.45;
-      var noiseBuf = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
-      var data = noiseBuf.getChannelData(0);
-      for (var i = 0; i < data.length; i++) {
-        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 1.5);
-      }
-      var noise = ctx.createBufferSource();
-      noise.buffer = noiseBuf;
-      var noiseFilter = ctx.createBiquadFilter();
-      noiseFilter.type = 'bandpass';
-      noiseFilter.frequency.setValueAtTime(800, ctx.currentTime);
-      noiseFilter.frequency.exponentialRampToValueAtTime(2400, ctx.currentTime + 0.35);
-      noiseFilter.Q.value = 2.5;
-      var noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(0.08, ctx.currentTime);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + noiseLen);
-      noise.connect(noiseFilter);
-      noiseFilter.connect(noiseGain);
-      noiseGain.connect(ctx.destination);
-      noise.start();
-      noise.stop(ctx.currentTime + noiseLen);
-
-      // ── Layer 2: Clean sine sweep ──
+  function scheduleBassWhoosh(ctx) {
+      // ── Layer 1: Deep bass downward sweep (sawtooth through closing lowpass) ──
       var osc = ctx.createOscillator();
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(420, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(1100, ctx.currentTime + 0.5);
+      osc.type = 'sawtooth';
+      osc.frequency.setValueAtTime(160, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(28, ctx.currentTime + 1.3);
+
+      var lowpass = ctx.createBiquadFilter();
+      lowpass.type = 'lowpass';
+      lowpass.frequency.setValueAtTime(300, ctx.currentTime);
+      lowpass.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 1.0);
+      lowpass.Q.value = 0.7;
+
       var oscGain = ctx.createGain();
-      oscGain.gain.setValueAtTime(0.07, ctx.currentTime);
-      oscGain.gain.setValueAtTime(0.09, ctx.currentTime + 0.08);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
-      osc.connect(oscGain);
+      oscGain.gain.setValueAtTime(0.01, ctx.currentTime);
+      oscGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.12);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.4);
+
+      osc.connect(lowpass);
+      lowpass.connect(oscGain);
       oscGain.connect(ctx.destination);
       osc.start();
-      osc.stop(ctx.currentTime + 0.55);
+      osc.stop(ctx.currentTime + 1.5);
 
-      // ── Layer 3: Sparkle (high-frequency ping) ──
-      var spark = ctx.createOscillator();
-      spark.type = 'sine';
-      spark.frequency.setValueAtTime(1800, ctx.currentTime);
-      spark.frequency.exponentialRampToValueAtTime(3200, ctx.currentTime + 0.25);
-      var sparkGain = ctx.createGain();
-      sparkGain.gain.setValueAtTime(0.04, ctx.currentTime);
-      sparkGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
-      spark.connect(sparkGain);
-      sparkGain.connect(ctx.destination);
-      spark.start();
-      spark.stop(ctx.currentTime + 0.3);
+      // ── Layer 2: Sub-bass sine for chest weight ──
+      var sub = ctx.createOscillator();
+      sub.type = 'sine';
+      sub.frequency.setValueAtTime(55, ctx.currentTime);
+      sub.frequency.exponentialRampToValueAtTime(32, ctx.currentTime + 1.3);
+
+      var subGain = ctx.createGain();
+      subGain.gain.setValueAtTime(0.01, ctx.currentTime);
+      subGain.gain.linearRampToValueAtTime(0.14, ctx.currentTime + 0.15);
+      subGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+
+      sub.connect(subGain);
+      subGain.connect(ctx.destination);
+      sub.start();
+      sub.stop(ctx.currentTime + 1.6);
 
       // Close context after sound finishes
-      setTimeout(function() { ctx.close(); }, 600);
+      setTimeout(function() { ctx.close(); }, 1700);
   }
 
   window.__introMarkLoaded = function() {
