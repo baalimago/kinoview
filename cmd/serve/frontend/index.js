@@ -63,87 +63,59 @@ const media = {}
 
   function scheduleMeow(ctx) {
       var now = ctx.currentTime;
-      var duration  = 0.55 + Math.random() * 0.45;  // 0.55–1.0 s
-      var basePitch = 400 + Math.random() * 100;    // 400–500 Hz
-      var doDouble  = Math.random() < 0.35;         // ~35% chance of double-meow
-      var peakGain  = 0.55 + Math.random() * 0.35;  // 0.55–0.9
+      var duration  = 0.75 + Math.random() * 0.65;  // 0.75–1.4 s — drawn-out "meeeeaaaooow"
+      var basePitch = 440 + Math.random() * 140;   // 440–580 Hz
+      var doDouble  = Math.random() < 0.3;         // ~30% chance of double-meow
+      var peakGain  = 0.5 + Math.random() * 0.35;  // 0.5–0.85
 
-      // ═══ 1. FM Source — modulator → carrier (sawtooth) ═══
-      var carrierOsc = ctx.createOscillator();
-      carrierOsc.type = 'sawtooth';
-      var modOsc = ctx.createOscillator();
-      modOsc.type = 'sine';
-      var modGain = ctx.createGain();
-      modOsc.connect(modGain);
-      modGain.connect(carrierOsc.frequency);
+      // ═══ 1. Oscillator: triangle (warm, bassy, soft harmonics) ═══
+      var osc = ctx.createOscillator();
+      osc.type = 'triangle';
 
-      // ═══ 2. Parallel formant filters (vocal-tract model) ═══
-      // Primary formant — jaw movement: "M"→"E-O"→"W"
-      var formant1 = ctx.createBiquadFilter();
-      formant1.type = 'peaking';
-      formant1.Q.setValueAtTime(5 + Math.random() * 3, now);
-
-      // Secondary formant — higher harmonic resonance
-      var formant2 = ctx.createBiquadFilter();
-      formant2.type = 'peaking';
-      formant2.Q.setValueAtTime(6 + Math.random() * 4, now);
-      var formant2Gain = ctx.createGain();
-      formant2Gain.gain.value = 0.5;
+      // ═══ 2. Formant filter — peaking, models jaw "M"→"E-O"→"W" ═══
+      var formant = ctx.createBiquadFilter();
+      formant.type = 'peaking';
+      formant.Q.setValueAtTime(4 + Math.random() * 4, now);  // Q 4–8
 
       // ═══ 3. Main amplitude envelope ═══
       var mainGain = ctx.createGain();
 
-      // ═══ 4. Routing: carrier → both formants → mainGain → destination ═══
-      carrierOsc.connect(formant1);
-      carrierOsc.connect(formant2);
-      formant1.connect(mainGain);
-      formant2.connect(formant2Gain);
-      formant2Gain.connect(mainGain);
+      // ═══ 4. Routing ═══
+      osc.connect(formant);
+      formant.connect(mainGain);
       mainGain.connect(ctx.destination);
 
-      // ═══ 5. Pitch automation (carrier & modulator track together) ═══
-      var midPitch = basePitch + 30;
-      var endPitch = basePitch - 60;
-      carrierOsc.frequency.setValueAtTime(basePitch, now);
-      carrierOsc.frequency.linearRampToValueAtTime(midPitch, now + duration * 0.4);
-      carrierOsc.frequency.linearRampToValueAtTime(endPitch, now + duration);
+      // ═══ 5. Pitch — gentle arc: rise then fall ═══
+      var midPitch = basePitch + 25;
+      var endPitch = basePitch - 90;  // deeper drop for "oooow"
+      osc.frequency.setValueAtTime(basePitch, now);
+      osc.frequency.linearRampToValueAtTime(midPitch, now + duration * 0.35);
+      osc.frequency.linearRampToValueAtTime(endPitch, now + duration);
 
-      modOsc.frequency.setValueAtTime(basePitch, now);
-      modOsc.frequency.linearRampToValueAtTime(midPitch, now + duration * 0.4);
-      modOsc.frequency.linearRampToValueAtTime(endPitch, now + duration);
+      // ═══ 6. Formant sweep — the critical "me-ow" movement ═══
+      // "M" (closed mouth) → "E-O" (wide open) → "W" (closing)
+      formant.frequency.setValueAtTime(520 + Math.random() * 120, now);        // 520–640 Hz — bassy "mmm"
+      formant.frequency.exponentialRampToValueAtTime(1800 + Math.random() * 500, now + duration * 0.4);  // "eee-aaa"
+      formant.frequency.exponentialRampToValueAtTime(350 + Math.random() * 120, now + duration);         // "ooow"
 
-      // ═══ 6. FM Index — vocal raspiness arc ═══
-      modGain.gain.setValueAtTime(0, now);
-      modGain.gain.linearRampToValueAtTime(150 + Math.random() * 80, now + duration * 0.3);
-      modGain.gain.linearRampToValueAtTime(0, now + duration);
-
-      // ═══ 7. Formant filter sweep — the critical "me-ow" jaw movement ═══
-      formant1.frequency.setValueAtTime(800, now);
-      formant1.frequency.exponentialRampToValueAtTime(2000 + Math.random() * 400, now + duration * 0.35);
-      formant1.frequency.exponentialRampToValueAtTime(450 + Math.random() * 100, now + duration);
-
-      formant2.frequency.setValueAtTime(1500, now);
-      formant2.frequency.exponentialRampToValueAtTime(3000 + Math.random() * 500, now + duration * 0.35);
-      formant2.frequency.exponentialRampToValueAtTime(900 + Math.random() * 200, now + duration);
-
-      // ═══ 8. Amplitude envelope — soft attack, sustain, natural decay ═══
+      // ═══ 7. Amplitude envelope — slow onset, long sustain, decay ═══
       mainGain.gain.setValueAtTime(0.001, now);
-      mainGain.gain.linearRampToValueAtTime(peakGain, now + 0.07);
-      mainGain.gain.setValueAtTime(peakGain, now + duration * 0.55);
-      mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+      mainGain.gain.linearRampToValueAtTime(peakGain, now + 0.08);
+      mainGain.gain.setValueAtTime(peakGain, now + duration * 0.5);
+      mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration - 0.05);
 
-      // ═══ 9. Subtle vibrato (pitch instability) ═══
+      // ═══ 8. Subtle vibrato — vocal strain tremolo ═══
       var vibrato = ctx.createOscillator();
       var vibratoGain = ctx.createGain();
       vibrato.type = 'sine';
       vibrato.frequency.value = 5 + Math.random() * 3;  // 5–8 Hz
       vibratoGain.gain.value = 2 + Math.random() * 3;   // 2–5 Hz deviation
       vibrato.connect(vibratoGain);
-      vibratoGain.connect(carrierOsc.frequency);
+      vibratoGain.connect(osc.frequency);
       vibrato.start(now);
       vibrato.stop(now + duration);
 
-      // ═══ 10. Breath noise — turbulent air through vocal tract ═══
+      // ═══ 9. Breath noise — soft turbulent air ═══
       var noiseLen = ctx.sampleRate * 1.5;
       var noiseBuffer = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
       var noiseData = noiseBuffer.getChannelData(0);
@@ -156,14 +128,14 @@ const media = {}
 
       var noiseFilter = ctx.createBiquadFilter();
       noiseFilter.type = 'bandpass';
-      noiseFilter.frequency.setValueAtTime(800, now);
-      noiseFilter.frequency.exponentialRampToValueAtTime(2200, now + duration * 0.35);
-      noiseFilter.frequency.exponentialRampToValueAtTime(500, now + duration);
-      noiseFilter.Q.value = 2;
+      noiseFilter.frequency.setValueAtTime(550, now);
+      noiseFilter.frequency.exponentialRampToValueAtTime(2100, now + duration * 0.4);
+      noiseFilter.frequency.exponentialRampToValueAtTime(400, now + duration);
+      noiseFilter.Q.value = 1.5;
 
       var noiseGain = ctx.createGain();
       noiseGain.gain.setValueAtTime(0, now);
-      noiseGain.gain.linearRampToValueAtTime(peakGain * 0.05, now + 0.05);
+      noiseGain.gain.linearRampToValueAtTime(peakGain * 0.04, now + 0.06);
       noiseGain.gain.exponentialRampToValueAtTime(0.00001, now + duration);
 
       noiseSrc.connect(noiseFilter);
@@ -173,67 +145,50 @@ const media = {}
       noiseSrc.stop(now + duration + 0.1);
 
       // ═══ Start and stop ═══
-      modOsc.start(now);
-      carrierOsc.start(now);
-      modOsc.stop(now + duration);
-      carrierOsc.stop(now + duration + 0.1);
+      osc.start(now);
+      osc.stop(now + duration + 0.1);
 
-      // ═══ 11. Optional second meow (simpler single-formant version) ═══
+      // ═══ 10. Optional second meow — quieter, shorter, lower ═══
       if (doDouble) {
-        var gap = 0.12 + Math.random() * 0.2;
+        var gap = 0.13 + Math.random() * 0.22;
         var dStart = now + gap;
-        var dDuration = duration * (0.4 + Math.random() * 0.35);
-        var dPitch = basePitch * (0.8 + Math.random() * 0.3);
-        var dPeak = peakGain * (0.35 + Math.random() * 0.3);
+        var dDuration = duration * (0.35 + Math.random() * 0.3);
+        var dPitch = basePitch * (0.7 + Math.random() * 0.25);
+        var dPeak = peakGain * (0.3 + Math.random() * 0.25);
 
-        var dCarrier = ctx.createOscillator();
-        dCarrier.type = 'sawtooth';
-        var dMod = ctx.createOscillator();
-        dMod.type = 'sine';
-        var dModGain = ctx.createGain();
-        dMod.connect(dModGain);
-        dModGain.connect(dCarrier.frequency);
+        var dOsc = ctx.createOscillator();
+        dOsc.type = 'triangle';
 
         var dFormant = ctx.createBiquadFilter();
         dFormant.type = 'peaking';
-        dFormant.Q.setValueAtTime(5 + Math.random() * 3, dStart);
+        dFormant.Q.setValueAtTime(3 + Math.random() * 4, dStart);
 
         var dMainGain = ctx.createGain();
-        dCarrier.connect(dFormant);
+        dOsc.connect(dFormant);
         dFormant.connect(dMainGain);
         dMainGain.connect(ctx.destination);
 
-        dCarrier.frequency.setValueAtTime(dPitch, dStart);
-        dCarrier.frequency.linearRampToValueAtTime(dPitch + 20, dStart + dDuration * 0.35);
-        dCarrier.frequency.linearRampToValueAtTime(dPitch - 50, dStart + dDuration);
+        dOsc.frequency.setValueAtTime(dPitch, dStart);
+        dOsc.frequency.linearRampToValueAtTime(dPitch + 15, dStart + dDuration * 0.3);
+        dOsc.frequency.linearRampToValueAtTime(dPitch - 60, dStart + dDuration);
 
-        dMod.frequency.setValueAtTime(dPitch, dStart);
-        dMod.frequency.linearRampToValueAtTime(dPitch + 20, dStart + dDuration * 0.35);
-        dMod.frequency.linearRampToValueAtTime(dPitch - 50, dStart + dDuration);
-
-        dModGain.gain.setValueAtTime(0, dStart);
-        dModGain.gain.linearRampToValueAtTime(100 + Math.random() * 60, dStart + dDuration * 0.3);
-        dModGain.gain.linearRampToValueAtTime(0, dStart + dDuration);
-
-        dFormant.frequency.setValueAtTime(800, dStart);
-        dFormant.frequency.exponentialRampToValueAtTime(2000 + Math.random() * 300, dStart + dDuration * 0.35);
-        dFormant.frequency.exponentialRampToValueAtTime(500, dStart + dDuration);
+        dFormant.frequency.setValueAtTime(480, dStart);
+        dFormant.frequency.exponentialRampToValueAtTime(1600 + Math.random() * 400, dStart + dDuration * 0.35);
+        dFormant.frequency.exponentialRampToValueAtTime(320 + Math.random() * 100, dStart + dDuration);
 
         dMainGain.gain.setValueAtTime(0.001, dStart);
-        dMainGain.gain.linearRampToValueAtTime(dPeak, dStart + 0.05);
-        dMainGain.gain.setValueAtTime(dPeak * 0.6, dStart + dDuration * 0.5);
+        dMainGain.gain.linearRampToValueAtTime(dPeak, dStart + 0.06);
+        dMainGain.gain.setValueAtTime(dPeak, dStart + dDuration * 0.4);
         dMainGain.gain.exponentialRampToValueAtTime(0.001, dStart + dDuration);
 
-        dMod.start(dStart);
-        dCarrier.start(dStart);
-        dMod.stop(dStart + dDuration);
-        dCarrier.stop(dStart + dDuration + 0.1);
+        dOsc.start(dStart);
+        dOsc.stop(dStart + dDuration + 0.1);
       }
 
       // Close context after sound finishes
       var maxEnd = now + duration + 0.15;
       if (doDouble) {
-        var doubleEnd = now + 0.32 + duration * 0.75 + 0.15;
+        var doubleEnd = now + 0.35 + duration * 0.65 + 0.15;
         if (doubleEnd > maxEnd) maxEnd = doubleEnd;
       }
       setTimeout(function() { ctx.close(); }, Math.ceil((maxEnd - now) * 1000) + 100);
