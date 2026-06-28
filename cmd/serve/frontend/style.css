@@ -768,15 +768,13 @@ body {
   width: 120px;
   height: auto;
   opacity: 0;
-  transform: scale(0.7);
+  transform: scale(0.6);
   filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0));
-  will-change: transform, opacity, filter;
 }
 
 .intro-logo.reveal {
-  animation:
-    introLogoReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards,
-    introLogoPulse 2.2s ease-in-out 0.7s infinite;
+  animation: introLogoReveal 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+             introLogoPulse 2.2s ease-in-out 0.7s infinite;
 }
 
 @keyframes introLogoReveal {
