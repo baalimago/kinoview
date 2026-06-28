@@ -14,10 +14,78 @@ const media = {}
     if (overlay) overlay.classList.add('bg-reveal');
   });
 
-  // Phase 2: after bg transition, reveal logo with scale+pulse
+  // Phase 2: after bg transition, reveal logo with scale+pulse + swoosh sound
   setTimeout(function() {
     if (logo) logo.classList.add('reveal');
+    playIntroSwoosh();
   }, 350);
+
+  function playIntroSwoosh() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(function() { scheduleSwoosh(ctx); });
+      } else {
+        scheduleSwoosh(ctx);
+      }
+    } catch(e) {
+      // Silently fail if AudioContext unavailable
+    }
+  }
+
+  function scheduleSwoosh(ctx) {
+      var noiseLen = 0.45;
+      var noiseBuf = ctx.createBuffer(1, ctx.sampleRate * noiseLen, ctx.sampleRate);
+      var data = noiseBuf.getChannelData(0);
+      for (var i = 0; i < data.length; i++) {
+        data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / data.length, 1.5);
+      }
+      var noise = ctx.createBufferSource();
+      noise.buffer = noiseBuf;
+      var noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(800, ctx.currentTime);
+      noiseFilter.frequency.exponentialRampToValueAtTime(2400, ctx.currentTime + 0.35);
+      noiseFilter.Q.value = 2.5;
+      var noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0.08, ctx.currentTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + noiseLen);
+      noise.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noise.start();
+      noise.stop(ctx.currentTime + noiseLen);
+
+      // ── Layer 2: Clean sine sweep ──
+      var osc = ctx.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(420, ctx.currentTime);
+      osc.frequency.exponentialRampToValueAtTime(1100, ctx.currentTime + 0.5);
+      var oscGain = ctx.createGain();
+      oscGain.gain.setValueAtTime(0.07, ctx.currentTime);
+      oscGain.gain.setValueAtTime(0.09, ctx.currentTime + 0.08);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.55);
+      osc.connect(oscGain);
+      oscGain.connect(ctx.destination);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.55);
+
+      // ── Layer 3: Sparkle (high-frequency ping) ──
+      var spark = ctx.createOscillator();
+      spark.type = 'sine';
+      spark.frequency.setValueAtTime(1800, ctx.currentTime);
+      spark.frequency.exponentialRampToValueAtTime(3200, ctx.currentTime + 0.25);
+      var sparkGain = ctx.createGain();
+      sparkGain.gain.setValueAtTime(0.04, ctx.currentTime);
+      sparkGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      spark.connect(sparkGain);
+      sparkGain.connect(ctx.destination);
+      spark.start();
+      spark.stop(ctx.currentTime + 0.3);
+
+      // Close context after sound finishes
+      setTimeout(function() { ctx.close(); }, 600);
+  }
 
   window.__introMarkLoaded = function() {
     pending--;
