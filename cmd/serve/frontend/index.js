@@ -34,47 +34,68 @@ const media = {}
   }
 
   function scheduleBassWhoosh(ctx) {
-      // ── Layer 1: Deep bass downward sweep (sawtooth through closing lowpass) ──
-      var osc = ctx.createOscillator();
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(160, ctx.currentTime);
-      osc.frequency.exponentialRampToValueAtTime(28, ctx.currentTime + 1.3);
+      var now = ctx.currentTime;
+
+      // ── Shared blow-pulse LFO (fades in after crescendo) ──
+      var lfo = ctx.createOscillator();
+      lfo.type = 'sine';
+      lfo.frequency.value = 1.6;
+      var lfoDepth = ctx.createGain();
+      lfoDepth.gain.setValueAtTime(0, now);
+      lfoDepth.gain.linearRampToValueAtTime(0.22, now + 0.7);
+      lfoDepth.gain.linearRampToValueAtTime(0.32, now + 1.1);
+      lfoDepth.gain.exponentialRampToValueAtTime(0.001, now + 1.9);
+      var blowGain = ctx.createGain();
+      blowGain.gain.value = 1.0;
+      lfo.connect(lfoDepth);
+      lfoDepth.connect(blowGain.gain);
+      lfo.start(now);
+      lfo.stop(now + 2.0);
+
+      // ── Layer 1: Sawtooth downward sweep through closing lowpass ──
+      var saw = ctx.createOscillator();
+      saw.type = 'sawtooth';
+      saw.frequency.setValueAtTime(200, now);
+      saw.frequency.exponentialRampToValueAtTime(32, now + 1.8);
 
       var lowpass = ctx.createBiquadFilter();
       lowpass.type = 'lowpass';
-      lowpass.frequency.setValueAtTime(300, ctx.currentTime);
-      lowpass.frequency.exponentialRampToValueAtTime(40, ctx.currentTime + 1.0);
-      lowpass.Q.value = 0.7;
+      lowpass.frequency.setValueAtTime(400, now);
+      lowpass.frequency.exponentialRampToValueAtTime(35, now + 1.6);
+      lowpass.Q.value = 0.6;
 
-      var oscGain = ctx.createGain();
-      oscGain.gain.setValueAtTime(0.01, ctx.currentTime);
-      oscGain.gain.linearRampToValueAtTime(0.18, ctx.currentTime + 0.12);
-      oscGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.4);
+      var sawEnv = ctx.createGain();
+      sawEnv.gain.setValueAtTime(0.01, now);
+      sawEnv.gain.linearRampToValueAtTime(0.20, now + 0.6);    // crescendo
+      sawEnv.gain.setValueAtTime(0.20, now + 0.6);
+      sawEnv.gain.exponentialRampToValueAtTime(0.001, now + 1.9); // decay
 
-      osc.connect(lowpass);
-      lowpass.connect(oscGain);
-      oscGain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + 1.5);
+      saw.connect(lowpass);
+      lowpass.connect(sawEnv);
+      sawEnv.connect(blowGain);
+      blowGain.connect(ctx.destination);
+      saw.start(now);
+      saw.stop(now + 2.0);
 
       // ── Layer 2: Sub-bass sine for chest weight ──
       var sub = ctx.createOscillator();
       sub.type = 'sine';
-      sub.frequency.setValueAtTime(55, ctx.currentTime);
-      sub.frequency.exponentialRampToValueAtTime(32, ctx.currentTime + 1.3);
+      sub.frequency.setValueAtTime(58, now);
+      sub.frequency.exponentialRampToValueAtTime(30, now + 1.8);
 
-      var subGain = ctx.createGain();
-      subGain.gain.setValueAtTime(0.01, ctx.currentTime);
-      subGain.gain.linearRampToValueAtTime(0.14, ctx.currentTime + 0.15);
-      subGain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 1.5);
+      var subEnv = ctx.createGain();
+      subEnv.gain.setValueAtTime(0.01, now);
+      subEnv.gain.linearRampToValueAtTime(0.15, now + 0.6);     // crescendo
+      subEnv.gain.setValueAtTime(0.15, now + 0.6);
+      subEnv.gain.exponentialRampToValueAtTime(0.001, now + 1.9);
 
-      sub.connect(subGain);
-      subGain.connect(ctx.destination);
-      sub.start();
-      sub.stop(ctx.currentTime + 1.6);
+      sub.connect(subEnv);
+      subEnv.connect(blowGain);  // share blow pulse with saw layer
+      sub.start(now);
+      sub.stop(now + 2.0);
 
       // Close context after sound finishes
-      setTimeout(function() { ctx.close(); }, 1700);
+      setTimeout(function() { ctx.close(); }, 2100);
   }
 
   window.__introMarkLoaded = function() {
