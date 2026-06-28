@@ -808,11 +808,13 @@ body {
   opacity: 0;
   transform: scale(0.57);
   filter: drop-shadow(0 0 0px rgba(59, 130, 246, 0));
+  will-change: transform, opacity, filter;
 }
 
 .intro-logo.reveal {
   animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards,
              introLogoBlow 0.7s ease-in-out 0.6s infinite;
+  filter: drop-shadow(0 0 24px rgba(59, 130, 246, 0.55));
 }
 
 @keyframes introLogoReveal {
@@ -824,21 +826,17 @@ body {
   100% {
     opacity: 1;
     transform: scale(1);
-    filter: drop-shadow(0 0 24px rgba(59, 130, 246, 0.55));
   }
 }
 
 @keyframes introLogoBlow {
   0%, 100% {
     transform: scale(1);
-    filter: drop-shadow(0 0 24px rgba(59, 130, 246, 0.55));
   }
   30% {
-    transform: scale(1.04);
-    filter: drop-shadow(0 0 38px rgba(59, 130, 246, 0.75));
+    transform: scale(1.02);
   }
   60% {
-    transform: scale(0.985);
-    filter: drop-shadow(0 0 18px rgba(59, 130, 246, 0.45));
+    transform: scale(0.992);
   }
 }
