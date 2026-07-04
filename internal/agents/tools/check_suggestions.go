@@ -3,6 +3,7 @@ package tools
 import (
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/kinoview/internal/agents"
@@ -31,11 +32,12 @@ func (cst *checkSuggestionsTool) Call(input models.Input) (string, error) {
 		return "there are currently no active suggestions", nil
 	}
 
-	res := "active suggestions:\n"
+	var res strings.Builder
+	res.WriteString("active suggestions:\n")
 	for _, s := range suggestions {
-		res += fmt.Sprintf("- ID: %s, Name: %s, Motivation: %s\n", s.ID, s.Name, s.Motivation)
+		res.WriteString(fmt.Sprintf("- ID: %s, Name: %s, Motivation: %s\n", s.ID, s.Name, s.Motivation))
 	}
-	return res, nil
+	return res.String(), nil
 }
 
 func (cst *checkSuggestionsTool) Specification() models.Specification {

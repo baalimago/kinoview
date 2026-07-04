@@ -120,11 +120,12 @@ func (c *command) Setup(ctx context.Context) error {
 		if subsManager == nil {
 			ancli.Warnf("subsManager not available, skipping butler setup")
 		} else {
-			alfred = butler.New(models.Configurations{
-				Model:         *c.butlerModel,
-				ConfigDir:     *c.configDir,
-				InternalTools: []models.ToolName{},
-			}, subsManager,
+			alfred = butler.New(
+				models.Configurations{
+					Model:         *c.butlerModel,
+					ConfigDir:     *c.configDir,
+					InternalTools: []models.ToolName{},
+				}, subsManager,
 			)
 		}
 	}

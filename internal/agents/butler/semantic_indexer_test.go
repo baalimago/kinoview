@@ -219,7 +219,8 @@ func TestSemanticIndexerSelect_MetadataFormatting(t *testing.T) {
 	ctx := context.Background()
 	rawMeta := json.RawMessage(
 		`{"name":"Show Name","alt_name":"Alt Name",
-		"year":2024,"season":2,"episode":6}`)
+		"year":2024,"season":2,"episode":6}`,
+	)
 
 	items := []model.Item{
 		{Name: "file1.mkv", Metadata: &rawMeta},
@@ -332,7 +333,7 @@ func TestSemanticIndexerSelect_SingleItem(t *testing.T) {
 func TestSemanticIndexerSelect_LargeList(t *testing.T) {
 	ctx := context.Background()
 	items := make([]model.Item, 100)
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		items[i] = model.Item{Name: "Movie " + string(rune(i))}
 	}
 

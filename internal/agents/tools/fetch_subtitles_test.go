@@ -89,7 +89,7 @@ func TestFetchSubtitlesCall_ItemNotFound(t *testing.T) {
 
 	tool := &fetchSubtitlesTool{
 		itemGetter: &mockItemGetter{}, // will return not-found error
-		subMgr: &mockSubtitleManager{},
+		subMgr:     &mockSubtitleManager{},
 	}
 
 	// mockItemGetter returns error for unknown IDs by default
@@ -407,8 +407,8 @@ func TestFetchSubtitlesCall_Success(t *testing.T) {
 			json.NewEncoder(w).Encode(resp)
 		case "/download":
 			json.NewEncoder(w).Encode(OpenSubtitlesDownloadResponse{
-				Link:     serverURL + "/file/sub.srt",
-				FileName: "movie.en.srt",
+				Link:      serverURL + "/file/sub.srt",
+				FileName:  "movie.en.srt",
 				Remaining: 19,
 			})
 		case "/file/sub.srt":

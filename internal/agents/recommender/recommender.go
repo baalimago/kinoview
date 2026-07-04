@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/baalimago/clai/pkg/text"
 	"github.com/baalimago/clai/pkg/text/models"
@@ -55,7 +56,7 @@ func (r *recommender) Recommend(
 	request string,
 	items []model.Item,
 ) (model.Item, error) {
-	var itemsStr string
+	var itemsStr strings.Builder
 	for _, it := range items {
 		metadataJSONStr := ""
 		if it.Metadata != nil {
@@ -67,13 +68,13 @@ func (r *recommender) Recommend(
 			}
 		}
 
-		itemsStr += fmt.Sprintf(
+		itemsStr.WriteString(fmt.Sprintf(
 			"- id: %s, name: %s, type: %s, metadata: %s\n",
 			it.ID,
 			it.Name,
 			it.MIMEType,
 			metadataJSONStr,
-		)
+		))
 	}
 	chat := models.Chat{
 		Messages: []models.Message{
@@ -82,7 +83,7 @@ func (r *recommender) Recommend(
 				Content: fmt.Sprintf(
 					systemPrompt,
 					request,
-					itemsStr,
+					itemsStr.String(),
 				),
 			},
 		},

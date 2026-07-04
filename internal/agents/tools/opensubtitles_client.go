@@ -32,16 +32,16 @@ type OpenSubtitlesFile struct {
 
 // OpenSubtitlesAttributes holds metadata about a subtitle entry.
 type OpenSubtitlesAttributes struct {
-	Language      string               `json:"language"`
-	DownloadCount int                  `json:"download_count"`
-	Release       string               `json:"release"`
-	Files         []OpenSubtitlesFile  `json:"files"`
+	Language      string              `json:"language"`
+	DownloadCount int                 `json:"download_count"`
+	Release       string              `json:"release"`
+	Files         []OpenSubtitlesFile `json:"files"`
 }
 
 // OpenSubtitlesData is a single search result.
 type OpenSubtitlesData struct {
-	ID         string                   `json:"id"`
-	Attributes OpenSubtitlesAttributes  `json:"attributes"`
+	ID         string                  `json:"id"`
+	Attributes OpenSubtitlesAttributes `json:"attributes"`
 }
 
 // OpenSubtitlesSearchResponse is the paginated search response.
@@ -54,10 +54,10 @@ type OpenSubtitlesSearchResponse struct {
 
 // OpenSubtitlesDownloadResponse is the response from POST /download.
 type OpenSubtitlesDownloadResponse struct {
-	Link        string `json:"link"`
-	FileName    string `json:"file_name"`
-	FileSize    int    `json:"file_size"`
-	Remaining   int    `json:"remaining"`
+	Link      string `json:"link"`
+	FileName  string `json:"file_name"`
+	FileSize  int    `json:"file_size"`
+	Remaining int    `json:"remaining"`
 }
 
 // NewOpenSubtitlesClient creates a client from environment variables.

@@ -494,12 +494,12 @@ func TestButler_PrepSuggestions_PartialError(t *testing.T) {
 	ctx := context.Background()
 	mockLLM := &MockFullResponse{
 		QueryFunc: func(ctx context.Context, chat models.Chat) (models.Chat, error) {
-			var fullMsg string
+			var fullMsg strings.Builder
 			for _, m := range chat.Messages {
-				fullMsg += m.Content + "\n"
+				fullMsg.WriteString(m.Content + "\n")
 			}
 
-			if strings.Contains(fullMsg, "You are a media Butler") {
+			if strings.Contains(fullMsg.String(), "You are a media Butler") {
 				return models.Chat{
 					Messages: []models.Message{
 						{Role: "assistant", Content: `[
@@ -509,7 +509,7 @@ func TestButler_PrepSuggestions_PartialError(t *testing.T) {
 					},
 				}, nil
 			}
-			if strings.Contains(fullMsg, "Semantic description: valid") {
+			if strings.Contains(fullMsg.String(), "Semantic description: valid") {
 				return models.Chat{
 					Messages: []models.Message{{Role: "assistant", Content: `{"index": 0}`}},
 				}, nil

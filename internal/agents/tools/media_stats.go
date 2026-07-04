@@ -86,8 +86,8 @@ func mimePrefix(m string) string {
 	if m == "" {
 		return ""
 	}
-	if i := strings.IndexByte(m, '/'); i >= 0 {
-		return m[:i]
+	if before, _, ok := strings.Cut(m, "/"); ok {
+		return before
 	}
 	return m
 }

@@ -136,7 +136,8 @@ func (b *butler) semanticIndexerSelect(ctx context.Context,
 		}
 		if item.Metadata != nil {
 			meta, err := unmarshalMetadata(
-				item.Metadata)
+				item.Metadata,
+			)
 			if err == nil {
 				formatted.Name = meta.Name
 				formatted.AltName = meta.AltName
@@ -154,7 +155,8 @@ func (b *butler) semanticIndexerSelect(ctx context.Context,
 
 	userMessage := fmt.Sprintf(
 		"Semantic description: %s\n\nMedia list:\n%s",
-		sug.Description, string(itemsJSON))
+		sug.Description, string(itemsJSON),
+	)
 
 	chat := models.Chat{
 		Messages: []models.Message{
@@ -172,7 +174,8 @@ func (b *butler) semanticIndexerSelect(ctx context.Context,
 	resp, err := b.llm.Query(ctx, chat)
 	if err != nil {
 		return model.Item{}, fmt.Errorf(
-			"failed to query llm: %w", err)
+			"failed to query llm: %w", err,
+		)
 	}
 
 	lastMsg, _, err := resp.LastOfRole("assistant")
@@ -181,7 +184,8 @@ func (b *butler) semanticIndexerSelect(ctx context.Context,
 			lastMsg = resp.Messages[len(resp.Messages)-1]
 		} else {
 			return model.Item{}, fmt.Errorf(
-				"received empty response from llm")
+				"received empty response from llm",
+			)
 		}
 	}
 
@@ -190,13 +194,15 @@ func (b *butler) semanticIndexerSelect(ctx context.Context,
 	err = json.Unmarshal(jsonBytes, &result)
 	if err != nil {
 		return model.Item{}, fmt.Errorf(
-			"failed to parse response: %w", err)
+			"failed to parse response: %w", err,
+		)
 	}
 
 	if result.Index < 0 || result.Index >= len(items) {
 		return model.Item{}, fmt.Errorf(
 			"invalid index returned: %d",
-			result.Index)
+			result.Index,
+		)
 	}
 
 	return items[result.Index], nil

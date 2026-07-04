@@ -8,8 +8,8 @@ import (
 )
 
 type PaginatedRequest struct {
-	Start    int    `json:"start"`
-	Am       int    `json:"amount"`
+	Start int `json:"start"`
+	Am    int `json:"amount"`
 	// Search is an optional global search query (case-insensitive) across name, path, and metadata.
 	Search   string `json:"search"`
 	MIMEType string `json:"MIMEType"`
@@ -139,7 +139,7 @@ func MatchesGlobalSearch(it Item, needle string) bool {
 	}
 
 	if it.Metadata != nil {
-		var metadata map[string]interface{}
+		var metadata map[string]any
 		if err := json.Unmarshal(*it.Metadata, &metadata); err == nil {
 			if SearchMetadata(metadata, needle) {
 				return true
@@ -150,15 +150,15 @@ func MatchesGlobalSearch(it Item, needle string) bool {
 }
 
 // SearchMetadata recursively searches through metadata for a substring match.
-func SearchMetadata(data interface{}, needle string) bool {
+func SearchMetadata(data any, needle string) bool {
 	switch v := data.(type) {
-	case map[string]interface{}:
+	case map[string]any:
 		for _, val := range v {
 			if SearchMetadata(val, needle) {
 				return true
 			}
 		}
-	case []interface{}:
+	case []any:
 		for _, val := range v {
 			if SearchMetadata(val, needle) {
 				return true

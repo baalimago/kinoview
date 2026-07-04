@@ -51,7 +51,7 @@ func parseSeasonEpisodeFromMetadata(it model.Item) (season int, episode int, ok 
 	if it.Metadata == nil {
 		return 0, 0, false
 	}
-	var md map[string]interface{}
+	var md map[string]any
 	if err := json.Unmarshal(*it.Metadata, &md); err != nil {
 		return 0, 0, false
 	}

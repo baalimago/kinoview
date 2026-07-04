@@ -52,9 +52,7 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 	ancli.Noticef("progress at: %v", tmpStderr.Name())
 
 	// Start ffmpeg with stdout piped
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		defer pipeWriter.Close()
 
 		cmd.Stdout = pipeWriter
@@ -65,7 +63,7 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 			default:
 			}
 		}
-	}()
+	})
 
 	// Set headers
 	w.Header().Set("Content-Type", "video/mp4")

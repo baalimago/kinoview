@@ -90,10 +90,7 @@ func handlePaginatedRequest(
 	}
 	mime := r.URL.Query().Get("mime")
 	search := r.URL.Query().Get("search")
-	retAm := start + am
-	if retAm >= totalAm {
-		retAm = totalAm
-	}
+	retAm := min(start+am, totalAm)
 	return model.PaginatedRequest{
 		Start:    start,
 		Am:       retAm,
@@ -128,10 +125,7 @@ func (s *store) ListHandlerFunc() http.HandlerFunc {
 		}
 		slices.Sort(keys)
 		i := paginatedRequest.Start
-		end := paginatedRequest.Am
-		if len(keys) < end {
-			end = len(keys)
-		}
+		end := min(len(keys), paginatedRequest.Am)
 		for ; i < end; i++ {
 			items = append(items, s.cache[keys[i]])
 		}

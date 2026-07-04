@@ -255,7 +255,8 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		}
 	}
 
-	llmTools = append(llmTools,
+	llmTools = append(
+		llmTools,
 		clai_tools.WebsiteText,
 		clai_tools.Date,
 		clai_tools.FFProbe,

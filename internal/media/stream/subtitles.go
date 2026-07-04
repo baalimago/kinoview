@@ -125,6 +125,14 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 	info, exists := m.mediaCache[item.ID]
 	m.mediaMu.RUnlock()
 	if exists {
+		// Re-scan external subtitles on every call — sidecar files
+		// may have been added or removed since the last cache.
+		info = m.stripExternal(info)
+		extStreams := m.findExternal(item)
+		info.Streams = append(info.Streams, extStreams...)
+		m.mediaMu.Lock()
+		m.mediaCache[item.ID] = info
+		m.mediaMu.Unlock()
 		return info, nil
 	}
 
@@ -133,7 +141,7 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 	defer cancel()
 
 	args := []string{
-		item.Path,
+		"-i", item.Path,
 		"-v", "quiet",
 		"-print_format", "json",
 		"-show_streams",
@@ -157,6 +165,18 @@ func (m *Manager) Find(item model.Item) (model.MediaInfo, error) {
 	m.mediaMu.Unlock()
 
 	return info, nil
+}
+
+// stripExternal returns a copy of info with all external (sidecar) streams removed.
+// External streams are identified by non-empty ExternalPath.
+func (m *Manager) stripExternal(info model.MediaInfo) model.MediaInfo {
+	filtered := make([]model.Stream, 0, len(info.Streams))
+	for _, s := range info.Streams {
+		if s.ExternalPath == "" {
+			filtered = append(filtered, s)
+		}
+	}
+	return model.MediaInfo{Streams: filtered}
 }
 
 // findExternal discovers sidecar subtitle files (.srt, .vtt) near the media item.
@@ -262,8 +282,8 @@ func sidecarFiles(dir, basename string) []string {
 func extractLanguage(path string) string {
 	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 	// Try splitting on underscore and looking for known languages
-	parts := strings.Split(name, "_")
-	for _, part := range parts {
+	parts := strings.SplitSeq(name, "_")
+	for part := range parts {
 		pl := strings.ToLower(part)
 		switch pl {
 		case "english", "eng", "en":

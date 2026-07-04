@@ -185,7 +185,8 @@ func renderSessions(contexts []model.ClientContext) string {
 	var b strings.Builder
 	b.WriteString("sessions:\n")
 	for _, s := range sessions {
-		b.WriteString(fmt.Sprintf("- id=%s, start=%s, end=%s, events=%d\n",
+		b.WriteString(fmt.Sprintf(
+			"- id=%s, start=%s, end=%s, events=%d\n",
 			s.id,
 			s.start.Format(time.RFC3339),
 			s.end.Format(time.RFC3339),

@@ -39,7 +39,8 @@ func (b *butler) preloadSubs(ctx context.Context,
 			return &PreloadSubsError{
 				ItemName: item.Name,
 				Err: fmt.Errorf(
-					"failed to select english: %w", selEnglishErr),
+					"failed to select english: %w", selEnglishErr,
+				),
 			}
 		}
 		selectedIdx = fmt.Sprintf("%d", idx)

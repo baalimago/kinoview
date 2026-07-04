@@ -10,7 +10,6 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
-	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/butler"
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
@@ -28,17 +27,17 @@ type command struct {
 
 func Command() *command {
 	ret := command{
-		model: misc.Pointer("gpt-5.2"),
+		model: new("gpt-5.2"),
 	}
 	configDir, err := os.UserConfigDir()
 	if err == nil {
-		ret.configDir = misc.Pointer(path.Join(configDir, "kinoview"))
+		ret.configDir = new(path.Join(configDir, "kinoview"))
 	} else {
 		ancli.Errf("failed to find user config dir: %v", err)
 	}
 	cacheDir, err := os.UserCacheDir()
 	if err == nil {
-		ret.cacheDir = misc.Pointer(path.Join(cacheDir, "kinoview"))
+		ret.cacheDir = new(path.Join(cacheDir, "kinoview"))
 	} else {
 		ancli.Errf("failed to find user cache dir: %v", err)
 	}

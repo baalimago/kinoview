@@ -109,13 +109,13 @@ func TestJSONStore_Store(t *testing.T) {
 			pre.Close()
 			post.Close()
 		})
-		largeIshString := ""
+		var largeIshString strings.Builder
 		for range 10 {
-			largeIshString += "AABBCCDDEEFFGGAABBCCDDEEFFGGAABBCCDDEEFFGG"
+			largeIshString.WriteString("AABBCCDDEEFFGGAABBCCDDEEFFGGAABBCCDDEEFFGG")
 		}
 		// Same content in both files, implying it has been moved
-		pre.WriteString(largeIshString)
-		post.WriteString(largeIshString)
+		pre.WriteString(largeIshString.String())
+		post.WriteString(largeIshString.String())
 		want := json.RawMessage(`{"This":  "should stay"}`)
 		has := model.Item{Name: "with_ID", Path: pre.Name(), Metadata: &want}
 		id := generateID(has.Path)
@@ -790,7 +790,7 @@ func Test_store_Store(t *testing.T) {
 		N := 20
 		done := make(chan struct{}, N)
 		ids := make([]string, N)
-		for i := 0; i < N; i++ {
+		for i := range N {
 			ids[i] = "id-" + randString(8)
 		}
 		for _, id := range ids {
@@ -799,7 +799,7 @@ func Test_store_Store(t *testing.T) {
 				done <- struct{}{}
 			}(id)
 		}
-		for i := 0; i < N; i++ {
+		for range N {
 			<-done
 		}
 		s.cacheMu.RLock()

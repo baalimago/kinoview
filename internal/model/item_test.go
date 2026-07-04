@@ -364,15 +364,15 @@ func TestMatchesGlobalSearch(t *testing.T) {
 
 func TestSearchMetadata(t *testing.T) {
 	t.Run("finds string in map", func(t *testing.T) {
-		m := map[string]interface{}{"key": "hello world"}
+		m := map[string]any{"key": "hello world"}
 		if !SearchMetadata(m, "hello") {
 			t.Fatal("should find substring in map value")
 		}
 	})
 
 	t.Run("finds string in nested map", func(t *testing.T) {
-		m := map[string]interface{}{
-			"parent": map[string]interface{}{
+		m := map[string]any{
+			"parent": map[string]any{
 				"child": "deep value",
 			},
 		}
@@ -382,21 +382,21 @@ func TestSearchMetadata(t *testing.T) {
 	})
 
 	t.Run("finds string in array", func(t *testing.T) {
-		a := []interface{}{"one", "two three", "four"}
+		a := []any{"one", "two three", "four"}
 		if !SearchMetadata(a, "three") {
 			t.Fatal("should find substring in array element")
 		}
 	})
 
 	t.Run("case insensitive", func(t *testing.T) {
-		m := map[string]interface{}{"title": "The Matrix"}
+		m := map[string]any{"title": "The Matrix"}
 		if !SearchMetadata(m, "matrix") {
 			t.Fatal("should match case-insensitively")
 		}
 	})
 
 	t.Run("no match returns false", func(t *testing.T) {
-		m := map[string]interface{}{"key": "abc"}
+		m := map[string]any{"key": "abc"}
 		if SearchMetadata(m, "xyz") {
 			t.Fatal("should not find non-matching string")
 		}

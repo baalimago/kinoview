@@ -5,13 +5,13 @@ type MediaInfo struct {
 }
 
 type Stream struct {
-	Index              int         `json:"index"`
-	CodecName          string      `json:"codec_name"`
-	CodecLongName      string      `json:"codec_long_name"`
-	Profile            string      `json:"profile,omitempty"`
-	CodecType          string      `json:"codec_type"`
-	CodecTagString     string      `json:"codec_tag_string"`
-	CodecTag           string      `json:"codec_tag"`
+	Index          int    `json:"index"`
+	CodecName      string `json:"codec_name"`
+	CodecLongName  string `json:"codec_long_name"`
+	Profile        string `json:"profile,omitempty"`
+	CodecType      string `json:"codec_type"`
+	CodecTagString string `json:"codec_tag_string"`
+	CodecTag       string `json:"codec_tag"`
 	// ExternalPath is the absolute path to an external subtitle file (sidecar .srt/.vtt).
 	// Only populated for externally discovered subtitles; empty for embedded streams.
 	ExternalPath       string      `json:"external_path,omitempty"`

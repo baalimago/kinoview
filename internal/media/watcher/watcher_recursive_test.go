@@ -110,8 +110,7 @@ func Test_recursiveWatcher_Watch(t *testing.T) {
 			t.Fatal(err)
 		}
 
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
+		ctx := t.Context()
 
 		err = rw.Watch(ctx, "/i/dont/exist")
 		if err == nil {

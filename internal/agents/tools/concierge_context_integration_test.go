@@ -159,7 +159,7 @@ func TestConciergeContextIntegration_Pagination(t *testing.T) {
 
 	// Push 5 notes
 	ids := make([]string, 5)
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		noteText := "Note number " + string(rune(i+1))
 		respStr, err := pushTool.Call(models.Input{"note": noteText})
 		if err != nil {
@@ -411,7 +411,7 @@ func TestConciergeContextIntegration_Ordering(t *testing.T) {
 
 	// Push notes in order
 	ids := make([]string, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		respStr, err := pushTool.Call(models.Input{"note": "Note " + string(rune('A'+i))})
 		if err != nil {
 			t.Fatalf("Push note %d: %v", i, err)

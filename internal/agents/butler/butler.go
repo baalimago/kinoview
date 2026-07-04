@@ -141,7 +141,8 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 					ancli.Warnf("preload subs error, keeping recs: %v", err)
 				} else {
 					ancli.Warnf(
-						"failed to prepare suggestion: %v", err)
+						"failed to prepare suggestion: %v", err,
+					)
 					mu.Lock()
 					errs = append(errs, err)
 					mu.Unlock()
@@ -164,15 +165,15 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 }
 
 func formatItems(items []model.Item) string {
-	var result []map[string]interface{}
+	var result []map[string]any
 	for idx, it := range items {
-		item := map[string]interface{}{
+		item := map[string]any{
 			"index": idx,
 			"name":  it.Name,
 			"type":  it.MIMEType,
 		}
 		if it.Metadata != nil {
-			var metadata map[string]interface{}
+			var metadata map[string]any
 			err := json.Unmarshal(*it.Metadata, &metadata)
 			if err == nil {
 				item["metadata"] = metadata

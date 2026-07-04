@@ -85,8 +85,8 @@ func CenterResize(src image.Image, width int, height int) (image.Image, error) {
 	dst := image.NewRGBA(image.Rect(0, 0, width, height))
 	offX := (newW - width) / 2
 	offY := (newH - height) / 2
-	for y := 0; y < height; y++ {
-		for x := 0; x < width; x++ {
+	for y := range height {
+		for x := range width {
 			srcX := int(float64(x+offX) * scale)
 			srcY := int(float64(y+offY) * scale)
 			if srcX >= 0 && srcX < srcW && srcY >= 0 && srcY < srcH {

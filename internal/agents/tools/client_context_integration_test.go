@@ -83,7 +83,7 @@ func TestUserContextIntegration_Pagination(t *testing.T) {
 	contexts := make([]model.ClientContext, 5)
 	baseTime := time.Now()
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		contexts[i] = model.ClientContext{
 			ViewingHistory: []model.ViewMetadata{
 				{
@@ -287,7 +287,7 @@ func TestUserContextIntegration_DefaultMode(t *testing.T) {
 func TestUserContextIntegration_DefaultLimit(t *testing.T) {
 	// Create 10 contexts
 	contexts := make([]model.ClientContext, 10)
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		contexts[i] = model.ClientContext{
 			ViewingHistory: []model.ViewMetadata{
 				{Name: "Movie " + string(rune('A'+i)), ViewedAt: time.Now()},
@@ -421,7 +421,7 @@ func TestUserContextIntegration_ViewingHistoryWithMultipleMovies(t *testing.T) {
 func TestUserContextIntegration_LargeLimitValue(t *testing.T) {
 	// Create 3 contexts
 	contexts := make([]model.ClientContext, 3)
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		contexts[i] = model.ClientContext{
 			ViewingHistory: []model.ViewMetadata{
 				{Name: "Movie " + string(rune('A'+i)), ViewedAt: time.Now()},

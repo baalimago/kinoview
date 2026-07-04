@@ -257,7 +257,7 @@ func (m *Manager) load() error {
 	}
 
 	var deltas []model.ClientContextDelta
-	for _, line := range bytes.Split(bytes.TrimSpace(b), []byte("\n")) {
+	for line := range bytes.SplitSeq(bytes.TrimSpace(b), []byte("\n")) {
 		if len(line) == 0 {
 			continue
 		}

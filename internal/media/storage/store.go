@@ -276,7 +276,8 @@ func (s *store) store(i model.Item) error {
 	err = dec.Decode(&stored)
 	if err != nil {
 		ancli.Warnf(
-			"failed to decode existing item: '%v', err: '%v'", i.Path, err)
+			"failed to decode existing item: '%v', err: '%v'", i.Path, err,
+		)
 	} else {
 		newJSON := debug.IndentedJsonFmt(i)
 		storedJSON := debug.IndentedJsonFmt(stored)

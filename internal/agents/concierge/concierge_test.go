@@ -195,8 +195,7 @@ func TestConcierge_Setup_NoUserContextManager(t *testing.T) {
 		t.Fatalf("failed to create concierge: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := c.Setup(ctx); err != nil {
 		t.Fatalf("Setup failed: %v", err)
@@ -226,8 +225,7 @@ func TestConcierge_Setup_WithUserContextManager(t *testing.T) {
 		t.Fatalf("failed to create concierge: %v", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	if err := c.Setup(ctx); err != nil {
 		t.Fatalf("Setup failed: %v", err)

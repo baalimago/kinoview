@@ -49,7 +49,7 @@ func Test_startClassificationStation_success(t *testing.T) {
 	}
 
 	M := 12
-	for i := 0; i < M; i++ {
+	for i := range M {
 		it := model.Item{
 			ID:       fmt.Sprintf("ok-%d", i),
 			Name:     fmt.Sprintf("ok-%d", i),
@@ -112,7 +112,7 @@ func Test_startClassificationStation_error(t *testing.T) {
 	M := 10
 	K := 4
 	badIDs := map[string]struct{}{}
-	for i := 0; i < M; i++ {
+	for i := range M {
 		id := fmt.Sprintf("id-%d", i)
 		name := fmt.Sprintf("ok-%d", i)
 		if i < K {
@@ -209,7 +209,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 
 	M := 8
 	start := time.Now()
-	for i := 0; i < M; i++ {
+	for i := range M {
 		it := model.Item{
 			ID:       fmt.Sprintf("c-%d", i),
 			Name:     fmt.Sprintf("c-%d", i),
@@ -235,8 +235,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 
 func Test_startClassificationStation_context(t *testing.T) {
 	ancli.Silent = true
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationWorkers(1))
@@ -305,7 +304,7 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 		t.Fatalf("start failed: %v", err)
 	}
 
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		it := model.Item{
 			ID:       fmt.Sprintf("k-%d", i),
 			Name:     fmt.Sprintf("k-%d", i),
@@ -359,7 +358,7 @@ func Test_startClassificationStation_backpressure(t *testing.T) {
 	}
 
 	M := 40
-	for i := 0; i < M; i++ {
+	for i := range M {
 		it := model.Item{
 			ID:       fmt.Sprintf("bp-%d", i),
 			Name:     fmt.Sprintf("bp-%d", i),
@@ -452,7 +451,7 @@ func Test_startClassificationStation_large_volume(t *testing.T) {
 	}
 
 	M := 200
-	for i := 0; i < M; i++ {
+	for i := range M {
 		it := model.Item{
 			ID:       fmt.Sprintf("big-%d", i),
 			Name:     fmt.Sprintf("big-%d", i),
@@ -475,9 +474,9 @@ func Test_startClassificationStation_large_volume(t *testing.T) {
 }
 
 func contains(h, n string) bool {
-	return len(h) >= len(n) && (func() bool {
+	return len(h) >= len(n) && func() bool {
 		return indexOf(h, n) >= 0
-	})()
+	}()
 }
 
 func indexOf(h, n string) int {

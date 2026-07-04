@@ -104,10 +104,7 @@ func (t *mediaListTool) Call(input models.Input) (string, error) {
 		return string(b), nil
 	}
 
-	end := offset + limit
-	if end > total {
-		end = total
-	}
+	end := min(offset+limit, total)
 	page := filtered[offset:end]
 
 	out := make([]mediaListItem, 0, len(page))

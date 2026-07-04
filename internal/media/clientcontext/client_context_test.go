@@ -270,7 +270,7 @@ func TestStoreClientContextConcurrent(t *testing.T) {
 	numGoroutines := 10
 	done := make(chan bool, numGoroutines)
 
-	for i := 0; i < numGoroutines; i++ {
+	for i := range numGoroutines {
 		go func(idx int) {
 			ctx := model.ClientContext{
 				SessionID: "session1",
@@ -292,7 +292,7 @@ func TestStoreClientContextConcurrent(t *testing.T) {
 		}(i)
 	}
 
-	for i := 0; i < numGoroutines; i++ {
+	for range numGoroutines {
 		<-done
 	}
 

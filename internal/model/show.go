@@ -3,9 +3,9 @@ package model
 // ShowEpisode is an Item enriched with parsed show metadata.
 type ShowEpisode struct {
 	Item
-	ShowName    string `json:"showName"`
-	Season      int    `json:"season"`
-	Episode     int    `json:"episode"`
+	ShowName string `json:"showName"`
+	Season   int    `json:"season"`
+	Episode  int    `json:"episode"`
 }
 
 // ShowSeason groups episodes of the same season.

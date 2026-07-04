@@ -100,7 +100,7 @@ func TestHeartbeatLoop_PongKeepsAliveThenErrExits(t *testing.T) {
 			// Then send an error to stop the loop.
 			tk := time.NewTicker(idx.heartbeatInterval)
 			defer tk.Stop()
-			for i := 0; i < 2; i++ {
+			for range 2 {
 				<-tk.C
 				time.Sleep(2 * time.Millisecond)
 				pongCh <- struct{}{}

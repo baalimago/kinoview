@@ -193,8 +193,8 @@ func rgba(c color.Color) color.RGBA {
 
 func filled(w, h int, col color.RGBA) *image.RGBA {
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	for y := 0; y < h; y++ {
-		for x := 0; x < w; x++ {
+	for y := range h {
+		for x := range w {
 			img.Set(x, y, col)
 		}
 	}

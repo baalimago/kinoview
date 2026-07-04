@@ -479,3 +479,90 @@ func TestExtractSubtitles_External_CacheMiss(t *testing.T) {
 		t.Error("expected non-empty path")
 	}
 }
+
+// TestFindExternal_CacheRefresh verifies that Find re-scans for external
+// subtitles even on a cache hit, so that newly added .srt files are discovered
+// without restarting the process. This is the regression test for the bug where
+// sidecar subtitles added after the first Find() were invisible.
+func TestFindExternal_CacheRefresh(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Setup: media file in a directory with initially no external subs.
+	mediaDir := filepath.Join(tmp, "Movie")
+	os.MkdirAll(mediaDir, 0o755)
+	mediaPath := filepath.Join(mediaDir, "Movie.1999.1080p.mp4")
+	os.WriteFile(mediaPath, []byte("fake video"), 0o644)
+
+	mr := &mockRunner{
+		outputMap: map[string][]byte{"ffprobe": []byte(`{"streams":[{"index":0,"codec_type":"video"}]}`)},
+		runErrMap: make(map[string]error),
+	}
+
+	m, _ := NewManager(withRunner(mr), WithStoragePath(t.TempDir()))
+	item := model.Item{
+		ID:   "cache-refresh-test",
+		Name: "Movie.1999.1080p.mp4",
+		Path: mediaPath,
+	}
+
+	// First call: cache miss. Expect 1 embedded stream, zero external.
+	info, err := m.Find(item)
+	if err != nil {
+		t.Fatalf("first Find failed: %v", err)
+	}
+	if len(info.Streams) != 1 {
+		t.Fatalf("expected 1 stream (embedded only), got %d", len(info.Streams))
+	}
+
+	// Now add a sidecar .srt beside the media file.
+	srtPath := filepath.Join(mediaDir, "Movie.1999.1080p.srt")
+	if err := os.WriteFile(srtPath, []byte("1\n00:00:01,000 --> 00:00:02,000\nHello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Second call: cache hit. Must discover the newly added .srt.
+	info, err = m.Find(item)
+	if err != nil {
+		t.Fatalf("second Find (cache hit) failed: %v", err)
+	}
+	if len(info.Streams) != 2 {
+		t.Fatalf("expected 2 streams (1 embedded + 1 external), got %d", len(info.Streams))
+	}
+
+	// Verify the external stream looks correct.
+	var extFound bool
+	for _, s := range info.Streams {
+		if s.ExternalPath == srtPath {
+			extFound = true
+			if s.Index >= 0 {
+				t.Errorf("external stream should have negative index, got %d", s.Index)
+			}
+			if s.CodecType != "subtitle" {
+				t.Errorf("expected subtitle codec_type, got %s", s.CodecType)
+			}
+			break
+		}
+	}
+	if !extFound {
+		t.Errorf("newly added sidecar %s not found in streams", srtPath)
+	}
+
+	// Third call: cache hit again. Count should still be 2 (no duplicates).
+	info, err = m.Find(item)
+	if err != nil {
+		t.Fatalf("third Find failed: %v", err)
+	}
+	if len(info.Streams) != 2 {
+		t.Fatalf("third call: expected 2 streams, got %d", len(info.Streams))
+	}
+
+	// Remove the .srt and verify it disappears.
+	os.Remove(srtPath)
+	info, err = m.Find(item)
+	if err != nil {
+		t.Fatalf("Find after removal failed: %v", err)
+	}
+	if len(info.Streams) != 1 {
+		t.Fatalf("after srt removal expected 1 stream, got %d", len(info.Streams))
+	}
+}
