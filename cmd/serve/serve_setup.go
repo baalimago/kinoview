@@ -65,17 +65,6 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 
 	////////////
-	// Cache pre-warming: ensure clai chat_index.cache exists before any
-	// agent saves conversations. Prevents O(n) rebuildChatIndex that
-	// loads all conversation files into memory, which caused OOM when
-	// multiple agents triggered concurrent rebuilds.
-	////////////
-	claiConfigDir := path.Join(*c.configDir, "clai")
-	if err := media.EnsureChatIndexCache(claiConfigDir); err != nil {
-		ancli.Warnf("failed to ensure chat index cache: %v", err)
-	}
-
-	////////////
 	// Storage setup (early, without classifier for circular dep resolution)
 	////////////
 	store := storage.NewStore(
