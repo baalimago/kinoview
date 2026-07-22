@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 )
@@ -39,22 +40,39 @@ type command struct {
 	tlsCertPath  *string
 	tlsKeyPath   *string
 
-	classificationModel   *string
-	classificationWorkers *int
-	butlerModel           *string
-	recommenderModel      *string
-	conciergeModel        *string
+	classificationModel           *string
+	classificationWorkers         *int
+	classificationRate            *float64
+	classificationBurst           *int
+	classificationStartupCooldown *time.Duration
+	pprof                         *bool
+	butlerModel                   *string
+	recommenderModel              *string
+	conciergeModel                *string
+	conciergeStartupDelay         *time.Duration
+	startupWriteDelay             *time.Duration
 }
 
 func Command() *command {
 	defaultModel := ""
+	defaultCooldown := 10 * time.Second
 	ret := command{
-		classificationModel:   &defaultModel,
-		recommenderModel:      &defaultModel,
-		butlerModel:           &defaultModel,
-		conciergeModel:        &defaultModel,
-		classificationWorkers: new(5),
+		classificationModel:           &defaultModel,
+		recommenderModel:              &defaultModel,
+		butlerModel:                   &defaultModel,
+		conciergeModel:                &defaultModel,
+		conciergeStartupDelay:         new(time.Duration),
+		classificationWorkers:         new(int),
+		classificationRate:            new(float64),
+		classificationBurst:           new(int),
+		classificationStartupCooldown: &defaultCooldown,
 	}
+	*ret.classificationWorkers = 2
+	*ret.classificationRate = 0.2
+	*ret.classificationBurst = 3
+	*ret.conciergeStartupDelay = 60 * time.Second
+	ret.startupWriteDelay = new(time.Duration)
+	*ret.startupWriteDelay = 30 * time.Second
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		ancli.Errf("failed to find user config dir: %v", err)
@@ -181,10 +199,16 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.tlsKeyPath = fs.String("tlsKeyPath", "", "set to a path to a key, requires tlsCertPath to be set")
 
 	c.classificationModel = fs.String("classifier", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
-	c.classificationWorkers = fs.Int("classifierWorkers", 5, "set amount of workers used for classification")
+	c.classificationWorkers = fs.Int("classifierWorkers", 2, "set amount of workers used for classification")
+	c.pprof = fs.Bool("pprof", false, "enable /debug/pprof/ endpoints for memory profiling")
+	c.classificationRate = fs.Float64("classificationRate", 0.2, "classifications per second (1 every 5s default)")
+	c.classificationBurst = fs.Int("classificationBurst", 3, "max burst before rate limit kicks in")
+	c.classificationStartupCooldown = fs.Duration("classificationStartupCooldown", 10*time.Second, "delay before first classification is admitted")
 	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.conciergeStartupDelay = fs.Duration("conciergeStartupDelay", 60*time.Second, "delay before first concierge run, 0 runs immediately")
+	c.startupWriteDelay = fs.Duration("startupWriteDelay", 30*time.Second, "delay before store writes are flushed to disk, 0 writes immediately")
 
 	c.flagset = fs
 	return fs

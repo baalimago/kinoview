@@ -84,6 +84,36 @@ func (c *classifier) buildAgent(tools []models.LLMTool, internalTools []models.T
 	c.llm = &a
 }
 
+func (c *classifier) Clone() agents.Classifier {
+	clone := &classifier{
+		model:     c.model,
+		configDir: c.configDir,
+		usesAgent: c.usesAgent,
+	}
+
+	if c.usesAgent {
+		if len(c.tools) > 0 {
+			clone.tools = make([]models.LLMTool, len(c.tools))
+			copy(clone.tools, c.tools)
+		}
+		internalTools := make([]models.ToolName, len(c.conf.InternalTools))
+		copy(internalTools, c.conf.InternalTools)
+		clone.conf = &models.Configurations{
+			Model:         c.conf.Model,
+			ConfigDir:     c.conf.ConfigDir,
+			InternalTools: internalTools,
+		}
+		clone.buildAgent(clone.tools, clone.conf.InternalTools, nil)
+	} else {
+		confCopy := *c.conf
+		confCopy.Out = nil
+		clone.conf = &confCopy
+		clone.llm = text.NewFullResponseQuerier(*clone.conf)
+	}
+
+	return clone
+}
+
 func (c *classifier) Setup(ctx context.Context) error {
 	err := c.llm.Setup(ctx)
 	if err != nil {

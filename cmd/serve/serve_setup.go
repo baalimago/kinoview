@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"path"
 
@@ -70,6 +71,10 @@ func (c *command) Setup(ctx context.Context) error {
 		storage.WithStorePath(storePath),
 		storage.WithSubtitlesManager(subsManager),
 		storage.WithClassificationWorkers(*c.classificationWorkers),
+		storage.WithClassificationRate(*c.classificationRate),
+		storage.WithClassificationBurst(*c.classificationBurst),
+		storage.WithClassificationStartupCooldown(*c.classificationStartupCooldown),
+		storage.WithStartupWriteDelay(*c.startupWriteDelay),
 	)
 
 	////////////
@@ -176,6 +181,7 @@ func (c *command) Setup(ctx context.Context) error {
 		// butler may be nil here, intentionally, if subsManager isnt properly setup
 		media.WithButler(alfred),
 		media.WithConcierge(conkidonk),
+		media.WithConciergeStartupDelay(*c.conciergeStartupDelay),
 		media.WithClientContextManager(userContextMgr),
 	)
 	if err != nil {
@@ -193,6 +199,16 @@ func (c *command) Setup(ctx context.Context) error {
 
 func (c *command) setupMux() (*http.ServeMux, error) {
 	mux := http.NewServeMux()
+
+	if c.pprof != nil && *c.pprof {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+		mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+		mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+		mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+		mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+		ancli.Noticef("pprof endpoints enabled at /debug/pprof/")
+	}
+
 	subFs, err := fs.Sub(frontendFiles, "frontend")
 	if err != nil {
 		return nil, fmt.Errorf("c.Run failed to get frontendFiles sub: %w", err)

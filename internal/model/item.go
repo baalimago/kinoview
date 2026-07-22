@@ -38,6 +38,10 @@ type Item struct {
 	Name      string
 	MIMEType  string
 	Metadata  *json.RawMessage
+
+	ClassificationAttempts int       `json:"classificationAttempts,omitempty"`
+	ClassificationLastTry  time.Time `json:"classificationLastTry,omitempty"`
+	ClassificationError    string    `json:"classificationError,omitempty"`
 }
 
 type ViewMetadata struct {

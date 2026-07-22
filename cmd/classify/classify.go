@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
@@ -41,6 +42,10 @@ type command struct {
 	model   *string
 	workers *int
 
+	rate     *float64
+	burst    *int
+	cooldown *time.Duration
+
 	store stationStorage
 
 	userInput io.Reader
@@ -63,6 +68,9 @@ func Command() *command {
 		configDir: kinoviewConfigDir,
 		storePath: path.Join(kinoviewConfigDir, "store"),
 		userInput: os.Stdin,
+		rate:      new(float64),
+		burst:     new(int),
+		cooldown:  new(time.Duration),
 	}
 }
 
@@ -90,11 +98,21 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 
 	// Create store first so it can be passed as ItemGetter to the tool
-	c.store = storage.NewStore(
+	storeOpts := []storage.StoreOption{
 		storage.WithStorePath(c.storePath),
-		storage.WithClassificationWorkers(5),
+		storage.WithClassificationWorkers(*c.workers),
 		storage.WithSubtitlesManager(subsManager),
-	)
+	}
+	if c.rate != nil {
+		storeOpts = append(storeOpts, storage.WithClassificationRate(*c.rate))
+	}
+	if c.burst != nil {
+		storeOpts = append(storeOpts, storage.WithClassificationBurst(*c.burst))
+	}
+	if c.cooldown != nil {
+		storeOpts = append(storeOpts, storage.WithClassificationStartupCooldown(*c.cooldown))
+	}
+	c.store = storage.NewStore(storeOpts...)
 
 	classifierConf := models.Configurations{
 		Model:     *c.model,
@@ -210,7 +228,10 @@ func (c *command) Flagset() *flag.FlagSet {
 	fs := flag.NewFlagSet("classify", flag.ContinueOnError)
 
 	c.model = fs.String("model", "gpt-5", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai.")
-	c.workers = fs.Int("workers", 5, "set amount of workers to classify the media with")
+	c.workers = fs.Int("workers", 2, "set amount of workers to classify the media with")
+	c.rate = fs.Float64("classificationRate", 0.2, "classifications per second")
+	c.burst = fs.Int("classificationBurst", 3, "max burst before rate limit kicks in")
+	c.cooldown = fs.Duration("classificationStartupCooldown", 10*time.Second, "delay before first classification is admitted")
 
 	c.flagset = fs
 	return fs

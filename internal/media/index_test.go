@@ -252,6 +252,168 @@ func TestStart_errorHandling(t *testing.T) {
 	})
 }
 
+type mockConcierge struct {
+	run func(ctx context.Context) (string, error)
+}
+
+func (m *mockConcierge) Setup(ctx context.Context) error { return nil }
+func (m *mockConcierge) Run(ctx context.Context) (string, error) {
+	return m.run(ctx)
+}
+
+func TestStart_conciergeStartupDelay(t *testing.T) {
+	t.Run("waits before first run", func(t *testing.T) {
+		runCh := make(chan struct{})
+		mc := &mockConcierge{
+			run: func(ctx context.Context) (string, error) {
+				close(runCh)
+				return "", nil
+			},
+		}
+		i, err := NewIndexer(
+			WithConcierge(mc),
+			WithConciergeStartupDelay(200*time.Millisecond),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i.store = &mockStore{
+			setup: func() error { return nil },
+			store: func() error { return nil },
+		}
+		i.watcher = &mockWatcher{
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
+				ch := make(chan model.Item)
+				close(ch)
+				return ch, nil, nil
+			},
+			watch: func(ctx context.Context, path string) error { return nil },
+		}
+		err = i.Setup(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		go func() {
+			_ = i.Start(ctx)
+		}()
+
+		// Concierge should NOT have run immediately
+		select {
+		case <-runCh:
+			t.Fatal("concierge ran before startup delay elapsed")
+		case <-time.After(50 * time.Millisecond):
+		}
+
+		// But should run after the delay
+		select {
+		case <-runCh:
+		case <-time.After(500 * time.Millisecond):
+			t.Fatal("concierge did not run after startup delay")
+		}
+	})
+
+	t.Run("runs immediately when delay is zero", func(t *testing.T) {
+		runCh := make(chan struct{})
+		mc := &mockConcierge{
+			run: func(ctx context.Context) (string, error) {
+				close(runCh)
+				return "", nil
+			},
+		}
+		i, err := NewIndexer(
+			WithConcierge(mc),
+			WithConciergeStartupDelay(0),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i.store = &mockStore{
+			setup: func() error { return nil },
+			store: func() error { return nil },
+		}
+		i.watcher = &mockWatcher{
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
+				ch := make(chan model.Item)
+				close(ch)
+				return ch, nil, nil
+			},
+			watch: func(ctx context.Context, path string) error { return nil },
+		}
+		err = i.Setup(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+
+		go func() {
+			_ = i.Start(ctx)
+		}()
+
+		// Concierge should run nearly immediately
+		select {
+		case <-runCh:
+		case <-time.After(200 * time.Millisecond):
+			t.Fatal("concierge did not run immediately with zero delay")
+		}
+	})
+
+	t.Run("context cancel during delay returns without running", func(t *testing.T) {
+		runCh := make(chan struct{})
+		mc := &mockConcierge{
+			run: func(ctx context.Context) (string, error) {
+				close(runCh)
+				return "", nil
+			},
+		}
+		i, err := NewIndexer(
+			WithConcierge(mc),
+			WithConciergeStartupDelay(5*time.Second),
+		)
+		if err != nil {
+			t.Fatal(err)
+		}
+		i.store = &mockStore{
+			setup: func() error { return nil },
+			store: func() error { return nil },
+		}
+		i.watcher = &mockWatcher{
+			setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
+				ch := make(chan model.Item)
+				close(ch)
+				return ch, nil, nil
+			},
+			watch: func(ctx context.Context, path string) error { return nil },
+		}
+		err = i.Setup(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+
+		go func() {
+			_ = i.Start(ctx)
+		}()
+
+		// Cancel the context during the delay
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+
+		// Concierge should never run
+		select {
+		case <-runCh:
+			t.Fatal("concierge ran after context cancelled")
+		case <-time.After(200 * time.Millisecond):
+		}
+	})
+}
+
 func TestRegisterErrorChannel(t *testing.T) {
 	t.Run("registers new error channel", func(t *testing.T) {
 		i := &Indexer{

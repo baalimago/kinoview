@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -60,7 +59,6 @@ func makeDataset(t testing.TB, n int) (storeDir string) {
 func BenchmarkStoreSetup_NoClassifier(b *testing.B) {
 	ctx := context.Background()
 
-	ancli.Silent = true
 	for _, n := range []int{10, 100, 1000, 5000, 50000} {
 		b.Run("n="+strconv.Itoa(n), func(b *testing.B) {
 			storeDir := makeDataset(b, n)

@@ -10,6 +10,7 @@ import (
 	"path"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
@@ -32,6 +33,21 @@ type store struct {
 	classificationWorkers    int
 	classifierErrors         chan error
 	classificationRequest    chan classificationCandidate
+
+	classificationRate             float64
+	classificationBurst            int
+	classificationStartupCooldown  time.Duration
+	classificationStationStartTime time.Time
+	rateLimiter                    *rateLimiter
+	memoryThreshold                float64
+	classificationMaxAttempts      int
+
+	inFlight sync.Map
+
+	startupWriteWindow      time.Duration
+	startupWriteWindowStart atomic.Int64
+	dirtyMu                 sync.Mutex
+	dirty                   map[string]struct{}
 
 	readyChan chan struct{}
 
@@ -69,6 +85,50 @@ func WithClassificationWorkers(amWorkers int) StoreOption {
 	}
 }
 
+func WithClassificationRate(ratePerSec float64) StoreOption {
+	return func(s *store) {
+		s.classificationRate = ratePerSec
+	}
+}
+
+func WithClassificationBurst(burst int) StoreOption {
+	return func(s *store) {
+		s.classificationBurst = burst
+	}
+}
+
+func WithClassificationStartupCooldown(d time.Duration) StoreOption {
+	return func(s *store) {
+		s.classificationStartupCooldown = d
+	}
+}
+
+// WithMemoryThreshold sets the fraction of runtime.MemStats.Sys above which
+// new classifications are dropped. Default 0.8 (80%). Values <= 0 or >= 1 disable the check.
+func WithMemoryThreshold(threshold float64) StoreOption {
+	return func(s *store) {
+		s.memoryThreshold = threshold
+	}
+}
+
+// WithClassificationMaxAttempts sets the maximum number of classification attempts
+// before an item is permanently skipped. Default 5.
+func WithClassificationMaxAttempts(n int) StoreOption {
+	return func(s *store) {
+		s.classificationMaxAttempts = n
+	}
+}
+
+// WithStartupWriteDelay sets the duration after Start() during which store writes
+// are deferred and batched. After the delay expires (or ctx cancels), all dirty
+// items are flushed to disk in a single batch. Default 30s. Zero or negative
+// disables batching (immediate writes).
+func WithStartupWriteDelay(d time.Duration) StoreOption {
+	return func(s *store) {
+		s.startupWriteWindow = d
+	}
+}
+
 func NewStore(opts ...StoreOption) *store {
 	cfgDir, err := os.UserConfigDir()
 	if err != nil {
@@ -98,10 +158,17 @@ func NewStore(opts ...StoreOption) *store {
 				models.RipGrepTool,
 			},
 		}),
-		classificationRequest:    make(chan classificationCandidate),
-		classifierErrors:         make(chan error),
-		classificationWorkers:    2,
-		classificationLogsOutdir: classifierLogOut,
+		classificationRequest:         make(chan classificationCandidate),
+		classifierErrors:              make(chan error),
+		classificationWorkers:         2,
+		classificationRate:            0.2,
+		classificationBurst:           3,
+		classificationStartupCooldown: 10 * time.Second,
+		classificationLogsOutdir:      classifierLogOut,
+		memoryThreshold:               0.8,
+		classificationMaxAttempts:     5,
+		startupWriteWindow:            30 * time.Second,
+		dirty:                         make(map[string]struct{}),
 
 		// Buffered chanel to not cause regression since it's currently only used in classify
 		// Large enough buffre to ever cause congestion due to waiting for it to be ready
@@ -220,12 +287,20 @@ func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 }
 
 func (s *store) Start(ctx context.Context) {
+	// Initialize rate limiter and cooldown timer before spawning the goroutine
+	// to avoid data races with AddToClassificationQueue.
+	s.classificationStationStartTime = time.Now()
+	s.rateLimiter = newRateLimiter(s.classificationRate, s.classificationBurst)
+	s.startupWriteWindowStart.Store(time.Now().UnixNano())
 	go func() {
 		err := s.StartClassificationStation(ctx)
 		if err != nil {
 			s.classifierErrors <- fmt.Errorf("failed to start classification station: %w", err)
 		}
 	}()
+	if s.startupWriteWindow > 0 {
+		go s.flushAfterWindow(ctx)
+	}
 }
 
 // generateID by creating a hash using sha256 on the contents of item.Path
@@ -263,8 +338,23 @@ func generateID(path string) string {
 
 func (s *store) store(i model.Item) error {
 	s.cacheMu.Lock()
-	defer s.cacheMu.Unlock()
 	s.cache[i.ID] = i
+
+	if s.isInStartupWriteWindow() {
+		s.cacheMu.Unlock()
+		s.dirtyMu.Lock()
+		s.dirty[i.ID] = struct{}{}
+		s.dirtyMu.Unlock()
+		return nil
+	}
+	defer s.cacheMu.Unlock()
+
+	return s.persistToDisk(i)
+}
+
+// persistToDisk writes the item to the on-disk JSON store. Caller must hold
+// s.cacheMu.Lock().
+func (s *store) persistToDisk(i model.Item) error {
 	storePath := path.Join(s.storePath, i.ID)
 	f, err := os.OpenFile(storePath, os.O_RDWR|os.O_CREATE, 0o644)
 	if err != nil {
@@ -304,6 +394,52 @@ func (s *store) store(i model.Item) error {
 	return nil
 }
 
+func (s *store) isInStartupWriteWindow() bool {
+	if s.startupWriteWindow <= 0 {
+		return false
+	}
+	start := time.Unix(0, s.startupWriteWindowStart.Load())
+	return time.Since(start) < s.startupWriteWindow
+}
+
+func (s *store) flushAfterWindow(ctx context.Context) {
+	select {
+	case <-ctx.Done():
+	case <-time.After(s.startupWriteWindow):
+	}
+	s.flushDirty()
+}
+
+func (s *store) flushDirty() {
+	s.dirtyMu.Lock()
+	if len(s.dirty) == 0 {
+		s.dirtyMu.Unlock()
+		return
+	}
+	keys := make([]string, 0, len(s.dirty))
+	for k := range s.dirty {
+		keys = append(keys, k)
+	}
+	s.dirty = make(map[string]struct{})
+	s.dirtyMu.Unlock()
+
+	ancli.Noticef("flushing %v deferred store writes", len(keys))
+	for _, id := range keys {
+		s.cacheMu.RLock()
+		item, ok := s.cache[id]
+		s.cacheMu.RUnlock()
+		if !ok {
+			continue
+		}
+		s.cacheMu.Lock()
+		if err := s.persistToDisk(item); err != nil {
+			ancli.Errf("flush: failed to write %v: %v", id, err)
+		}
+		s.cacheMu.Unlock()
+	}
+	ancli.Noticef("flush complete: %v items written", len(keys))
+}
+
 // Store the item in the local json store and add i to the cache
 func (s *store) Store(ctx context.Context, i model.Item) error {
 	hadID := i.ID != ""
@@ -333,7 +469,7 @@ func (s *store) Store(ctx context.Context, i model.Item) error {
 
 	if i.Metadata == nil && strings.Contains(i.MIMEType, "video") {
 		if strings.Contains(i.MIMEType, "video") {
-			err := s.handleVideoItem(i)
+			err := s.handleVideoItem(&i)
 			if err != nil {
 				ancli.Errf("failed to handle video item, continuing. Error is: %v", err)
 			}

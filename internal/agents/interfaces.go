@@ -9,9 +9,16 @@ import (
 
 type Classifier interface {
 	Setup(context.Context) error
+
 	// Classify some item in a blocking manner. Expected to take up to 10-30 seconds
 	// since implementation may be LLM based
 	Classify(context.Context, model.Item) (model.Item, error)
+
+	// Clone returns an independent copy of this classifier. The clone shares no
+	// mutable state with the original — each clone has its own LLM agent and
+	// output writer. This allows multiple workers to classify concurrently
+	// without data races on shared classifier state.
+	Clone() Classifier
 }
 
 // Recommender recommends some piece of media given some semantic

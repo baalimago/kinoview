@@ -76,9 +76,10 @@ type Indexer struct {
 	store     Storage
 
 	// Agents
-	recommender agents.Recommender
-	butler      agents.Butler
-	concierge   agents.Concierge
+	recommender           agents.Recommender
+	butler                agents.Butler
+	concierge             agents.Concierge
+	conciergeStartupDelay time.Duration
 
 	// Agent support managers
 	clientContextMgr agents.ClientContextManager
@@ -123,6 +124,12 @@ func WithButler(b agents.Butler) IndexerOption {
 func WithConcierge(c agents.Concierge) IndexerOption {
 	return func(i *Indexer) {
 		i.concierge = c
+	}
+}
+
+func WithConciergeStartupDelay(d time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.conciergeStartupDelay = d
 	}
 }
 
@@ -308,7 +315,13 @@ func (i *Indexer) Start(ctx context.Context) error {
 					conciergeErrChan <- err
 				}
 			}
-			// Run on startup for fun
+			if i.conciergeStartupDelay > 0 {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(i.conciergeStartupDelay):
+				}
+			}
 			do()
 			for {
 				select {

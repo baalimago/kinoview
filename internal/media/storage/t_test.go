@@ -8,12 +8,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
 type mockClassifier struct {
 	SetupFunc    func(context.Context) error
 	ClassifyFunc func(context.Context, model.Item) (model.Item, error)
+	CloneFunc    func() agents.Classifier
 }
 
 func (m *mockClassifier) Setup(ctx context.Context) error {
@@ -28,6 +30,18 @@ func (m *mockClassifier) Classify(ctx context.Context, item model.Item) (model.I
 		return m.ClassifyFunc(ctx, item)
 	}
 	return item, nil
+}
+
+func (m *mockClassifier) Clone() agents.Classifier {
+	if m.CloneFunc != nil {
+		return m.CloneFunc()
+	}
+	// Default: return a copy with same functions
+	return &mockClassifier{
+		SetupFunc:    m.SetupFunc,
+		ClassifyFunc: m.ClassifyFunc,
+		CloneFunc:    m.CloneFunc,
+	}
 }
 
 func mockHTTPRequest(method, target string, body io.Reader) *http.Request {

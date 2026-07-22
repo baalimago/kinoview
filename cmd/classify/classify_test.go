@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/model"
@@ -150,8 +149,8 @@ func TestCommand_Flagset(t *testing.T) {
 		t.Fatalf("model default value is not 'gpt-5', got: %s", *cmd.model)
 	}
 
-	if *cmd.workers != 5 {
-		t.Fatalf("workers default value is not 5, got: %d", *cmd.workers)
+	if *cmd.workers != 2 {
+		t.Fatalf("workers default value is not 2, got: %d", *cmd.workers)
 	}
 }
 
@@ -175,7 +174,6 @@ func TestCommand_Flagset_parsing(t *testing.T) {
 }
 
 func TestCommand_Setup_success(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -187,6 +185,12 @@ func TestCommand_Setup_success(t *testing.T) {
 	*cmd.model = "gpt-4"
 	cmd.workers = new(int)
 	*cmd.workers = 3
+	cmd.rate = new(float64)
+	*cmd.rate = 0.2
+	cmd.burst = new(int)
+	*cmd.burst = 3
+	cmd.cooldown = new(time.Duration)
+	*cmd.cooldown = 10 * time.Second
 
 	ctx := context.Background()
 	err := cmd.Setup(ctx)
@@ -200,7 +204,6 @@ func TestCommand_Setup_success(t *testing.T) {
 }
 
 func TestCommand_Setup_missing_model(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -249,8 +252,8 @@ func TestCommand_Flagset_defaults(t *testing.T) {
 		t.Fatalf("default model should be 'gpt-5', got: %s", *cmd.model)
 	}
 
-	if *cmd.workers != 5 {
-		t.Fatalf("default workers should be 5, got: %d", *cmd.workers)
+	if *cmd.workers != 2 {
+		t.Fatalf("default workers should be 2, got: %d", *cmd.workers)
 	}
 }
 
@@ -329,7 +332,6 @@ func TestCommand_Flagset_unknown_flag(t *testing.T) {
 }
 
 func TestCommand_Setup_creates_store(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -341,6 +343,12 @@ func TestCommand_Setup_creates_store(t *testing.T) {
 	*cmd.model = "gpt-4"
 	cmd.workers = new(int)
 	*cmd.workers = 2
+	cmd.rate = new(float64)
+	*cmd.rate = 0.2
+	cmd.burst = new(int)
+	*cmd.burst = 3
+	cmd.cooldown = new(time.Duration)
+	*cmd.cooldown = 10 * time.Second
 
 	if cmd.store != nil {
 		t.Fatalf("store should be nil before Setup")
@@ -358,7 +366,6 @@ func TestCommand_Setup_creates_store(t *testing.T) {
 }
 
 func TestCommand_Setup_with_context_timeout(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -370,6 +377,12 @@ func TestCommand_Setup_with_context_timeout(t *testing.T) {
 	*cmd.model = "gpt-4"
 	cmd.workers = new(int)
 	*cmd.workers = 1
+	cmd.rate = new(float64)
+	*cmd.rate = 0.2
+	cmd.burst = new(int)
+	*cmd.burst = 3
+	cmd.cooldown = new(time.Duration)
+	*cmd.cooldown = 10 * time.Second
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -501,7 +514,6 @@ func TestCommand_Flagset_workers_description(t *testing.T) {
 }
 
 func TestCommand_Setup_model_passed_to_store(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -528,7 +540,6 @@ func TestCommand_Setup_model_passed_to_store(t *testing.T) {
 }
 
 func TestCommand_Setup_workers_passed_to_store(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -623,7 +634,6 @@ func TestCommand_Help_content(t *testing.T) {
 }
 
 func TestCommand_Setup_store_path_created(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 	storePath := path.Join(tempDir, "subdir", "store")
 
@@ -741,7 +751,6 @@ func TestCommand_stationStorage_interface(t *testing.T) {
 }
 
 func TestCommand_Setup_with_zero_workers(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -787,7 +796,6 @@ func TestCommand_Flagset_string_conversion(t *testing.T) {
 }
 
 func TestCommand_Setup_creates_classifier(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -830,7 +838,6 @@ func TestCommand_Flagset_error_handling(t *testing.T) {
 }
 
 func TestCommand_Setup_idempotent_paths(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -897,13 +904,13 @@ func TestCommand_Flagset_model_default_gpt5(t *testing.T) {
 	}
 }
 
-func TestCommand_Flagset_workers_default_5(t *testing.T) {
+func TestCommand_Flagset_workers_default_2(t *testing.T) {
 	cmd := &command{}
 	cmd.Flagset()
 
 	// Check the default value
-	if *cmd.workers != 5 {
-		t.Fatalf("default workers should be 5, got: %d", *cmd.workers)
+	if *cmd.workers != 2 {
+		t.Fatalf("default workers should be 2, got: %d", *cmd.workers)
 	}
 }
 
@@ -921,7 +928,6 @@ func TestCommand_Flagset_stores_reference(t *testing.T) {
 }
 
 func TestCommand_Setup_store_interface(t *testing.T) {
-	ancli.Silent = true
 	tempDir := t.TempDir()
 
 	cmd := &command{
@@ -1214,8 +1220,6 @@ func TestCommand_errorMonitor_context_timeout(t *testing.T) {
 
 // Tests for Run()
 func TestCommand_Run_with_mock_input_approve(t *testing.T) {
-	ancli.Silent = true
-
 	mock := &mockStorage{
 		readyChan: make(chan struct{}),
 		snapshotRetVal: []model.Item{
@@ -1245,8 +1249,6 @@ func TestCommand_Run_with_mock_input_approve(t *testing.T) {
 }
 
 func TestCommand_Run_user_abort(t *testing.T) {
-	ancli.Silent = true
-
 	mock := &mockStorage{
 		readyChan: make(chan struct{}),
 		snapshotRetVal: []model.Item{
@@ -1281,8 +1283,6 @@ func TestCommand_Run_user_abort(t *testing.T) {
 }
 
 func TestCommand_Run_no_items_found(t *testing.T) {
-	ancli.Silent = true
-
 	mock := &mockStorage{
 		readyChan:                    make(chan struct{}),
 		snapshotRetVal:               []model.Item{},
@@ -1310,8 +1310,6 @@ func TestCommand_Run_no_items_found(t *testing.T) {
 }
 
 func TestCommand_Run_classification_station_error(t *testing.T) {
-	ancli.Silent = true
-
 	mock := &mockStorage{
 		readyChan:                    make(chan struct{}),
 		snapshotRetVal:               []model.Item{{Name: "video1.mp4", MIMEType: "video/mp4"}},
@@ -1338,8 +1336,6 @@ func TestCommand_Run_classification_station_error(t *testing.T) {
 }
 
 func TestCommand_Run_start_classification_station_fails(t *testing.T) {
-	ancli.Silent = true
-
 	mock := &mockStorage{
 		readyChan:      make(chan struct{}),
 		snapshotRetVal: []model.Item{{Name: "video1.mp4", MIMEType: "video/mp4"}},
@@ -1362,8 +1358,6 @@ func TestCommand_Run_start_classification_station_fails(t *testing.T) {
 }
 
 func TestCommand_Run_with_filtered_items(t *testing.T) {
-	ancli.Silent = true
-
 	mock := &mockStorage{
 		readyChan: make(chan struct{}),
 		snapshotRetVal: []model.Item{

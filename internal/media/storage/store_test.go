@@ -12,7 +12,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/debug"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 	"github.com/baalimago/kinoview/internal/model"
@@ -69,7 +68,6 @@ func Test_store_Setup(t *testing.T) {
 }
 
 func TestJSONStore_Store(t *testing.T) {
-	ancli.Silent = true
 	t.Run("store item successfully", func(t *testing.T) {
 		s := newTestStore(t)
 
@@ -355,7 +353,6 @@ func Test_Stream_store_ffmpegSubsUtil_extract(t *testing.T) {
 }
 
 func Test_Stream_store_ffmpegSubsUtil_find(t *testing.T) {
-	ancli.Silent = true
 	t.Run("find uses mediaCache hit", func(t *testing.T) {
 		wantIdx := 404
 		util := &ffmpegSubsUtil{
@@ -464,7 +461,8 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 
 	t.Run("eventually adds metadata when storing new file", func(t *testing.T) {
 		dir := t.TempDir()
-		s := NewStore(WithStorePath(dir))
+		s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
+		s.classificationRequest = make(chan classificationCandidate, 10)
 		want := `{"some": "metadata"}`
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error { return nil },
@@ -476,7 +474,7 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 				return i, nil
 			},
 		}
-		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+		testCtx, testCtxCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		t.Cleanup(testCtxCancel)
 		storeErrors, err := s.Setup(testCtx)
 		s.Start(testCtx)
@@ -489,29 +487,33 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 			t.Fatalf("Store failed: %v", err)
 		}
 
-		select {
-		case <-time.After(time.Millisecond * 50):
-		case err := <-storeErrors:
-			t.Fatalf("expected no errors, got: %v", err)
+		// Wait for classification to complete (poll to avoid flakiness)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			s.cacheMu.RLock()
+			got, exist := s.cache[item.ID]
+			s.cacheMu.RUnlock()
+			if exist && got.Metadata != nil {
+				gotMetadata := string(*got.Metadata)
+				if gotMetadata != want {
+					t.Errorf("expected metadata to be set, got: %v", gotMetadata)
+				}
+				return
+			}
+			select {
+			case err := <-storeErrors:
+				t.Fatalf("unexpected error: %v", err)
+			default:
+			}
+			time.Sleep(10 * time.Millisecond)
 		}
-		s.cacheMu.Lock()
-		t.Cleanup(s.cacheMu.Unlock)
-		got, exist := s.cache[item.ID]
-		if !exist {
-			t.Fatal("expected item to exist in store")
-		}
-		if got.Metadata == nil {
-			t.Fatalf("expected metadata on item: %v", debug.IndentedJsonFmt(got))
-		}
-		gotMetadata := string(*got.Metadata)
-		if gotMetadata != want {
-			t.Errorf("expected metadata to be set, got: %v", gotMetadata)
-		}
+		t.Fatal("timed out waiting for metadata")
 	})
 
 	t.Run("existing file metadata is not regenerated or overwritten", func(t *testing.T) {
 		dir := t.TempDir()
-		s := NewStore(WithStorePath(dir))
+		s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
+		s.classificationRequest = make(chan classificationCandidate, 10)
 		s.classifier = &mockClassifier{
 			SetupFunc: func(ctx context.Context) error { return nil },
 			ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
@@ -520,7 +522,7 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 				return i, nil
 			},
 		}
-		ctx, ctxCancel := context.WithTimeout(context.Background(), time.Millisecond*100)
+		ctx, ctxCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		t.Cleanup(ctxCancel)
 		_, err := s.Setup(ctx)
 		s.Start(ctx)
@@ -553,7 +555,18 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Store failed on second call: %v", err)
 		}
-		time.Sleep(time.Millisecond * 100)
+
+		// Wait for classification to complete
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			s.cacheMu.RLock()
+			got := s.cache[item.ID]
+			s.cacheMu.RUnlock()
+			if got.Metadata != nil && string(*got.Metadata) == originalMeta {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
 		s.cacheMu.Lock()
 		t.Cleanup(s.cacheMu.Unlock)
 		got := s.cache[item.ID]
@@ -781,7 +794,6 @@ func Test_store_Store(t *testing.T) {
 	})
 
 	t.Run("concurrent stores are safe and complete", func(t *testing.T) {
-		ancli.Silent = true
 		dir := t.TempDir()
 		s := NewStore(WithStorePath(dir))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -953,6 +965,298 @@ func Test_loadPersistedItems(t *testing.T) {
 		bad := path.Join(t.TempDir(), "missing")
 		if err := s.loadPersistedItems(bad); err == nil {
 			t.Fatal("expected error on ReadDir")
+		}
+	})
+}
+
+func Test_startupWriteBatching(t *testing.T) {
+	t.Run("defers writes during startup window", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(500*time.Millisecond))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		s.Start(ctx)
+
+		item := model.Item{ID: "a1", Name: "n"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+
+		// Cache should be updated immediately
+		s.cacheMu.RLock()
+		got, ok := s.cache["a1"]
+		s.cacheMu.RUnlock()
+		if !ok {
+			t.Fatal("cache miss for a1")
+		}
+		if got.Name != "n" {
+			t.Fatalf("cache name = %q", got.Name)
+		}
+
+		// Disk should NOT have the file yet
+		p := path.Join(dir, "a1")
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatal("file should not exist on disk during window")
+		}
+
+		// After window expires, flush should write to disk
+		time.Sleep(600 * time.Millisecond)
+		// Poll for the file to appear
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(p); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read after flush: %v", err)
+		}
+		var onDisk model.Item
+		if err := json.Unmarshal(b, &onDisk); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if onDisk.Name != "n" {
+			t.Fatalf("disk name = %q", onDisk.Name)
+		}
+	})
+
+	t.Run("multiple updates during window result in single write", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(200*time.Millisecond))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		s.Start(ctx)
+
+		// Store same item 5 times during window
+		for i := range 5 {
+			if err := s.store(model.Item{ID: "dup", Name: fmt.Sprintf("v%d", i)}); err != nil {
+				t.Fatalf("store %d: %v", i, err)
+			}
+		}
+
+		// Wait for flush
+		time.Sleep(300 * time.Millisecond)
+		deadline := time.Now().Add(2 * time.Second)
+		p := path.Join(dir, "dup")
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(p); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		var onDisk model.Item
+		if err := json.Unmarshal(b, &onDisk); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		// Last value wins
+		if onDisk.Name != "v4" {
+			t.Fatalf("disk name = %q, want v4", onDisk.Name)
+		}
+	})
+
+	t.Run("zero delay writes immediately", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(0))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		s.Start(ctx)
+
+		item := model.Item{ID: "immediate", Name: "now"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+
+		// Disk should have the file immediately
+		p := path.Join(dir, "immediate")
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("file should exist on disk with zero delay: %v", err)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read: %v", err)
+		}
+		var onDisk model.Item
+		if err := json.Unmarshal(b, &onDisk); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if onDisk.Name != "now" {
+			t.Fatalf("disk name = %q", onDisk.Name)
+		}
+	})
+
+	t.Run("negative delay writes immediately", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(-1*time.Second))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		s.Start(ctx)
+
+		item := model.Item{ID: "neg", Name: "immediate"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+
+		p := path.Join(dir, "neg")
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("file should exist on disk with negative delay: %v", err)
+		}
+	})
+
+	t.Run("flush on context cancel", func(t *testing.T) {
+		dir := t.TempDir()
+		// Long window — cancel before it expires
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(10*time.Second))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		s.Start(ctx)
+
+		item := model.Item{ID: "ctxflush", Name: "cancelled"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+
+		// Cancel context — flush should trigger
+		cancel()
+
+		// Poll for file
+		p := path.Join(dir, "ctxflush")
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := os.Stat(p); err == nil {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatalf("read after cancel: %v", err)
+		}
+		var onDisk model.Item
+		if err := json.Unmarshal(b, &onDisk); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if onDisk.Name != "cancelled" {
+			t.Fatalf("disk name = %q", onDisk.Name)
+		}
+	})
+
+	t.Run("dirty set cleared after flush", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(100*time.Millisecond))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		s.Start(ctx)
+
+		if err := s.store(model.Item{ID: "clr", Name: "x"}); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+
+		// Wait for flush
+		time.Sleep(200 * time.Millisecond)
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) {
+			s.dirtyMu.Lock()
+			l := len(s.dirty)
+			s.dirtyMu.Unlock()
+			if l == 0 {
+				break
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+
+		s.dirtyMu.Lock()
+		l := len(s.dirty)
+		s.dirtyMu.Unlock()
+		if l != 0 {
+			t.Fatalf("dirty set should be empty after flush, got %d", l)
+		}
+	})
+
+	t.Run("post-window stores write immediately", func(t *testing.T) {
+		dir := t.TempDir()
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(100*time.Millisecond))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		s.Start(ctx)
+
+		// Wait for window to expire
+		time.Sleep(200 * time.Millisecond)
+
+		item := model.Item{ID: "post", Name: "after"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+
+		// Should be on disk immediately after window
+		p := path.Join(dir, "post")
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("file should exist on disk after window: %v", err)
+		}
+	})
+
+	t.Run("default delay 30s — writes deferred", func(t *testing.T) {
+		dir := t.TempDir()
+		// Use default (30s) — too long to wait, just verify deferral starts
+		s := NewStore(WithStorePath(dir))
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatalf("mkdir: %v", err)
+		}
+
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		s.Start(ctx)
+
+		item := model.Item{ID: "def", Name: "defaults"}
+		if err := s.store(item); err != nil {
+			t.Fatalf("store: %v", err)
+		}
+
+		// Cache updated
+		s.cacheMu.RLock()
+		got, ok := s.cache["def"]
+		s.cacheMu.RUnlock()
+		if !ok || got.Name != "defaults" {
+			t.Fatal("cache should be updated")
+		}
+
+		// Disk NOT updated
+		p := path.Join(dir, "def")
+		if _, err := os.Stat(p); !os.IsNotExist(err) {
+			t.Fatal("file should not exist on disk during default window")
 		}
 	})
 }

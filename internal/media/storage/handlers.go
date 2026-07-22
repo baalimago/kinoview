@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/media/thumbnail"
@@ -51,8 +52,22 @@ func (s *store) handleImageItem(i *model.Item) error {
 	return nil
 }
 
-func (s *store) handleVideoItem(i model.Item) error {
-	s.AddToClassificationQueue(i)
+func (s *store) handleVideoItem(i *model.Item) error {
+	if i.ClassificationAttempts >= s.classificationMaxAttempts {
+		ancli.Warnf("classification permanently skipped for %v: max attempts (%v) reached", i.Name, s.classificationMaxAttempts)
+		return nil
+	}
+	if i.ClassificationAttempts > 0 {
+		backoff := classificationBackoff(i.ClassificationAttempts)
+		if elapsed := time.Since(i.ClassificationLastTry); elapsed < backoff {
+			ancli.Noticef("classification backoff for %v: %v remaining", i.Name, (backoff - elapsed).Round(time.Second))
+			return nil
+		}
+	}
+	i.ClassificationAttempts++
+	i.ClassificationLastTry = time.Now()
+	i.ClassificationError = ""
+	s.AddToClassificationQueue(*i)
 	return nil
 }
 
