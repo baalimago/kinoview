@@ -42,6 +42,12 @@ type Item struct {
 	ClassificationAttempts int       `json:"classificationAttempts,omitempty"`
 	ClassificationLastTry  time.Time `json:"classificationLastTry,omitempty"`
 	ClassificationError    string    `json:"classificationError,omitempty"`
+
+	// SubtitlePaths are user-specified absolute paths to external subtitle files
+	// associated with this media item. Files must exist and have a subtitle extension
+	// (.srt, .vtt, .sub, .ass, .ssa). Used by the stream manager's findExternal
+	// discovery and surfaced in the media list command.
+	SubtitlePaths []string `json:"subtitlePaths,omitempty"`
 }
 
 type ViewMetadata struct {

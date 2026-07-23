@@ -566,3 +566,76 @@ func TestFindExternal_CacheRefresh(t *testing.T) {
 		t.Fatalf("after srt removal expected 1 stream, got %d", len(info.Streams))
 	}
 }
+
+// TestFindExternal_SubtitlePaths verifies that item.SubtitlePaths are picked up
+// as external subtitle streams (Pattern 5).
+func TestFindExternal_SubtitlePaths(t *testing.T) {
+	tmp := t.TempDir()
+
+	// Create media file and one sidecar .srt
+	mediaDir := filepath.Join(tmp, "Movie")
+	os.MkdirAll(mediaDir, 0o755)
+	mediaPath := filepath.Join(mediaDir, "Movie.1999.mp4")
+	os.WriteFile(mediaPath, []byte("fake"), 0o644)
+	sidecarPath := filepath.Join(mediaDir, "Movie.1999.srt")
+	os.WriteFile(sidecarPath, []byte("1\n00:00:01,000 --> 00:00:02,000\nHello"), 0o644)
+
+	// Create a subtitle file elsewhere (simulating manual download)
+	extSubDir := t.TempDir()
+	manualSub := filepath.Join(extSubDir, "downloaded-sub.srt")
+	os.WriteFile(manualSub, []byte("1\n00:00:01,000 --> 00:00:02,000\nWorld"), 0o644)
+
+	// Create a non-existent path (should be silently skipped)
+	nonexistentPath := filepath.Join(extSubDir, "does-not-exist.vtt")
+
+	mr := &mockRunner{
+		outputMap: map[string][]byte{"ffprobe": []byte(`{"streams":[{"index":0,"codec_type":"video"}]}`)},
+		runErrMap: make(map[string]error),
+	}
+
+	m, _ := NewManager(withRunner(mr), WithStoragePath(t.TempDir()))
+	item := model.Item{
+		ID:   "subtitle-paths-test",
+		Name: "Movie.1999.mp4",
+		Path: mediaPath,
+		SubtitlePaths: []string{
+			manualSub,
+			nonexistentPath, // should be skipped
+			sidecarPath,     // duplicate with Pattern 3, should be deduplicated
+		},
+	}
+
+	info, err := m.Find(item)
+	if err != nil {
+		t.Fatalf("Find failed: %v", err)
+	}
+
+	// Should have: 1 embedded video + 1 sidecar (Pattern 3) + 1 manual (Pattern 5)
+	// The sidecar appears in both Pattern 3 and SubtitlePaths, but dedup means 1 entry.
+	// The nonexistent path is skipped.
+	if len(info.Streams) != 3 {
+		t.Fatalf("expected 3 streams (1 embedded + 1 sidecar + 1 manual), got %d", len(info.Streams))
+	}
+
+	// Verify the manual subtitle is present
+	found := false
+	for _, s := range info.Streams {
+		if s.ExternalPath == manualSub {
+			found = true
+			if s.CodecType != "subtitle" {
+				t.Error("manual sub should have codec_type subtitle")
+			}
+			break
+		}
+	}
+	if !found {
+		t.Errorf("manual subtitle %s not found in streams", manualSub)
+	}
+
+	// Verify the nonexistent path was NOT included
+	for _, s := range info.Streams {
+		if s.ExternalPath == nonexistentPath {
+			t.Errorf("nonexistent path %s should not be in streams", nonexistentPath)
+		}
+	}
+}

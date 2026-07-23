@@ -56,13 +56,16 @@ func (c *listCmd) Help() string {
 
 Interactive mode (no extra args): Opens a paginated table of all media items.
 Navigate with n/p, filter with /pattern, select by index number.
-After selection: [i]nspect JSON, [d]elete, [r]eclassify, [b]ack to table.
+After selection: [i]nspect JSON, [d]elete, [r]eclassify, [s]ubtitles, [b]ack to table.
 
 Macro mode: Each argument after "list" is processed sequentially.
 Examples:
   kinoview media list n n 5          # page 2, select index 5, show info
   kinoview media list /office 0 i    # filter "office", select, inspect JSON
   kinoview media list 0 d            # select first item, delete (needs confirm)
+  kinoview media list 0 s            # select and show subtitle info
+  kinoview media list 0 sa /path/sub.srt  # select and associate subtitle file
+  kinoview media list 0 sr 0         # select and remove subtitle at index 0
   kinoview media list --force 0 d    # delete without confirmation`
 }
 
@@ -175,7 +178,7 @@ func (lc *listController) runInteractive() error {
 }
 
 func (lc *listController) interactivePostSelect(item model.Item) (done bool, back bool, err error) {
-	fmt.Printf("\n(press [d]elete, [r]eclassify, [i]nspect JSON, [b]ack to list, [q]uit): ")
+	fmt.Printf("\n(press [d]elete, [r]eclassify, [i]nspect JSON, [s]ubtitles, [b]ack to list, [q]uit): ")
 	input, inputErr := table.ReadUserInput()
 	if inputErr != nil {
 		if errors.Is(inputErr, table.ErrUserInitiatedExit) {
@@ -209,6 +212,8 @@ func (lc *listController) interactivePostSelect(item model.Item) (done bool, bac
 		}
 		ancli.Okf("Reclassify queued for: %v", item.Name)
 		return true, false, nil
+	case "s":
+		return lc.interactiveSubtitleManager(item)
 	case "b":
 		return false, true, nil
 	case "q", "":
@@ -216,6 +221,77 @@ func (lc *listController) interactivePostSelect(item model.Item) (done bool, bac
 	default:
 		ancli.Warnf("Unknown action: %q", input)
 		return false, false, nil
+	}
+}
+
+func (lc *listController) interactiveSubtitleManager(item model.Item) (done bool, back bool, err error) {
+	for {
+		fmt.Printf("\nSubtitle files for %q:\n", item.Name)
+		if len(item.SubtitlePaths) == 0 {
+			fmt.Println("  (none)")
+		} else {
+			for i, p := range item.SubtitlePaths {
+				status := "✓"
+				if _, statErr := os.Stat(p); statErr != nil {
+					status = "✗ (missing)"
+				}
+				fmt.Printf("  [%d] %v %v\n", i, status, p)
+			}
+		}
+
+		fmt.Printf("\n(press [a]dd path, [r]emove <index>, [b]ack): ")
+		input, inputErr := table.ReadUserInput()
+		if inputErr != nil {
+			if errors.Is(inputErr, table.ErrUserInitiatedExit) {
+				return true, false, nil
+			}
+			return false, false, inputErr
+		}
+
+		input = strings.TrimSpace(input)
+		if input == "" || input == "b" || input == "q" {
+			return false, false, nil
+		}
+
+		parts := smartSplit(input)
+		switch strings.ToLower(parts[0]) {
+		case "a", "add":
+			if len(parts) < 2 {
+				ancli.Warnf("Usage: a <path-to-subtitle-file>")
+				continue
+			}
+			filePath := parts[1]
+			// Unescape surrounding quotes if present
+			filePath = strings.Trim(filePath, `"'`)
+			if err := addSubtitlePath(&item, filePath); err != nil {
+				ancli.Errf("Failed to add: %v", err)
+				continue
+			}
+			if err := lc.store.UpdateItem(item); err != nil {
+				ancli.Errf("Failed to save: %v", err)
+				continue
+			}
+			ancli.Okf("Added subtitle: %v", filePath)
+		case "r", "remove":
+			if len(parts) < 2 {
+				ancli.Warnf("Usage: r <index>")
+				continue
+			}
+			idx, parseErr := strconv.Atoi(parts[1])
+			if parseErr != nil || idx < 0 || idx >= len(item.SubtitlePaths) {
+				ancli.Errf("Invalid index: %q (valid: 0-%d)", parts[1], len(item.SubtitlePaths)-1)
+				continue
+			}
+			removed := item.SubtitlePaths[idx]
+			item.SubtitlePaths = append(item.SubtitlePaths[:idx], item.SubtitlePaths[idx+1:]...)
+			if err := lc.store.UpdateItem(item); err != nil {
+				ancli.Errf("Failed to save: %v", err)
+				continue
+			}
+			ancli.Okf("Removed subtitle: %v", removed)
+		default:
+			ancli.Warnf("Unknown action: %q (valid: a, r, b)", parts[0])
+		}
 	}
 }
 
@@ -234,6 +310,83 @@ func readYesNo(prompt string) bool {
 	}
 	input = strings.ToLower(strings.TrimSpace(input))
 	return input == "y" || input == "yes"
+}
+
+// smartSplit splits input by spaces but respects quoted substrings.
+// Used for parsing user input like: a "/path/with spaces/file.srt"
+func smartSplit(input string) []string {
+	var parts []string
+	var current strings.Builder
+	inQuotes := false
+	quoteChar := byte(0)
+
+	for i := 0; i < len(input); i++ {
+		c := input[i]
+		if inQuotes {
+			if c == quoteChar {
+				inQuotes = false
+				quoteChar = 0
+			} else {
+				current.WriteByte(c)
+			}
+		} else {
+			if c == '"' || c == '\'' {
+				inQuotes = true
+				quoteChar = c
+			} else if c == ' ' {
+				if current.Len() > 0 {
+					parts = append(parts, current.String())
+					current.Reset()
+				}
+			} else {
+				current.WriteByte(c)
+			}
+		}
+	}
+	if current.Len() > 0 {
+		parts = append(parts, current.String())
+	}
+	return parts
+}
+
+var validSubtitleExts = map[string]bool{
+	".srt": true,
+	".vtt": true,
+	".sub": true,
+	".ass": true,
+	".ssa": true,
+}
+
+// addSubtitlePath validates and appends a subtitle file path to the item.
+// Rejects: non-existent files, directories, non-subtitle extensions, duplicates.
+func addSubtitlePath(item *model.Item, filePath string) error {
+	filePath = path.Clean(filePath)
+
+	info, err := os.Stat(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return fmt.Errorf("file not found: %s", filePath)
+		}
+		return fmt.Errorf("cannot access path: %w", err)
+	}
+	if info.IsDir() {
+		return fmt.Errorf("path is a directory: %s", filePath)
+	}
+
+	ext := strings.ToLower(path.Ext(filePath))
+	if !validSubtitleExts[ext] {
+		return fmt.Errorf("not a subtitle file: %s (valid extensions: .srt, .vtt, .sub, .ass, .ssa)", filePath)
+	}
+
+	// Deduplicate
+	for _, existing := range item.SubtitlePaths {
+		if existing == filePath {
+			return fmt.Errorf("path already associated: %s", filePath)
+		}
+	}
+
+	item.SubtitlePaths = append(item.SubtitlePaths, filePath)
+	return nil
 }
 
 // runMacro processes the macro token slice. Tokens are split at the first
@@ -308,6 +461,40 @@ func (lc *listController) runMacro(tokens []string) error {
 			}
 			ancli.Okf("Reclassify queued for: %v", item.Name)
 			return nil
+		case "s":
+			// Just print subtitle info and exit (summary already printed)
+			return nil
+		case "sa":
+			if len(tokens) == 0 {
+				return fmt.Errorf("sa requires a path argument: sa <path-to-subtitle>")
+			}
+			subPath := tokens[0]
+			tokens = tokens[1:]
+			if err := addSubtitlePath(&item, subPath); err != nil {
+				return fmt.Errorf("add subtitle: %w", err)
+			}
+			if err := lc.store.UpdateItem(item); err != nil {
+				return fmt.Errorf("save item: %w", err)
+			}
+			ancli.Okf("Added subtitle: %v", subPath)
+			return nil
+		case "sr":
+			if len(tokens) == 0 {
+				return fmt.Errorf("sr requires an index argument: sr <index>")
+			}
+			idxArg := tokens[0]
+			tokens = tokens[1:]
+			idx, parseErr := strconv.Atoi(idxArg)
+			if parseErr != nil || idx < 0 || idx >= len(item.SubtitlePaths) {
+				return fmt.Errorf("invalid subtitle index: %q (valid: 0-%d)", idxArg, len(item.SubtitlePaths)-1)
+			}
+			removed := item.SubtitlePaths[idx]
+			item.SubtitlePaths = append(item.SubtitlePaths[:idx], item.SubtitlePaths[idx+1:]...)
+			if err := lc.store.UpdateItem(item); err != nil {
+				return fmt.Errorf("save item: %w", err)
+			}
+			ancli.Okf("Removed subtitle: %v", removed)
+			return nil
 		case "b":
 			// Re-enter table loop with remaining tokens.
 			items = lc.store.Snapshot()
@@ -318,7 +505,7 @@ func (lc *listController) runMacro(tokens []string) error {
 		case "q":
 			return nil
 		default:
-			return fmt.Errorf("unknown macro action: %q (valid: i, d, r, b, q)", action)
+			return fmt.Errorf("unknown macro action: %q (valid: i, d, r, s, sa, sr, b, q)", action)
 		}
 	}
 	return nil
@@ -396,29 +583,34 @@ func isAllDigits(s string) bool {
 
 // rowFormatter formats a single item as a table row with fixed-width columns.
 func (lc *listController) rowFormatter(idx int, item model.Item) (string, error) {
-	name := truncateTo(item.Name, 60)
+	name := truncateTo(item.Name, 55)
 	mime := shortMIME(item.MIMEType)
 	metadata := "✗"
 	if item.Metadata != nil {
 		metadata = "✓"
 	}
 	attempts := strconv.Itoa(item.ClassificationAttempts)
+	subs := "✗"
+	if len(item.SubtitlePaths) > 0 {
+		subs = "✓"
+	}
 	size := fileSizeStr(item.Path)
 
 	return fmt.Sprintf(
-		"%-6d %-60s %-8s %-8s %-4s %10s",
+		"%-6d %-55s %-8s %-8s %-4s %-5s %10s",
 		idx,
 		name,
 		mime,
 		metadata,
 		attempts,
+		subs,
 		size,
 	), nil
 }
 
 func mediaTableHeader() string {
-	return fmt.Sprintf("%-6s %-60s %-8s %-8s %-4s %10s",
-		"Index", "Name", "Type", "Metadata", "Attr", "Size")
+	return fmt.Sprintf("%-6s %-55s %-8s %-8s %-4s %-5s %10s",
+		"Index", "Name", "Type", "Metadata", "Attr", "Subs", "Size")
 }
 
 func printItemSummary(item model.Item) {
@@ -440,6 +632,19 @@ func printItemSummary(item model.Item) {
 
 	size := fileSizeStr(item.Path)
 	fmt.Printf("Size:       %v\n", size)
+
+	if len(item.SubtitlePaths) > 0 {
+		fmt.Printf("Subtitles:  %d associated\n", len(item.SubtitlePaths))
+		for i, p := range item.SubtitlePaths {
+			status := "✓"
+			if _, err := os.Stat(p); err != nil {
+				status = "✗ (missing)"
+			}
+			fmt.Printf("  [%d] %v %v\n", i, status, p)
+		}
+	} else {
+		fmt.Println("Subtitles:  (none)")
+	}
 }
 
 func formatMetadata(raw json.RawMessage) string {

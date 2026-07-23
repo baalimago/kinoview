@@ -187,6 +187,7 @@ func (m *Manager) stripExternal(info model.MediaInfo) model.MediaInfo {
 //  2. {subtitleCachePath}/subtitles/{item.ID}/*.srt, *.vtt (downloaded cache)
 //  3. {dir}/{basename}.srt, {basename}.vtt      (same-name sidecar)
 //  4. {dir}/Subs/*.srt, *.vtt                   (flat Subs directory fallback)
+//  5. item.SubtitlePaths                        (user-specified associations)
 //
 // Indices start from -1, decrementing.
 func (m *Manager) findExternal(item model.Item) []model.Stream {
@@ -211,6 +212,13 @@ func (m *Manager) findExternal(item model.Item) []model.Stream {
 	// Pattern 4: flat Subs/*.srt, *.vtt
 	flatSubsDir := filepath.Join(dir, "Subs")
 	paths = append(paths, globFiles(flatSubsDir)...)
+
+	// Pattern 5: user-specified SubtitlePaths — validate existence
+	for _, p := range item.SubtitlePaths {
+		if _, err := os.Stat(p); err == nil {
+			paths = append(paths, p)
+		}
+	}
 
 	// Deduplicate
 	seen := make(map[string]bool)

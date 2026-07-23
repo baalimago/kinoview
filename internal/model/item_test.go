@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 )
@@ -360,6 +361,43 @@ func TestMatchesGlobalSearch(t *testing.T) {
 			t.Fatal("should match name despite invalid metadata")
 		}
 	})
+}
+
+func TestItemSubtitlePaths_JSONRoundTrip(t *testing.T) {
+	item := Item{
+		ID:            "test-id",
+		Name:          "Movie.mp4",
+		Path:          "/v/movie.mp4",
+		SubtitlePaths: []string{"/subs/english.srt", "/subs/french.vtt"},
+	}
+
+	data, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	var restored Item
+	if err := json.Unmarshal(data, &restored); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+
+	if len(restored.SubtitlePaths) != 2 {
+		t.Fatalf("expected 2 subtitle paths, got %d", len(restored.SubtitlePaths))
+	}
+	if restored.SubtitlePaths[0] != "/subs/english.srt" {
+		t.Errorf("expected /subs/english.srt, got %s", restored.SubtitlePaths[0])
+	}
+}
+
+func TestItemSubtitlePaths_OmitEmpty(t *testing.T) {
+	item := Item{ID: "test", Name: "Movie.mp4", Path: "/v/movie.mp4"}
+	data, err := json.Marshal(item)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(data), "subtitlePaths") {
+		t.Error("omitempty should suppress empty subtitlePaths")
+	}
 }
 
 func TestSearchMetadata(t *testing.T) {
