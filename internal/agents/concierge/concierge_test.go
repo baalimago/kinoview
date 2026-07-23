@@ -1,7 +1,6 @@
 package concierge
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -40,12 +39,6 @@ func (m *mockSubtitleManager) ExtractSubtitles(item model.Item, streamIndex stri
 }
 func (m *mockSubtitleManager) Associate(item model.Item, path string) error { return nil }
 
-type mockSubtitleSelector struct{}
-
-func (m *mockSubtitleSelector) Select(ctx context.Context, streams []model.Stream) (int, error) {
-	return 0, nil
-}
-
 type mockUserContextManager struct{}
 
 func (m *mockUserContextManager) AllClientContexts() []model.ClientContext { return nil }
@@ -58,7 +51,6 @@ func TestNew_Errors(t *testing.T) {
 	mm := &mockMetadataManager{}
 	sm := &mockSuggestionManager{}
 	subm := &mockSubtitleManager{}
-	ss := &mockSubtitleSelector{}
 
 	tests := []struct {
 		name string
@@ -70,7 +62,6 @@ func TestNew_Errors(t *testing.T) {
 				WithMetadataManager(mm),
 				WithSuggestionManager(sm),
 				WithSubtitleManager(subm),
-				WithSubtitleSelector(ss),
 			},
 		},
 		{
@@ -79,7 +70,6 @@ func TestNew_Errors(t *testing.T) {
 				WithItemGetter(ig),
 				WithSuggestionManager(sm),
 				WithSubtitleManager(subm),
-				WithSubtitleSelector(ss),
 			},
 		},
 		{
@@ -88,7 +78,6 @@ func TestNew_Errors(t *testing.T) {
 				WithItemGetter(ig),
 				WithMetadataManager(mm),
 				WithSubtitleManager(subm),
-				WithSubtitleSelector(ss),
 			},
 		},
 		{
@@ -97,16 +86,6 @@ func TestNew_Errors(t *testing.T) {
 				WithItemGetter(ig),
 				WithMetadataManager(mm),
 				WithSuggestionManager(sm),
-				WithSubtitleSelector(ss),
-			},
-		},
-		{
-			name: "missing subtitle selector",
-			opts: []ConciergeOption{
-				WithItemGetter(ig),
-				WithMetadataManager(mm),
-				WithSuggestionManager(sm),
-				WithSubtitleManager(subm),
 			},
 		},
 	}
@@ -126,7 +105,6 @@ func TestNew_OK_OptionsApplied(t *testing.T) {
 	mm := &mockMetadataManager{}
 	sm := &mockSuggestionManager{}
 	subm := &mockSubtitleManager{}
-	ss := &mockSubtitleSelector{}
 	ucm := &mockUserContextManager{}
 
 	c, err := New(
@@ -135,7 +113,6 @@ func TestNew_OK_OptionsApplied(t *testing.T) {
 		WithMetadataManager(mm),
 		WithSuggestionManager(sm),
 		WithSubtitleManager(subm),
-		WithSubtitleSelector(ss),
 		WithModel("gpt-5"),
 		WithInterval(123*time.Second),
 		WithStoreDir("/tmp/store"),
@@ -156,14 +133,12 @@ func TestNew_ItemListerDerivesFromItemGetter(t *testing.T) {
 	mm := &mockMetadataManager{}
 	sm := &mockSuggestionManager{}
 	subm := &mockSubtitleManager{}
-	ss := &mockSubtitleSelector{}
 
 	c, err := New(
 		WithItemGetter(igl),
 		WithMetadataManager(mm),
 		WithSuggestionManager(sm),
 		WithSubtitleManager(subm),
-		WithSubtitleSelector(ss),
 		WithModel("gpt-5"),
 	)
 	if err != nil {
@@ -180,7 +155,6 @@ func TestConcierge_Setup_NoUserContextManager(t *testing.T) {
 	mm := &mockMetadataManager{}
 	sm := &mockSuggestionManager{}
 	subm := &mockSubtitleManager{}
-	ss := &mockSubtitleSelector{}
 
 	c, err := New(
 		WithConfigDir(t.TempDir()),
@@ -188,7 +162,6 @@ func TestConcierge_Setup_NoUserContextManager(t *testing.T) {
 		WithMetadataManager(mm),
 		WithSuggestionManager(sm),
 		WithSubtitleManager(subm),
-		WithSubtitleSelector(ss),
 		WithModel("gpt-5"),
 	)
 	if err != nil {
@@ -208,7 +181,6 @@ func TestConcierge_Setup_WithUserContextManager(t *testing.T) {
 	mm := &mockMetadataManager{}
 	sm := &mockSuggestionManager{}
 	subm := &mockSubtitleManager{}
-	ss := &mockSubtitleSelector{}
 	ucm := &mockUserContextManager{}
 
 	c, err := New(
@@ -217,7 +189,6 @@ func TestConcierge_Setup_WithUserContextManager(t *testing.T) {
 		WithMetadataManager(mm),
 		WithSuggestionManager(sm),
 		WithSubtitleManager(subm),
-		WithSubtitleSelector(ss),
 		WithUserContextManager(ucm),
 		WithModel("gpt-5"),
 	)

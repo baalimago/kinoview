@@ -1,7 +1,6 @@
 package tools
 
 import (
-	"context"
 	"errors"
 
 	"github.com/baalimago/kinoview/internal/model"
@@ -55,15 +54,6 @@ func (m *mockSubtitleManager) Find(item model.Item) (model.MediaInfo, error) {
 
 func (m *mockSubtitleManager) ExtractSubtitles(item model.Item, streamIndex string) (string, error) {
 	return m.extractedPath, m.err
-}
-
-type mockSubtitleSelector struct {
-	selectedIdx int
-	err         error
-}
-
-func (m *mockSubtitleSelector) Select(ctx context.Context, streams []model.Stream) (int, error) {
-	return m.selectedIdx, m.err
 }
 
 type mockSuggestionManager struct {

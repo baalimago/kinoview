@@ -35,7 +35,11 @@ func (cst *checkSuggestionsTool) Call(input models.Input) (string, error) {
 	var res strings.Builder
 	res.WriteString("active suggestions:\n")
 	for _, s := range suggestions {
-		res.WriteString(fmt.Sprintf("- ID: %s, Name: %s, Motivation: %s\n", s.ID, s.Name, s.Motivation))
+		subID := s.SubtitleID
+		if subID == "" {
+			subID = "none"
+		}
+		res.WriteString(fmt.Sprintf("- ID: %s, Name: %s, Motivation: %s, SubtitleID: %s\n", s.ID, s.Name, s.Motivation, subID))
 	}
 	return res.String(), nil
 }

@@ -153,10 +153,6 @@ func (c *command) Setup(ctx context.Context) error {
 			concierge.WithMetadataManager(store),
 			concierge.WithSubtitleManager(subsManager),
 			concierge.WithSuggestionManager(suggestionsManager),
-			concierge.WithSubtitleSelector(butler.NewSelector(models.Configurations{
-				Model:     *c.classificationModel,
-				ConfigDir: *c.configDir,
-			})),
 			concierge.WithConfigDir(*c.configDir),
 			concierge.WithStoreDir(storePath),
 			concierge.WithCacheDir(*c.cacheDir),

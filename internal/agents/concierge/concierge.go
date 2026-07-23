@@ -2,6 +2,7 @@ package concierge
 
 import (
 	"errors"
+	"path"
 	"time"
 
 	"github.com/baalimago/clai/pkg/agent"
@@ -14,16 +15,35 @@ import (
 
 type ConciergeOption func(*concierge)
 
-const systemPrompt = `You are a media concierge responsible for managing a media library. Your goal is to optimize user watch times by providing excellent suggestions.
+const baseSystemPrompt = `You are a media concierge responsible for managing a media library. Your goal is to optimize user watch times by providing excellent suggestions.
 
-Priority rules (highest to lowest):
+WORKFLOW — Execute in this exact order every run:
+
+PHASE 1 — SUBTITLE VALIDATION (always run first):
+Goal: Every active suggestion must have valid, working subtitles.
+
+1. Call check_suggestions to list all active suggestions.
+2. For EACH suggestion:
+   a. Call media_get_item to get the item's metadata (title, description, language, genre).
+   b. Call list_subtitle_candidates to discover available subtitle streams.
+   c. If no candidates exist and fetch_subtitles is unavailable:
+      - Note the item has no subtitles and cannot fetch them. Move to next suggestion.
+   d. If candidates exist:
+      - Select the best candidate: prefer default, English, non-forced, non-commentary.
+      - If not already extracted, call extract_subtitle with the chosen subtitleID.
+      - Call rows_between on the extracted file (path from extract_subtitle result, or call extract_subtitle again — it is idempotent). Read at least 100-200 lines to sample the dialogue.
+      - VALIDATE: Compare the subtitle dialogue against the item's metadata:
+        * Does the language of the text match what you expect?
+        * Do character names, places, or plot elements in the dialogue match the item's description?
+        * Is there actual spoken dialogue (not just timing cues or empty blocks)?
+        * Does the subtitle appear to be for the correct media (not a different movie/episode)?
+      - If valid: note it and move to the next suggestion.
+      - If invalid or empty: attempt another candidate if available, otherwise note the failure.
+3. Only after ALL suggestions have been processed, proceed to Phase 2.
+
+PHASE 2 — SUGGESTION MANAGEMENT:
 - Act deliberately; avoid unnecessary modifications.
-- Use available tools to perform concierge tasks.
-- You will be called periodically; note the current date and adjust suggestions accordingly.
 - Analyze user context + prior suggestions + concierge motivations to learn what worked.
-- If possible, generate subtitles for the media.
-  - Note what is being binged.
-  - Cross-reference your notes with what the user actually watches.
 - Suggestions:
   - Suggest at most 3 pieces of media.
   - Ensure variety.
@@ -32,6 +52,18 @@ Priority rules (highest to lowest):
 - Prefer quitting early if there is nothing to do.
 - If you run out of tool calls, stop.
 - You are not a chat-bot; your decisions are reflected via what the user selects.
+
+GENERAL RULES:
+- Note what is being binged.
+- Cross-reference your notes with what the user actually watches.
+- You will be called periodically; note the current date and adjust suggestions accordingly.
+`
+
+const openSubtitlesAddendum = `
+OPENSUBTITLES FALLBACK:
+- If no subtitle candidates exist for a suggested item, call fetch_subtitles to search OpenSubtitles.
+- If extracted subtitles fail validation, call fetch_subtitles as a fallback.
+- fetch_subtitles only works for movies (video/* MIME types).
 `
 
 type concierge struct {
@@ -40,7 +72,6 @@ type concierge struct {
 	metadataMgr    agents.MetadataManager
 	suggestionMgr  agents.SuggestionManager
 	subtitlesMgr   agents.StreamManager
-	subSelector    agents.SubtitleSelector
 	userContextMgr agents.ClientContextManager
 
 	storeDir string
@@ -87,12 +118,6 @@ func WithItemLister(il agents.ItemLister) ConciergeOption {
 	}
 }
 
-func WithSubtitleSelector(ss agents.SubtitleSelector) ConciergeOption {
-	return func(c *concierge) {
-		c.subSelector = ss
-	}
-}
-
 func WithStoreDir(dir string) ConciergeOption {
 	return func(c *concierge) {
 		c.storeDir = dir
@@ -130,15 +155,24 @@ func WithModel(m string) ConciergeOption {
 }
 
 // New Concierge, hosting tools:
-// 1. UpdateMetadata
-// 2. PreloadSubtitles
-// 3. FetchSubtitles (OpenSubtitles, for movies without embedded subs)
-// 4. CheckSuggestions
-// 5. RemoveSuggestion
-// 6. AddSuggestion
-// 7. MediaGetItem
-// 8. MediaList
-// 9. MediaStats
+// 1.  ConciergeContextGet
+// 2.  ConciergeContextPush
+// 3.  UpdateMetadata
+// 4.  list_subtitle_candidates
+// 5.  extract_subtitle
+// 6.  fetch_subtitles (conditional — only when OPENSUBTITLES_API_KEY is set)
+// 7.  check_suggestions
+// 8.  remove_suggestion
+// 9.  add_suggestion
+// 10. get_user_context
+// 11. media_get_item
+// 12. media_list (conditional — only when item lister is available)
+// 13. media_stats (conditional — only when item lister is available)
+// 14. website_text
+// 15. date
+// 16. ffprobe
+// 17. cat
+// 18. rows_between
 func New(opts ...ConciergeOption) (agents.Concierge, error) {
 	c := concierge{
 		interval: 6 * time.Hour,
@@ -161,10 +195,6 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 
 	if c.subtitlesMgr == nil {
 		return nil, errors.New("subtitle manager can't be nil")
-	}
-
-	if c.subSelector == nil {
-		return nil, errors.New("subtitle selector can't be nil")
 	}
 
 	llmTools := make([]models.LLMTool, 0)
@@ -190,11 +220,19 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		llmTools = append(llmTools, umt)
 	}
 
-	pst, err := tools.NewPreloadSubtitlesTool(c.itemStore, c.subtitlesMgr, c.subSelector)
+	subsPath := path.Join(c.configDir, "subtitles")
+	lsc, err := tools.NewListSubtitleCandidatesTool(c.itemStore, c.subtitlesMgr, subsPath)
 	if err != nil {
-		ancli.Errf("concierge failed to setup preloadSubtitlesTool: %v", err)
+		ancli.Errf("concierge failed to setup listSubtitleCandidatesTool: %v", err)
 	} else {
-		llmTools = append(llmTools, pst)
+		llmTools = append(llmTools, lsc)
+	}
+
+	esc, err := tools.NewExtractSubtitleTool(c.itemStore, c.subtitlesMgr)
+	if err != nil {
+		ancli.Errf("concierge failed to setup extractSubtitleTool: %v", err)
+	} else {
+		llmTools = append(llmTools, esc)
 	}
 
 	lst, err := tools.NewCheckSuggestionsTool(c.suggestionMgr)
@@ -260,12 +298,19 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		clai_tools.WebsiteText,
 		clai_tools.Date,
 		clai_tools.FFProbe,
+		clai_tools.Cat,
+		clai_tools.RowsBetween,
 	)
+
+	prompt := baseSystemPrompt
+	if fst != nil {
+		prompt += openSubtitlesAddendum
+	}
 
 	a := agent.New(
 		agent.WithModel(c.model),
 		agent.WithConfigDir(c.configDir),
-		agent.WithPrompt(systemPrompt),
+		agent.WithPrompt(prompt),
 		agent.WithTools(llmTools),
 		agent.WithMaxToolCalls(20),
 	)

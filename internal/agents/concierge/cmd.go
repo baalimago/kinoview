@@ -8,10 +8,8 @@ import (
 	"os"
 	"path"
 
-	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
-	"github.com/baalimago/kinoview/internal/agents/butler"
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
 	"github.com/baalimago/kinoview/internal/media/storage"
 	"github.com/baalimago/kinoview/internal/media/stream"
@@ -115,10 +113,6 @@ func (c *command) Setup(ctx context.Context) error {
 		WithMetadataManager(store),
 		WithSubtitleManager(subsManager),
 		WithSuggestionManager(suggestionsManager),
-		WithSubtitleSelector(butler.NewSelector(models.Configurations{
-			Model:     *c.model,
-			ConfigDir: *c.configDir,
-		})),
 		WithConfigDir(*c.configDir),
 		WithStoreDir(storePath),
 		WithCacheDir(*c.cacheDir),

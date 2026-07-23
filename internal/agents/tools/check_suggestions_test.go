@@ -78,8 +78,8 @@ func TestCheckSuggestionsTool_Call_WithSuggestions(t *testing.T) {
 		t.Fatalf("expected prefix, got %q", resp)
 	}
 	for _, want := range []string{
-		"- ID: 1, Name: Movie 1, Motivation: Because I said so\n",
-		"- ID: 2, Name: Movie 2, Motivation: New release\n",
+		"- ID: 1, Name: Movie 1, Motivation: Because I said so, SubtitleID: none\n",
+		"- ID: 2, Name: Movie 2, Motivation: New release, SubtitleID: none\n",
 	} {
 		if !strings.Contains(resp, want) {
 			t.Fatalf("expected response to contain %q, got %q", want, resp)

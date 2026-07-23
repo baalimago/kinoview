@@ -24,8 +24,8 @@ func TestCheckSuggestionsTool_Call(t *testing.T) {
 		t.Fatalf("tool call failed: %v", err)
 	}
 
-	if !strings.Contains(resp, "Movie 1") {
-		t.Errorf("expected response to contain 'Movie 1', got %q", resp)
+	if !strings.Contains(resp, "Movie 1") || !strings.Contains(resp, "SubtitleID") {
+		t.Errorf("expected response to contain 'Movie 1' and 'SubtitleID', got %q", resp)
 	}
 }
 
