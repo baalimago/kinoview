@@ -526,3 +526,17 @@ func (s *store) UpdateMetadata(item model.Item, metadata string) error {
 	item.Metadata = &raw
 	return s.store(item)
 }
+
+// DeleteItem removes an item from the in-memory cache and deletes its on-disk
+// JSON file. Returns nil if the file doesn't exist (already deleted).
+func (s *store) DeleteItem(id string) error {
+	s.cacheMu.Lock()
+	delete(s.cache, id)
+	s.cacheMu.Unlock()
+
+	storePath := path.Join(s.storePath, id)
+	if err := os.Remove(storePath); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove store file: %w", err)
+	}
+	return nil
+}

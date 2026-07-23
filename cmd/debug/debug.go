@@ -54,7 +54,8 @@ func (c *command) Setup(ctx context.Context) error {
 }
 
 func (c *command) Run(ctx context.Context) error {
-	exitCode := run(ctx, os.Args)
+	args := append([]string{os.Args[0]}, c.flagset.Args()...)
+	exitCode := run(ctx, args)
 	if exitCode > 0 {
 		return fmt.Errorf("non nil exit code from: '%v', code: %v", c.flagset.Args(), exitCode)
 	}

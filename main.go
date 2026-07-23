@@ -13,6 +13,7 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/shutdown"
 	"github.com/baalimago/kinoview/cmd/classify"
 	k_debug "github.com/baalimago/kinoview/cmd/debug"
+	"github.com/baalimago/kinoview/cmd/media"
 	"github.com/baalimago/kinoview/cmd/serve"
 )
 
@@ -20,6 +21,7 @@ var commands = map[string]cmd.Command{
 	"s|serve":    serve.Command(),
 	"c|classify": classify.Command(),
 	"d|debug":    k_debug.Command(),
+	"m|media":    media.Command(),
 	"v|version":  version.Command(),
 }
 

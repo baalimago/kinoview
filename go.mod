@@ -17,3 +17,5 @@ require (
 )
 
 replace github.com/baalimago/clai v1.10.15 => ../clai
+
+replace github.com/baalimago/go_away_boilerplate => /home/imago/Projects/public/go_away_boilerplate

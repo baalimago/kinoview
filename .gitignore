@@ -1,2 +1,7 @@
 coverage.out
 .crush
+
+# This is for my personal home server, pointless to expose
+.agents/skills/debug-kinoview
+
+kinoview
