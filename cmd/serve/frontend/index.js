@@ -40,12 +40,202 @@ const media = {}
   // Phase 1: logo emerges on black — nearly immediate
   setTimeout(function() {
     if (logo) logo.classList.add('reveal');
+    playIntroMeow();
   }, 50);
 
   // Phase 2: background fades from black to marine blue behind the logo
   setTimeout(function() {
     if (overlay) overlay.classList.add('bg-reveal');
   }, 400);
+
+  function playIntroMeow() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === 'suspended') {
+        ctx.resume().then(function() { scheduleMeow(ctx); });
+      } else {
+        scheduleMeow(ctx);
+      }
+    } catch(e) {
+      // Silently fail if AudioContext unavailable
+    }
+  }
+
+  function scheduleMeow(ctx) {
+      var now = ctx.currentTime;
+      var duration  = 0.55 + Math.random() * 0.45;  // 0.55–1.0 s
+      var basePitch = 400 + Math.random() * 100;    // 400–500 Hz
+      var doDouble  = Math.random() < 0.35;         // ~35% chance of double-meow
+      var peakGain  = 0.55 + Math.random() * 0.35;  // 0.55–0.9
+
+      // ═══ 1. FM Source — modulator → carrier (sawtooth) ═══
+      var carrierOsc = ctx.createOscillator();
+      carrierOsc.type = 'sawtooth';
+      var modOsc = ctx.createOscillator();
+      modOsc.type = 'sine';
+      var modGain = ctx.createGain();
+      modOsc.connect(modGain);
+      modGain.connect(carrierOsc.frequency);
+
+      // ═══ 2. Parallel formant filters (vocal-tract model) ═══
+      var formant1 = ctx.createBiquadFilter();
+      formant1.type = 'peaking';
+      formant1.Q.setValueAtTime(5 + Math.random() * 3, now);
+
+      var formant2 = ctx.createBiquadFilter();
+      formant2.type = 'peaking';
+      formant2.Q.setValueAtTime(6 + Math.random() * 4, now);
+      var formant2Gain = ctx.createGain();
+      formant2Gain.gain.value = 0.5;
+
+      // ═══ 3. Main amplitude envelope ═══
+      var mainGain = ctx.createGain();
+
+      // ═══ 4. Routing: carrier → both formants → mainGain → destination ═══
+      carrierOsc.connect(formant1);
+      carrierOsc.connect(formant2);
+      formant1.connect(mainGain);
+      formant2.connect(formant2Gain);
+      formant2Gain.connect(mainGain);
+      mainGain.connect(ctx.destination);
+
+      // ═══ 5. Pitch: gentle arc — rise then fall ═══
+      var midPitch = basePitch + 30;
+      var endPitch = basePitch - 60;
+      carrierOsc.frequency.setValueAtTime(basePitch, now);
+      carrierOsc.frequency.linearRampToValueAtTime(midPitch, now + duration * 0.4);
+      carrierOsc.frequency.linearRampToValueAtTime(endPitch, now + duration);
+
+      modOsc.frequency.setValueAtTime(basePitch, now);
+      modOsc.frequency.linearRampToValueAtTime(midPitch, now + duration * 0.4);
+      modOsc.frequency.linearRampToValueAtTime(endPitch, now + duration);
+
+      // ═══ 6. FM Index — vocal raspiness arc ═══
+      modGain.gain.setValueAtTime(0, now);
+      modGain.gain.linearRampToValueAtTime(150 + Math.random() * 80, now + duration * 0.3);
+      modGain.gain.linearRampToValueAtTime(0, now + duration);
+
+      // ═══ 7. Formant filter sweep — the critical "me-ow" jaw movement ═══
+      formant1.frequency.setValueAtTime(800, now);
+      formant1.frequency.exponentialRampToValueAtTime(2000 + Math.random() * 400, now + duration * 0.35);
+      formant1.frequency.exponentialRampToValueAtTime(450 + Math.random() * 100, now + duration);
+
+      formant2.frequency.setValueAtTime(1500, now);
+      formant2.frequency.exponentialRampToValueAtTime(3000 + Math.random() * 500, now + duration * 0.35);
+      formant2.frequency.exponentialRampToValueAtTime(900 + Math.random() * 200, now + duration);
+
+      // ═══ 8. Amplitude envelope — soft attack, sustain, natural decay ═══
+      mainGain.gain.setValueAtTime(0.001, now);
+      mainGain.gain.linearRampToValueAtTime(peakGain, now + 0.07);
+      mainGain.gain.setValueAtTime(peakGain, now + duration * 0.55);
+      mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      // ═══ 9. Subtle vibrato (pitch instability) ═══
+      var vibrato = ctx.createOscillator();
+      var vibratoGain = ctx.createGain();
+      vibrato.type = 'sine';
+      vibrato.frequency.value = 5 + Math.random() * 3;  // 5–8 Hz
+      vibratoGain.gain.value = 2 + Math.random() * 3;   // 2–5 Hz deviation
+      vibrato.connect(vibratoGain);
+      vibratoGain.connect(carrierOsc.frequency);
+      vibrato.start(now);
+      vibrato.stop(now + duration);
+
+      // ═══ 10. Breath noise — turbulent air through vocal tract ═══
+      var noiseLen = ctx.sampleRate * 1.5;
+      var noiseBuffer = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
+      var noiseData = noiseBuffer.getChannelData(0);
+      for (var ni = 0; ni < noiseLen; ni++) {
+        noiseData[ni] = Math.random() * 2 - 1;
+      }
+      var noiseSrc = ctx.createBufferSource();
+      noiseSrc.buffer = noiseBuffer;
+      noiseSrc.loop = true;
+
+      var noiseFilter = ctx.createBiquadFilter();
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(800, now);
+      noiseFilter.frequency.exponentialRampToValueAtTime(2200, now + duration * 0.35);
+      noiseFilter.frequency.exponentialRampToValueAtTime(500, now + duration);
+      noiseFilter.Q.value = 2;
+
+      var noiseGain = ctx.createGain();
+      noiseGain.gain.setValueAtTime(0, now);
+      noiseGain.gain.linearRampToValueAtTime(peakGain * 0.05, now + 0.05);
+      noiseGain.gain.exponentialRampToValueAtTime(0.00001, now + duration);
+
+      noiseSrc.connect(noiseFilter);
+      noiseFilter.connect(noiseGain);
+      noiseGain.connect(ctx.destination);
+      noiseSrc.start(now);
+      noiseSrc.stop(now + duration + 0.1);
+
+      // ═══ Start and stop ═══
+      modOsc.start(now);
+      carrierOsc.start(now);
+      modOsc.stop(now + duration);
+      carrierOsc.stop(now + duration + 0.1);
+
+      // ═══ 11. Optional second meow (simpler single-formant version) ═══
+      if (doDouble) {
+        var gap = 0.12 + Math.random() * 0.2;
+        var dStart = now + gap;
+        var dDuration = duration * (0.4 + Math.random() * 0.35);
+        var dPitch = basePitch * (0.8 + Math.random() * 0.3);
+        var dPeak = peakGain * (0.35 + Math.random() * 0.3);
+
+        var dCarrier = ctx.createOscillator();
+        dCarrier.type = 'sawtooth';
+        var dMod = ctx.createOscillator();
+        dMod.type = 'sine';
+        var dModGain = ctx.createGain();
+        dMod.connect(dModGain);
+        dModGain.connect(dCarrier.frequency);
+
+        var dFormant = ctx.createBiquadFilter();
+        dFormant.type = 'peaking';
+        dFormant.Q.setValueAtTime(5 + Math.random() * 3, dStart);
+
+        var dMainGain = ctx.createGain();
+        dCarrier.connect(dFormant);
+        dFormant.connect(dMainGain);
+        dMainGain.connect(ctx.destination);
+
+        dCarrier.frequency.setValueAtTime(dPitch, dStart);
+        dCarrier.frequency.linearRampToValueAtTime(dPitch + 20, dStart + dDuration * 0.35);
+        dCarrier.frequency.linearRampToValueAtTime(dPitch - 50, dStart + dDuration);
+
+        dMod.frequency.setValueAtTime(dPitch, dStart);
+        dMod.frequency.linearRampToValueAtTime(dPitch + 20, dStart + dDuration * 0.35);
+        dMod.frequency.linearRampToValueAtTime(dPitch - 50, dStart + dDuration);
+
+        dModGain.gain.setValueAtTime(0, dStart);
+        dModGain.gain.linearRampToValueAtTime(100 + Math.random() * 60, dStart + dDuration * 0.3);
+        dModGain.gain.linearRampToValueAtTime(0, dStart + dDuration);
+
+        dFormant.frequency.setValueAtTime(800, dStart);
+        dFormant.frequency.exponentialRampToValueAtTime(2000 + Math.random() * 300, dStart + dDuration * 0.35);
+        dFormant.frequency.exponentialRampToValueAtTime(500, dStart + dDuration);
+
+        dMainGain.gain.setValueAtTime(0.001, dStart);
+        dMainGain.gain.linearRampToValueAtTime(dPeak, dStart + 0.05);
+        dMainGain.gain.setValueAtTime(dPeak * 0.6, dStart + dDuration * 0.5);
+        dMainGain.gain.exponentialRampToValueAtTime(0.001, dStart + dDuration);
+
+        dMod.start(dStart);
+        dCarrier.start(dStart);
+        dMod.stop(dStart + dDuration);
+        dCarrier.stop(dStart + dDuration + 0.1);
+      }
+
+      // Close context after sound finishes
+      var maxEnd = now + duration + 0.15;
+      if (doDouble) {
+        var doubleEnd = now + 0.32 + duration * 0.75 + 0.15;
+        if (doubleEnd > maxEnd) maxEnd = doubleEnd;
+      }
+      setTimeout(function() { ctx.close(); }, Math.ceil((maxEnd - now) * 1000) + 100);
+  }
 
   function dismissIntro() {
     if (dismissed || !overlay) return;
@@ -948,12 +1138,9 @@ function loadSuggestions() {
 // ─────────────────────────────────────────────────────────────────────────
 // Custom Video Player
 //
-// Wraps the <video> with a bespoke control bar so playback (and, critically,
-// seeking) behaves the same in fullscreen as it does inline. For transcoded
-// sources (.mkv, converted on the fly by the server) the browser can't range-
-// seek a fragmented pipe — the old fix was "pause → play → skip". Instead we
-// seek by re-requesting the stream at ?t=<seconds>, which the server honours
-// via ffmpeg's -ss. `base` tracks that offset so the UI shows absolute time.
+// Wraps the <video> with a bespoke control bar so playback and seeking
+// behave the same in fullscreen as they do inline. The server handles
+// on-the-fly MKV→MP4 transcoding transparently.
 // ─────────────────────────────────────────────────────────────────────────
 (function () {
   const el = document.getElementById("player");
@@ -979,16 +1166,14 @@ function loadSuggestions() {
   const fsBtn = document.getElementById("fsBtn");
   const titleEl = document.getElementById("playerTitle");
   const hero = document.getElementById("heroSection");
+  const subsTrack = document.getElementById("subs");
 
   const SKIP_INTRO_SEC = 85; // typical TV intro length
   const NUDGE_SEC = 10;
 
   const state = {
     id: "",
-    isMkv: false,    // source is .mkv — needs ?t= reload for seeking
-    transcoded: false, // current stream is transcoded (affects time display)
     duration: 0,      // best-known total seconds (0 = unknown)
-    base: 0,          // stream start offset for transcoded seeks
     wasPlaying: true,
     resumeAt: 0,      // pending native resume applied on loadedmetadata
     dragging: false,
@@ -1003,30 +1188,14 @@ function loadSuggestions() {
     return 0;
   }
 
-  // Mirror the server's decision (VideoHandlerFunc): .mkv is transcoded to a
-  // fragmented mp4 on the fly EXCEPT for SmartTV/webOS clients, which get the
-  // raw file. In all cases state.isMkv governs seeking — for MKV files we
-  // always use ?t= reload seeks because native currentTime is unreliable on
-  // SmartTV/webOS (restarts from 0).
-  function serverWillTranscode(name) {
-    return /\.mkv$/i.test(name) && !/SmartTV/i.test(navigator.userAgent || "");
-  }
-
   function total() {
-    // Prefer authoritative duration metadata when present.
     if (state.duration > 0) return state.duration;
-    if (isFinite(video.duration) && video.duration > 0) {
-      // For a transcoded stream, video.duration is only the length of the
-      // current fragment (from `base` to the end), so the true total is
-      // base + fragmentDuration. This stays correct across seeks and lets the
-      // scrubber work — and bounds seekTo — even without duration metadata.
-      return (state.transcoded ? state.base : 0) + video.duration;
-    }
+    if (isFinite(video.duration) && video.duration > 0) return video.duration;
     return 0;
   }
 
   function displayTime() {
-    return (state.transcoded ? state.base : 0) + (video.currentTime || 0);
+    return video.currentTime || 0;
   }
 
   function fmt(sec) {
@@ -1046,14 +1215,19 @@ function loadSuggestions() {
     return 0;
   }
 
+  function resetSubtitles() {
+    if (subsTrack) {
+      subsTrack.src = "";
+      subsTrack.removeAttribute("src");
+      if (subsTrack.track) subsTrack.track.mode = "disabled";
+    }
+  }
+
   function load(id) {
     if (!id) return;
     state.id = id;
     mostRecentID = id;
     const it = media[id] || {};
-    const name = it.Name || "";
-    state.isMkv = /\.mkv$/i.test(name);
-    state.transcoded = serverWillTranscode(name);
     state.duration = itemDurationSec(id);
     const resume = getResume(id, state.duration);
 
@@ -1062,41 +1236,20 @@ function loadSuggestions() {
     el.setAttribute("data-state", "active");
     el.classList.add("buffering");
     state.wasPlaying = true;
+    state.resumeAt = resume;
 
-    if (state.transcoded) {
-      state.base = resume;
-      state.resumeAt = 0;
-      video.src = "/gallery/video/" + id + (resume > 0 ? "?t=" + resume.toFixed(3) : "");
-    } else {
-      state.base = 0;
-      state.resumeAt = resume;
-      video.src = "/gallery/video/" + id;
-    }
+    resetSubtitles();
+    video.src = "/gallery/video/" + id;
     video.load();
     updateProgress();
   }
 
   // Seek to an absolute position (seconds from the start of the media).
-  // For MKV sources we always use a ?t= server-side seek (reliable across
-  // all browsers, including SmartTV/webOS where native currentTime fails).
-  // For non-MKV (e.g. MP4) sources we use native currentTime which is
-  // efficient and works everywhere.
   function seekTo(target, keepPlaying) {
     const tot = total();
     let t = Math.max(0, target);
     if (tot > 0) t = Math.min(t, tot - 0.5);
-
-    if (state.isMkv) {
-      state.transcoded = true;
-      state.wasPlaying = keepPlaying !== undefined ? keepPlaying : !video.paused;
-      state.base = t;
-      el.classList.add("buffering");
-      video.src = "/gallery/video/" + state.id + "?t=" + t.toFixed(3);
-      video.load();
-      updateProgress();
-    } else {
-      try { video.currentTime = t; } catch (e) { /* not seekable yet */ }
-    }
+    try { video.currentTime = t; } catch (e) { /* not seekable yet */ }
   }
 
   function nudge(delta) {
@@ -1123,10 +1276,8 @@ function loadSuggestions() {
     }
     if (video.buffered && video.buffered.length && tot > 0) {
       const be = video.buffered.end(video.buffered.length - 1);
-      const absBuf = (state.transcoded ? state.base : 0) + be;
-      scrubBuffered.style.width = Math.min(100, (absBuf / tot) * 100) + "%";
+      scrubBuffered.style.width = Math.min(100, (be / tot) * 100) + "%";
     } else {
-      // Reset so a previous stream's buffer bar can't linger on a fresh load.
       scrubBuffered.style.width = "0%";
     }
     timeCur.textContent = fmt(dt);
@@ -1156,15 +1307,12 @@ function loadSuggestions() {
   let lastPersist = 0;
   function persist() {
     if (!state.id) return;
-    // Don't save transient positions while (re)buffering or seeking — after a
-    // transcode-seek reload currentTime is momentarily ~0, and writing that
-    // would clobber a good resume point.
     if (video.seeking || video.readyState < 2) return;
     const now = Date.now();
     if (now - lastPersist < 900) return;
     lastPersist = now;
     const item = loadPersistedMediaItem(state.id);
-    item.playedFor = displayTime();
+    item.playedFor = video.currentTime;
     item.viewedAt = new Date().toISOString();
     const pm = getPersistedMedia();
     pm[state.id] = item;
@@ -1173,7 +1321,7 @@ function loadSuggestions() {
 
   // ── Video events ──
   video.addEventListener("loadedmetadata", () => {
-    if (!state.transcoded && isFinite(video.duration) && video.duration > 0) {
+    if (isFinite(video.duration) && video.duration > 0) {
       state.duration = video.duration;
     }
     if (state.resumeAt > 0) {
