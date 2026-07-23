@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"sync"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
@@ -13,6 +14,21 @@ import (
 
 // This is to allow for testing
 var ffmpegLookPath = "ffmpeg"
+
+// parseStartSeconds reads the optional `t` query parameter (seconds, may be
+// fractional) used to seek within a transcoded stream. Invalid or negative
+// values are treated as 0 (start from the beginning).
+func parseStartSeconds(r *http.Request) float64 {
+	raw := r.URL.Query().Get("t")
+	if raw == "" {
+		return 0
+	}
+	sec, err := strconv.ParseFloat(raw, 64)
+	if err != nil || sec < 0 {
+		return 0
+	}
+	return sec
+}
 
 func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 	ancli.Noticef("starting resilient conversion to mp4...")
@@ -42,10 +58,26 @@ func streamMkvToMp4(w http.ResponseWriter, r *http.Request, pathToMkv string) {
 
 	var wg sync.WaitGroup
 	errChan := make(chan error, 1)
-	cmd := exec.CommandContext(ctx, ffmpegLookPath, "-y", "-i", pathToMkv,
+
+	// Build ffmpeg args. When a start offset is requested we place -ss *before*
+	// -i for fast (keyframe) input seeking, and reset timestamps so the client
+	// receives a stream that begins at ~0. This lets the browser seek within a
+	// fragmented stream by requesting a fresh transcode from the target point,
+	// instead of stalling on a Range request the pipe can't satisfy.
+	args := []string{"-y"}
+	startSec := parseStartSeconds(r)
+	if startSec > 0 {
+		args = append(args, "-ss", strconv.FormatFloat(startSec, 'f', 3, 64))
+	}
+	args = append(args, "-i", pathToMkv)
+	if startSec > 0 {
+		args = append(args, "-avoid_negative_ts", "make_zero")
+	}
+	args = append(args,
 		"-f", "mp4", "-movflags", "frag_keyframe+empty_moov",
 		"-vcodec", "libx264", "-preset", "veryfast",
 		"-acodec", "aac", "-strict", "-2", "pipe:1")
+	cmd := exec.CommandContext(ctx, ffmpegLookPath, args...)
 
 	tmpStderr, _ := os.CreateTemp("", "ffmpeg_stderr_*.log")
 	cmd.Stderr = tmpStderr

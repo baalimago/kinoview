@@ -317,6 +317,52 @@ func Test_streamMkvToMp4(t *testing.T) {
 	})
 }
 
+func Test_parseStartSeconds(t *testing.T) {
+	cases := []struct {
+		name   string
+		target string
+		want   float64
+	}{
+		{"no query", "/video/x", 0},
+		{"empty t", "/video/x?t=", 0},
+		{"integer seconds", "/video/x?t=42", 42},
+		{"fractional seconds", "/video/x?t=12.5", 12.5},
+		{"negative clamped to zero", "/video/x?t=-5", 0},
+		{"garbage clamped to zero", "/video/x?t=abc", 0},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := mockHTTPRequest("GET", tc.target, nil)
+			if got := parseStartSeconds(req); got != tc.want {
+				t.Errorf("parseStartSeconds(%q) = %v, want %v", tc.target, got, tc.want)
+			}
+		})
+	}
+}
+
+func Test_streamMkvToMp4_withSeek(t *testing.T) {
+	if _, err := exec.LookPath("ffmpeg"); err != nil {
+		t.Skip("ffmpeg binary not found")
+	}
+	mkvPath := "mock/Jellyfish_1080_10s_1MB.mkv"
+	if _, err := os.Stat(mkvPath); err != nil {
+		t.Fatalf("test mkv file missing: %v", err)
+	}
+
+	// Request a seek to 2s; the handler must still emit a valid fragmented mp4.
+	req := mockHTTPRequest("GET", "/video/x?t=2", nil)
+	rec := newMockResponseWriter()
+	streamMkvToMp4(rec, req, mkvPath)
+
+	if rec.Header().Get("Content-Type") != "video/mp4" {
+		t.Errorf("Content-Type not set: %s", rec.Header().Get("Content-Type"))
+	}
+	out := rec.buffer
+	if len(out) < 12 || string(out[4:8]) != "ftyp" {
+		t.Errorf("seeked output is not mp4 format")
+	}
+}
+
 func Test_Stream_store_ffmpegSubsUtil_extract(t *testing.T) {
 	t.Run("extract subs if possible", func(t *testing.T) {
 		subsUtil := ffmpegSubsUtil{

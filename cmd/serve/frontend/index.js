@@ -394,9 +394,10 @@ function populateSearchResults(items, query) {
   resultsDiv.classList.remove('hidden');
 }
 
+// populateMediaDropdown indexes video items into the in-memory `media` map and
+// syncs the persisted store. (Historically it also populated a <select>; that
+// crude control was replaced by the search-driven UI.)
 function populateMediaDropdown(items) {
-    const options = document.getElementById("debugMediaSelector")
-    options.innerHTML = '<option value="">Select video</option>';
     items.sort((a, b) => a.Name.localeCompare(b.Name))
     const persistedMedia = getPersistedMedia()
     for (const i of items) {
@@ -407,11 +408,6 @@ function populateMediaDropdown(items) {
       const storageItem = loadPersistedMediaItem(i.ID);
       storageItem.name = i.Name
       persistedMedia[i.ID] = storageItem
-      const opt = document.createElement("option")
-
-      opt.value = i.ID
-      opt.innerText = videoNameWithProgress(i.ID, i.Name)
-      options.append(opt)
     }
     localStorage.setItem("media", JSON.stringify(persistedMedia))
 }
@@ -443,16 +439,15 @@ function generateUUID() {
   });
 }
 
+// selectMedia loads a media item into the custom player. The heavy lifting
+// (resume, transcode-aware seeking, autoplay) lives in the Player module below;
+// this thin wrapper keeps the many existing call sites working.
 function selectMedia(id) {
-  const video = document.getElementById("screen");
-  // Thank the gods for js's excellent singlethreaded scheduler
   mostRecentID = id;
-  video.src = `/gallery/video/${id}`;
-  video.style.display = "initial"
   loadStreams(id);
-  // Hide hero placeholder
-  const hero = document.getElementById('heroSection');
-  if (hero) hero.classList.add('hidden');
+  if (window.Player) {
+    window.Player.load(id);
+  }
 }
 
 function constuctClientContext() {
@@ -475,9 +470,15 @@ function constuctClientContext() {
 function requestRecommendation() {
   const inp = document.getElementById("recommendInput");
   const status = document.getElementById("recommendationStatus");
+  const btn = document.getElementById("recommendBtn");
+  if (!inp.value.trim()) {
+    status.innerText = "Tell the concierge what you feel like watching first.";
+    return;
+  }
   const req = JSON.stringify({ request: inp.value, context: constuctClientContext() });
   console.info("Sending:", req)
-  status.innerText = "Requesting... (this may take a moment)";
+  status.innerText = "Consulting the concierge… (this may take a moment)";
+  if (btn) { btn.classList.add("loading"); btn.querySelector("span").innerText = "Thinking…"; }
   fetch("/gallery/recommend", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -489,18 +490,19 @@ function requestRecommendation() {
     })
     .then(item => {
       if (!item || !item.ID) {
-        status.innerText = "No recommendation";
+        status.innerText = "No recommendation found — try rephrasing.";
         return;
       }
-      status.innerText = "Recommended: " + (item.Name || item.ID);
-      const sel = document.getElementById("debugMediaSelector");
-      sel.value = item.ID;
+      status.innerText = "▶ Now playing: " + (item.Name || item.ID);
       selectMedia(item.ID);
     })
     .catch(err => {
       console.error("recommend error:");
       console.error(err)
-      status.innerText = "Error - Check kinoview server logs, or console logs";
+      status.innerText = "Error — check kinoview server logs, or console logs";
+    })
+    .finally(() => {
+      if (btn) { btn.classList.remove("loading"); btn.querySelector("span").innerText = "Recommend"; }
     });
 }
 
@@ -512,11 +514,9 @@ function loadStreams(id) {
 
       const subMenu = document.getElementById("subsMenu");
       const audioMenu = document.getElementById("audioMenu");
-      const debugSubs = document.getElementById("debugSubsSelector");
 
       if (subMenu) subMenu.innerHTML = '';
       if (audioMenu) audioMenu.innerHTML = '';
-      if (debugSubs) debugSubs.length = 0;
 
       // Add "Off" option for subtitles
       if (subMenu) {
@@ -525,13 +525,6 @@ function loadStreams(id) {
           updateActiveItem(subMenu, offBtn);
         }, true);
         subMenu.appendChild(offBtn);
-      }
-
-      if (debugSubs) {
-        const optOff = document.createElement("option");
-        optOff.value = "";
-        optOff.innerText = "Select subtitles";
-        debugSubs.append(optOff);
       }
 
       let hasAudio = false;
@@ -571,13 +564,6 @@ function loadStreams(id) {
               });
               subMenu.appendChild(btn);
             }
-
-            if (debugSubs) {
-              const opt = document.createElement("option");
-              opt.value = i.index;
-              opt.innerText = title;
-              debugSubs.append(opt);
-            }
           }
         }
       }
@@ -593,7 +579,7 @@ function toggleMenu(menuId) {
   const menu = document.getElementById(menuId);
   if (!menu) return;
 
-  document.querySelectorAll('.dropdown-menu').forEach(m => {
+  document.querySelectorAll('.popover').forEach(m => {
     if (m.id !== menuId) m.classList.add('hidden');
   });
 
@@ -602,11 +588,12 @@ function toggleMenu(menuId) {
 
 // Close menus when clicking outside
 document.addEventListener('click', (e) => {
-  if (!e.target.closest('.dropdown-group')) {
-    document.querySelectorAll('.dropdown-menu').forEach(m => m.classList.add('hidden'));
+  if (!e.target.closest('.ctrl-menu')) {
+    document.querySelectorAll('.popover').forEach(m => m.classList.add('hidden'));
   }
-  if (!e.target.closest('.search-wrapper')) {
-    document.getElementById('searchResults').classList.add('hidden');
+  if (!e.target.closest('.header-search')) {
+    const sr = document.getElementById('searchResults');
+    if (sr) sr.classList.add('hidden');
   }
 });
 
@@ -637,18 +624,16 @@ function selectAudio(index) {
 
 function selectSubtitle(id) {
   const track = document.getElementById("subs");
-  const debugSubs = document.getElementById("debugSubsSelector");
 
   if (id === 'off' || id === "") {
     console.log("Disabling subtitles");
     track.src = "";
     track.removeAttribute("src");
-    if (debugSubs) debugSubs.value = "";
+    if (track.track) track.track.mode = "disabled";
   } else {
     console.log(`Attempting to set subs to: /gallery/streams/${mostRecentID}/stream/${id}`)
     track.src = `/gallery/streams/${mostRecentID}/stream/${id}`;
-    // Sync debug selector keying off numeric stream index usually
-    if (debugSubs) debugSubs.value = id;
+    if (track.track) track.track.mode = "showing";
   }
 }
 
@@ -687,10 +672,8 @@ function loadSuggestions() {
         itemDiv.onclick = () => {
           selectMedia(rec.ID);
           if (rec.subtitleID) {
-            // Wait small delay for subs to load/options to populate if needed
+            // Wait small delay for subs stream options to populate if needed
             setTimeout(() => {
-              const subSel = document.getElementById("debugSubsSelector");
-              subSel.value = rec.subtitleID;
               selectSubtitle(rec.subtitleID);
             }, 500);
           }
@@ -1062,26 +1045,310 @@ function loadSuggestions() {
   fetchShows();
 })();
 
-// Defer video sync setup safely after sidebar is alive
-if (typeof setTimeout === 'function') {
-  setTimeout(function () {
-    var screen = document.getElementById("screen");
-    if (!screen) return;
-    screen.addEventListener("timeupdate", function () {
-      var item = loadPersistedMediaItem(mostRecentID);
-      item.playedFor = this.currentTime;
-      item.viewedAt = new Date().toISOString();
-      var persistedMedia = getPersistedMedia();
-      persistedMedia[mostRecentID] = item;
-      localStorage.setItem("media", JSON.stringify(persistedMedia));
-    });
-    screen.addEventListener("loadeddata", function () {
-      var item = loadPersistedMediaItem(mostRecentID);
-      var playedForSec = item.playedFor;
-      if (playedForSec) {
-        ogConsoleLog("Setting played for to: " + playedForSec);
-        screen.currentTime = playedForSec;
-      }
-    });
-  }, 10);
-}
+// ─────────────────────────────────────────────────────────────────────────
+// Custom Video Player
+//
+// Wraps the <video> with a bespoke control bar so playback (and, critically,
+// seeking) behaves the same in fullscreen as it does inline. For transcoded
+// sources (.mkv, converted on the fly by the server) the browser can't range-
+// seek a fragmented pipe — the old fix was "pause → play → skip". Instead we
+// seek by re-requesting the stream at ?t=<seconds>, which the server honours
+// via ffmpeg's -ss. `base` tracks that offset so the UI shows absolute time.
+// ─────────────────────────────────────────────────────────────────────────
+(function () {
+  const el = document.getElementById("player");
+  const video = document.getElementById("screen");
+  if (!el || !video) return;
+
+  const controls = document.getElementById("controls");
+  const bigPlay = document.getElementById("bigPlay");
+  const playBtn = document.getElementById("playBtn");
+  const back10 = document.getElementById("back10");
+  const fwd10 = document.getElementById("fwd10");
+  const skipIntroBtn = document.getElementById("skipIntro");
+  const scrubber = document.getElementById("scrubber");
+  const scrubFill = document.getElementById("scrubFill");
+  const scrubBuffered = document.getElementById("scrubBuffered");
+  const scrubThumb = document.getElementById("scrubThumb");
+  const hoverTime = document.getElementById("scrubHoverTime");
+  const timeLabel = document.getElementById("timeLabel");
+  const timeCur = timeLabel.querySelector("span:first-child");
+  const timeTot = timeLabel.querySelector("span:last-child");
+  const muteBtn = document.getElementById("muteBtn");
+  const volSlider = document.getElementById("volSlider");
+  const fsBtn = document.getElementById("fsBtn");
+  const titleEl = document.getElementById("playerTitle");
+  const hero = document.getElementById("heroSection");
+
+  const SKIP_INTRO_SEC = 85; // typical TV intro length
+  const NUDGE_SEC = 10;
+
+  const state = {
+    id: "",
+    transcoded: false,
+    duration: 0, // best-known total seconds (0 = unknown)
+    base: 0,     // stream start offset for transcoded seeks
+    wasPlaying: true,
+    resumeAt: 0, // pending native resume applied on loadedmetadata
+    dragging: false,
+  };
+
+  function itemDurationSec(id) {
+    const it = media[id];
+    if (it && it.Metadata && typeof it.Metadata === "object" && it.Metadata.duration_min) {
+      const s = parseFloat(it.Metadata.duration_min) * 60;
+      if (isFinite(s) && s > 0) return s;
+    }
+    return 0;
+  }
+
+  function total() {
+    // Prefer authoritative duration metadata when present.
+    if (state.duration > 0) return state.duration;
+    if (isFinite(video.duration) && video.duration > 0) {
+      // For a transcoded stream, video.duration is only the length of the
+      // current fragment (from `base` to the end), so the true total is
+      // base + fragmentDuration. This stays correct across seeks and lets the
+      // scrubber work — and bounds seekTo — even without duration metadata.
+      return (state.transcoded ? state.base : 0) + video.duration;
+    }
+    return 0;
+  }
+
+  function displayTime() {
+    return (state.transcoded ? state.base : 0) + (video.currentTime || 0);
+  }
+
+  function fmt(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    sec = Math.floor(sec);
+    const h = Math.floor(sec / 3600);
+    const m = Math.floor((sec % 3600) / 60);
+    const s = sec % 60;
+    const pad = (n) => (n < 10 ? "0" + n : "" + n);
+    return h > 0 ? h + ":" + pad(m) + ":" + pad(s) : m + ":" + pad(s);
+  }
+
+  function getResume(id, dur) {
+    const it = loadPersistedMediaItem(id);
+    const pf = it && it.playedFor;
+    if (pf && pf > 10 && (dur <= 0 || pf < dur - 15)) return pf;
+    return 0;
+  }
+
+  function load(id) {
+    if (!id) return;
+    state.id = id;
+    mostRecentID = id;
+    const it = media[id] || {};
+    const name = it.Name || "";
+    state.transcoded = /\.mkv$/i.test(name);
+    state.duration = itemDurationSec(id);
+    const resume = getResume(id, state.duration);
+
+    titleEl.textContent = it.Name || "";
+    if (hero) hero.classList.add("hidden");
+    el.setAttribute("data-state", "active");
+    el.classList.add("buffering");
+    state.wasPlaying = true;
+
+    if (state.transcoded) {
+      state.base = resume;
+      state.resumeAt = 0;
+      video.src = "/gallery/video/" + id + (resume > 0 ? "?t=" + resume.toFixed(3) : "");
+    } else {
+      state.base = 0;
+      state.resumeAt = resume;
+      video.src = "/gallery/video/" + id;
+    }
+    video.load();
+    updateProgress();
+  }
+
+  // Seek to an absolute position (seconds from the start of the media).
+  function seekTo(target, keepPlaying) {
+    const tot = total();
+    let t = Math.max(0, target);
+    if (tot > 0) t = Math.min(t, tot - 0.5);
+
+    if (state.transcoded) {
+      state.wasPlaying = keepPlaying !== undefined ? keepPlaying : !video.paused;
+      state.base = t;
+      el.classList.add("buffering");
+      video.src = "/gallery/video/" + state.id + "?t=" + t.toFixed(3);
+      video.load();
+      updateProgress();
+    } else {
+      try { video.currentTime = t; } catch (e) { /* not seekable yet */ }
+    }
+  }
+
+  function nudge(delta) {
+    if (!state.id) return;
+    seekTo(displayTime() + delta);
+  }
+
+  function togglePlay() {
+    if (!state.id) return;
+    if (video.paused) video.play().catch(() => {});
+    else video.pause();
+  }
+
+  function updateProgress() {
+    const tot = total();
+    const dt = displayTime();
+    if (tot > 0) {
+      const frac = Math.max(0, Math.min(1, dt / tot));
+      scrubFill.style.width = (frac * 100) + "%";
+      scrubThumb.style.left = (frac * 100) + "%";
+    } else {
+      scrubFill.style.width = "0%";
+      scrubThumb.style.left = "0%";
+    }
+    if (video.buffered && video.buffered.length && tot > 0) {
+      const be = video.buffered.end(video.buffered.length - 1);
+      const absBuf = (state.transcoded ? state.base : 0) + be;
+      scrubBuffered.style.width = Math.min(100, (absBuf / tot) * 100) + "%";
+    } else {
+      // Reset so a previous stream's buffer bar can't linger on a fresh load.
+      scrubBuffered.style.width = "0%";
+    }
+    timeCur.textContent = fmt(dt);
+    timeTot.textContent = tot > 0 ? fmt(tot) : "--:--";
+  }
+
+  // ── UI auto-hide ──
+  let hideTimer = null;
+  function showUI() {
+    el.classList.add("show-ui");
+    clearTimeout(hideTimer);
+    if (!video.paused) {
+      hideTimer = setTimeout(() => {
+        if (!video.paused && !menuOpen()) el.classList.remove("show-ui");
+      }, 2800);
+    }
+  }
+  function menuOpen() {
+    return !!el.querySelector(".popover:not(.hidden)");
+  }
+  el.addEventListener("pointermove", showUI);
+  el.addEventListener("pointerleave", () => {
+    if (!video.paused && !menuOpen()) el.classList.remove("show-ui");
+  });
+
+  // ── Persist progress ──
+  let lastPersist = 0;
+  function persist() {
+    if (!state.id) return;
+    // Don't save transient positions while (re)buffering or seeking — after a
+    // transcode-seek reload currentTime is momentarily ~0, and writing that
+    // would clobber a good resume point.
+    if (video.seeking || video.readyState < 2) return;
+    const now = Date.now();
+    if (now - lastPersist < 900) return;
+    lastPersist = now;
+    const item = loadPersistedMediaItem(state.id);
+    item.playedFor = displayTime();
+    item.viewedAt = new Date().toISOString();
+    const pm = getPersistedMedia();
+    pm[state.id] = item;
+    localStorage.setItem("media", JSON.stringify(pm));
+  }
+
+  // ── Video events ──
+  video.addEventListener("loadedmetadata", () => {
+    if (!state.transcoded && isFinite(video.duration) && video.duration > 0) {
+      state.duration = video.duration;
+    }
+    if (state.resumeAt > 0) {
+      try { video.currentTime = state.resumeAt; } catch (e) {}
+      state.resumeAt = 0;
+    }
+    updateProgress();
+  });
+  video.addEventListener("canplay", () => {
+    el.classList.remove("buffering");
+    if (state.wasPlaying) video.play().catch(() => {});
+  });
+  video.addEventListener("play", () => { el.classList.add("playing"); showUI(); });
+  video.addEventListener("pause", () => { el.classList.remove("playing"); showUI(); });
+  video.addEventListener("waiting", () => el.classList.add("buffering"));
+  video.addEventListener("playing", () => { el.classList.remove("buffering"); el.classList.add("playing"); });
+  video.addEventListener("timeupdate", () => { if (!state.dragging) updateProgress(); persist(); });
+  video.addEventListener("progress", updateProgress);
+  video.addEventListener("volumechange", () => {
+    el.classList.toggle("muted", video.muted || video.volume === 0);
+    volSlider.value = video.muted ? 0 : video.volume;
+  });
+  video.addEventListener("ended", () => { el.classList.remove("playing"); showUI(); });
+
+  // ── Button wiring ──
+  bigPlay.addEventListener("click", togglePlay);
+  playBtn.addEventListener("click", togglePlay);
+  video.addEventListener("click", togglePlay);
+  back10.addEventListener("click", () => nudge(-NUDGE_SEC));
+  fwd10.addEventListener("click", () => nudge(NUDGE_SEC));
+  skipIntroBtn.addEventListener("click", () => nudge(SKIP_INTRO_SEC));
+  muteBtn.addEventListener("click", () => { video.muted = !video.muted; });
+  volSlider.addEventListener("input", () => { video.volume = parseFloat(volSlider.value); video.muted = video.volume === 0; });
+
+  fsBtn.addEventListener("click", () => {
+    if (document.fullscreenElement) {
+      document.exitFullscreen();
+    } else if (el.requestFullscreen) {
+      el.requestFullscreen().catch(() => {});
+    } else if (video.webkitEnterFullscreen) {
+      video.webkitEnterFullscreen(); // iOS Safari
+    }
+  });
+
+  // ── Scrubber (pointer drag) ──
+  function fractionFromEvent(e) {
+    const rect = scrubber.getBoundingClientRect();
+    return Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+  }
+  scrubber.addEventListener("pointermove", (e) => {
+    const tot = total();
+    if (tot <= 0) return;
+    const frac = fractionFromEvent(e);
+    hoverTime.style.left = (frac * 100) + "%";
+    hoverTime.textContent = fmt(frac * tot);
+    if (state.dragging) {
+      scrubFill.style.width = (frac * 100) + "%";
+      scrubThumb.style.left = (frac * 100) + "%";
+      timeCur.textContent = fmt(frac * tot);
+    }
+  });
+  scrubber.addEventListener("pointerdown", (e) => {
+    if (total() <= 0) return;
+    state.dragging = true;
+    scrubber.classList.add("dragging");
+    scrubber.setPointerCapture(e.pointerId);
+  });
+  scrubber.addEventListener("pointerup", (e) => {
+    if (!state.dragging) return;
+    state.dragging = false;
+    scrubber.classList.remove("dragging");
+    const tot = total();
+    if (tot > 0) seekTo(fractionFromEvent(e) * tot);
+  });
+
+  // ── Keyboard shortcuts ──
+  document.addEventListener("keydown", (e) => {
+    if (!state.id) return;
+    const tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    switch (e.key) {
+      case " ":
+      case "k": e.preventDefault(); togglePlay(); showUI(); break;
+      case "ArrowLeft": e.preventDefault(); nudge(-NUDGE_SEC); showUI(); break;
+      case "ArrowRight": e.preventDefault(); nudge(NUDGE_SEC); showUI(); break;
+      case "f": el.requestFullscreen ? (document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen()) : null; break;
+      case "m": video.muted = !video.muted; break;
+    }
+  });
+
+  document.addEventListener("fullscreenchange", showUI);
+
+  window.Player = { load, seekTo };
+})();

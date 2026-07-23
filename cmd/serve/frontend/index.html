@@ -2,11 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <title>Kinoview</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="preload" href="kinoview-logo.png" as="image">
     <link href="style.css" rel="stylesheet" />
     <script src="index.js" defer></script>
@@ -18,131 +18,174 @@
         <img src="kinoview-logo.png" alt="Kinoview" class="intro-logo" draggable="false" />
       </div>
     </div>
+
     <div class="app-container">
       <header class="header">
-        <nav class="nav-bar">
-          <div class="logo">
-            <svg class="logo-icon" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
-              <line x1="8" y1="21" x2="16" y2="21"></line>
-              <line x1="12" y1="17" x2="12" y2="21"></line>
-              <polyline points="8 7 8 13 11 10 8 7"></polyline>
-            </svg>
-            <h1 class="logo-text">Kino<span class="logo-accent">view</span></h1>
-          </div>
-        </nav>
-        <p class="tagline">Your media, beautifully organized</p>
+        <div class="logo">
+          <svg class="logo-icon" width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"></rect>
+            <line x1="8" y1="21" x2="16" y2="21"></line>
+            <line x1="12" y1="17" x2="12" y2="21"></line>
+            <polyline points="8 7 8 13 11 10 8 7"></polyline>
+          </svg>
+          <h1 class="logo-text">Kino<span class="logo-accent">view</span></h1>
+        </div>
+
+        <div class="header-search">
+          <svg class="header-search-icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+          </svg>
+          <input
+            id="searchInput"
+            class="mediaSelector"
+            type="text"
+            placeholder="Search your library…"
+            onkeyup="searchMedia()"
+            onfocus="searchMedia()"
+            autocomplete="off"
+          />
+          <div id="searchResults" class="search-results hidden"></div>
+        </div>
+
+        <a class="nav-link" href="/gallery.html" title="Photo gallery">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect><circle cx="8.5" cy="8.5" r="1.5"></circle><polyline points="21 15 16 10 5 21"></polyline>
+          </svg>
+          <span>Gallery</span>
+        </a>
       </header>
-      
+
       <div class="layout">
         <!-- Sidebar: Shows / Seasons / Episodes -->
         <aside class="sidebar" id="showsSidebar">
           <div class="sidebar-header">
-            <h2 class="sidebar-title">Episodes</h2>
+            <h2 class="sidebar-title">Library</h2>
           </div>
           <div class="sidebar-body" id="sidebarBody">
-            <div class="sidebar-loading">Loading…</div>
+            <div class="sidebar-loading">
+              <span class="dot-flashing"></span>
+            </div>
           </div>
         </aside>
 
         <!-- Main: Player + Controls -->
         <main class="player-panel">
-          <div class="hero-section" id="heroSection">
-            <div class="hero-icon">
-              <svg width="72" height="72" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
-                <polygon points="5 3 19 12 5 21 5 3"></polygon>
+          <div class="player" id="player" data-state="idle">
+            <div class="hero-section" id="heroSection">
+              <div class="hero-icon">
+                <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round">
+                  <polygon points="5 3 19 12 5 21 5 3"></polygon>
+                </svg>
+              </div>
+              <p class="hero-text">Pick something from your library, search, or ask the concierge</p>
+            </div>
+
+            <video id="screen" class="screen" playsinline crossorigin="anonymous">
+              <track default id="subs" kind="subtitles" />
+            </video>
+
+            <div class="player-title" id="playerTitle"></div>
+
+            <div class="player-spinner" id="playerSpinner"></div>
+
+            <button class="big-play" id="bigPlay" aria-label="Play">
+              <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+            </button>
+
+            <div class="controls" id="controls">
+              <div class="scrubber" id="scrubber">
+                <div class="scrubber-track">
+                  <div class="scrubber-buffered" id="scrubBuffered"></div>
+                  <div class="scrubber-fill" id="scrubFill"></div>
+                </div>
+                <div class="scrubber-thumb" id="scrubThumb"></div>
+                <div class="scrubber-hover-time" id="scrubHoverTime"></div>
+              </div>
+
+              <div class="controls-row">
+                <button class="ctrl-btn" id="playBtn" title="Play/Pause (space)">
+                  <svg class="icon-play" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21 6 3"></polygon></svg>
+                  <svg class="icon-pause" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"></rect><rect x="14" y="4" width="4" height="16" rx="1"></rect></svg>
+                </button>
+
+                <button class="ctrl-btn" id="back10" title="Back 10s (←)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="1 4 1 10 7 10"></polyline><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"></path></svg>
+                  <span class="ctrl-sub">10</span>
+                </button>
+
+                <button class="ctrl-btn" id="fwd10" title="Forward 10s (→)">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="23 4 23 10 17 10"></polyline><path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"></path></svg>
+                  <span class="ctrl-sub">10</span>
+                </button>
+
+                <button class="ctrl-btn skip-intro" id="skipIntro" title="Skip intro">
+                  <span>Skip Intro</span>
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+                </button>
+
+                <div class="time-label" id="timeLabel"><span>0:00</span> / <span>0:00</span></div>
+
+                <div class="controls-spacer"></div>
+
+                <div class="volume">
+                  <button class="ctrl-btn" id="muteBtn" title="Mute (m)">
+                    <svg class="icon-vol" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path><path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path></svg>
+                    <svg class="icon-mute" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"></polygon><line x1="23" y1="9" x2="17" y2="15"></line><line x1="17" y1="9" x2="23" y2="15"></line></svg>
+                  </button>
+                  <input type="range" id="volSlider" class="vol-slider" min="0" max="1" step="0.01" value="1" title="Volume" />
+                </div>
+
+                <div class="ctrl-menu">
+                  <button class="ctrl-btn" id="subsBtn" title="Subtitles" onclick="toggleMenu('subsMenu')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="2"></rect><line x1="6" y1="12" x2="10" y2="12"></line><line x1="14" y1="12" x2="18" y2="12"></line><line x1="6" y1="16" x2="14" y2="16"></line></svg>
+                  </button>
+                  <div id="subsMenu" class="popover hidden"></div>
+                </div>
+
+                <div class="ctrl-menu">
+                  <button class="ctrl-btn" id="audioBtn" title="Audio tracks" onclick="toggleMenu('audioMenu')">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
+                  </button>
+                  <div id="audioMenu" class="popover hidden"></div>
+                </div>
+
+                <button class="ctrl-btn" id="fsBtn" title="Fullscreen (f)">
+                  <svg class="icon-fs" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3m0 18h3a2 2 0 0 0 2-2v-3M3 16v3a2 2 0 0 0 2 2h3"></path></svg>
+                  <svg class="icon-fs-exit" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3v3a2 2 0 0 1-2 2H3m18 0h-3a2 2 0 0 1-2-2V3m0 18v-3a2 2 0 0 1 2-2h3M3 16h3a2 2 0 0 1 2 2v3"></path></svg>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Concierge command bar -->
+          <div class="command-bar">
+            <div class="command-icon">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M12 2a2 2 0 0 1 2 2c0 .74-.4 1.39-1 1.73V7h1a7 7 0 0 1 7 7h1a1 1 0 0 1 1 1v3a1 1 0 0 1-1 1h-1v1a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-1H2a1 1 0 0 1-1-1v-3a1 1 0 0 1 1-1h1a7 7 0 0 1 7-7h1V5.73c-.6-.34-1-.99-1-1.73a2 2 0 0 1 2-2z"></path>
+                <circle cx="8.5" cy="14" r="1.2" fill="currentColor"></circle><circle cx="15.5" cy="14" r="1.2" fill="currentColor"></circle>
               </svg>
             </div>
-            <p class="hero-text">Select a video or search to start watching</p>
+            <input
+              id="recommendInput"
+              class="mediaSelector command-input"
+              type="text"
+              placeholder="Ask the concierge — “something cozy for a rainy night”…"
+              onkeydown="if(event.key==='Enter'){requestRecommendation()}"
+            />
+            <button class="btn-primary" id="recommendBtn" onclick="requestRecommendation()">
+              <span>Recommend</span>
+            </button>
           </div>
+          <p id="recommendationStatus" class="status-text"></p>
 
-          <div class="video-wrapper">
-            <video id="screen" class="screen" controls type="video/mp4">
-              <track default id="subs" kind="subtitles" />
-              Your browser does not support the video tag.
-            </video>
-            
-            <div class="video-overlay">
-              <div class="overlay-controls">
-                  <div class="dropdown-group">
-                      <button class="overlay-btn" id="audioBtn" title="Audio Tracks" onclick="toggleMenu('audioMenu')">
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0 1 18 0v6"></path><path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path></svg>
-                      </button>
-                      <div id="audioMenu" class="dropdown-menu hidden"></div>
-                  </div>
-                  <div class="dropdown-group">
-                      <button class="overlay-btn" id="subsBtn" title="Subtitles" onclick="toggleMenu('subsMenu')">
-                          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path></svg>
-                      </button>
-                      <div id="subsMenu" class="dropdown-menu hidden"></div>
-                  </div>
-              </div>
+          <!-- Concierge picks -->
+          <section id="butler-suggestions" class="suggestions-container" style="display: none;">
+            <div class="suggestions-heading">
+              <h3>Concierge picks</h3>
+              <span class="suggestions-sub">Chosen for you</span>
             </div>
-          </div>
-
-          <div id="butler-suggestions" class="suggestions-container" style="display: none;">
-            <h3>Butler Suggestions</h3>
             <div id="suggestions-list" class="suggestions-list"></div>
-          </div>
-          
-          <div id="selection-wrapper" class="control-panel">
-            <div class="control-group">
-              <label for="searchInput">Search videos</label>
-              <div class="search-wrapper">
-                <input
-                  id="searchInput"
-                  class="mediaSelector input-field"
-                  type="text"
-                  placeholder="Search by name, path, or metadata..."
-                  onkeyup="searchMedia()"
-                  onfocus="searchMedia()"
-                  autocomplete="off"
-                />
-                <div id="searchResults" class="search-results hidden"></div>
-              </div>
-            </div>
-
-            <div class="control-group">
-              <label for="recommendInput">Ask for a recommendation</label>
-              <div class="input-with-button">
-                <input
-                  id="recommendInput"
-                  class="mediaSelector input-field"
-                  type="text"
-                  placeholder="Type what you feel like watching..."
-                  onkeydown="if(event.key==='Enter'){requestRecommendation()}"
-                />
-                <button class="btn-primary" onclick="requestRecommendation()">Recommend</button>
-              </div>
-              <p id="recommendationStatus" class="status-text"></p>
-            </div>
-
-            <div class="control-group">
-              <label for="debugMediaSelector">Select a video</label>
-              <div class="select-wrapper">
-                <select
-                  id="debugMediaSelector"
-                  class="mediaSelector select-field"
-                  onchange="selectMedia(this.value)"
-                >
-                  <option value="">Select video</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="control-group">
-              <label for="debugSubsSelector">Select subtitles</label>
-              <div class="select-wrapper">
-                <select
-                  id="debugSubsSelector"
-                  class="mediaSelector select-field"
-                  onchange="selectSubtitle(this.value)"
-                >
-                  <option value="">Select subtitles</option>
-                </select>
-              </div>
-            </div>
-          </div>
+          </section>
         </main>
       </div>
     </div>
