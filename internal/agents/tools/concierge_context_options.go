@@ -27,5 +27,5 @@ func conciergeCacheDir(cacheDir string) (string, error) {
 		}
 		base = d
 	}
-	return filepath.Join(base, "kinoview", "concierge"), nil
+	return filepath.Join(base, "concierge"), nil
 }

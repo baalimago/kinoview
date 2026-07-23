@@ -362,7 +362,7 @@ func TestConciergeContextIntegration_FilePersistence(t *testing.T) {
 	}
 
 	// Verify file exists
-	cacheDir := filepath.Join(tmpDir, "kinoview", "concierge")
+	cacheDir := filepath.Join(tmpDir, "concierge")
 	filePath := filepath.Join(cacheDir, id+".json")
 
 	_, err = os.Stat(filePath)
@@ -453,7 +453,7 @@ func TestConciergeCacheDir_WithProvidedCacheDir(t *testing.T) {
 		t.Fatalf("conciergeCacheDir: %v", err)
 	}
 
-	expected := filepath.Join(cacheDir, "kinoview", "concierge")
+	expected := filepath.Join(cacheDir, "concierge")
 	if got != expected {
 		t.Fatalf("got %q want %q", got, expected)
 	}
@@ -497,11 +497,5 @@ func TestConciergeCacheDir_PathStructure(t *testing.T) {
 	if lastPart != "concierge" {
 		t.Fatalf("expected last component to be 'concierge', got %q",
 			lastPart)
-	}
-
-	secondLast := filepath.Base(filepath.Dir(got))
-	if secondLast != "kinoview" {
-		t.Fatalf("expected second-to-last to be 'kinoview', got %q",
-			secondLast)
 	}
 }
