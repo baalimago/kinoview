@@ -194,10 +194,14 @@ func (s *store) VideoHandlerFunc() http.HandlerFunc {
 			return
 		}
 
-		// We'll see how robus this is. This rule covers all of my devices!
-		if strings.HasSuffix(strings.ToLower(item.Name), ".mkv") && !strings.Contains(r.UserAgent(), "SmartTV") {
-			streamMkvToMp4(w, r, pathToMedia)
-			return
+		// For MKV files: always transcode on seek (?t= present), but only
+		// transcode on initial load for non-SmartTV (raw MKV may play natively
+		// on SmartTV but seeking requires the transcode path).
+		if strings.HasSuffix(strings.ToLower(item.Name), ".mkv") {
+			if !strings.Contains(r.UserAgent(), "SmartTV") || r.URL.Query().Get("t") != "" {
+				streamMkvToMp4(w, r, pathToMedia)
+				return
+			}
 		}
 
 		modTime := info.ModTime()

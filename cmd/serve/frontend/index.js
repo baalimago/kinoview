@@ -30,17 +30,16 @@ const media = {}
 
 // ── Intro animation loader ──
 ;(function() {
-  const MIN_INTRO_MS = 3000;
+  const MAX_INTRO_MS = 4000;
   const pageStart = performance.now();
   const overlay = document.getElementById('intro-overlay');
   const logo = overlay ? overlay.querySelector('.intro-logo') : null;
-  let pending = 3; // shows, usage (gallery), suggestions
   let dismissed = false;
+  let loadsDone = 0;
 
   // Phase 1: logo emerges on black — nearly immediate
   setTimeout(function() {
     if (logo) logo.classList.add('reveal');
-    playIntroMeow();
   }, 50);
 
   // Phase 2: background fades from black to marine blue behind the logo
@@ -48,175 +47,32 @@ const media = {}
     if (overlay) overlay.classList.add('bg-reveal');
   }, 400);
 
-  function playIntroMeow() {
-    try {
-      var ctx = new (window.AudioContext || window.webkitAudioContext)();
-      if (ctx.state === 'suspended') {
-        ctx.resume().then(function() { scheduleMeow(ctx); });
-      } else {
-        scheduleMeow(ctx);
-      }
-    } catch(e) {
-      // Silently fail if AudioContext unavailable
-    }
-  }
-
-  function scheduleMeow(ctx) {
-      var now = ctx.currentTime;
-      var duration  = 0.75 + Math.random() * 0.65;  // 0.75–1.4 s — drawn-out "meeeeaaaooow"
-      var basePitch = 440 + Math.random() * 140;   // 440–580 Hz
-      var doDouble  = Math.random() < 0.3;         // ~30% chance of double-meow
-      var peakGain  = 0.5 + Math.random() * 0.35;  // 0.5–0.85
-
-      // ═══ 1. Oscillator: triangle (warm, bassy, soft harmonics) ═══
-      var osc = ctx.createOscillator();
-      osc.type = 'triangle';
-
-      // ═══ 2. Formant filter — peaking, models jaw "M"→"E-O"→"W" ═══
-      var formant = ctx.createBiquadFilter();
-      formant.type = 'peaking';
-      formant.Q.setValueAtTime(4 + Math.random() * 4, now);  // Q 4–8
-
-      // ═══ 3. Main amplitude envelope ═══
-      var mainGain = ctx.createGain();
-
-      // ═══ 4. Routing ═══
-      osc.connect(formant);
-      formant.connect(mainGain);
-      mainGain.connect(ctx.destination);
-
-      // ═══ 5. Pitch — gentle arc: rise then fall ═══
-      var midPitch = basePitch + 25;
-      var endPitch = basePitch - 90;  // deeper drop for "oooow"
-      osc.frequency.setValueAtTime(basePitch, now);
-      osc.frequency.linearRampToValueAtTime(midPitch, now + duration * 0.35);
-      osc.frequency.linearRampToValueAtTime(endPitch, now + duration);
-
-      // ═══ 6. Formant sweep — the critical "me-ow" movement ═══
-      // "M" (closed mouth) → "E-O" (wide open) → "W" (closing)
-      formant.frequency.setValueAtTime(520 + Math.random() * 120, now);        // 520–640 Hz — bassy "mmm"
-      formant.frequency.exponentialRampToValueAtTime(1800 + Math.random() * 500, now + duration * 0.4);  // "eee-aaa"
-      formant.frequency.exponentialRampToValueAtTime(350 + Math.random() * 120, now + duration);         // "ooow"
-
-      // ═══ 7. Amplitude envelope — slow onset, long sustain, decay ═══
-      mainGain.gain.setValueAtTime(0.001, now);
-      mainGain.gain.linearRampToValueAtTime(peakGain, now + 0.08);
-      mainGain.gain.setValueAtTime(peakGain, now + duration * 0.5);
-      mainGain.gain.exponentialRampToValueAtTime(0.001, now + duration - 0.05);
-
-      // ═══ 8. Subtle vibrato — vocal strain tremolo ═══
-      var vibrato = ctx.createOscillator();
-      var vibratoGain = ctx.createGain();
-      vibrato.type = 'sine';
-      vibrato.frequency.value = 5 + Math.random() * 3;  // 5–8 Hz
-      vibratoGain.gain.value = 2 + Math.random() * 3;   // 2–5 Hz deviation
-      vibrato.connect(vibratoGain);
-      vibratoGain.connect(osc.frequency);
-      vibrato.start(now);
-      vibrato.stop(now + duration);
-
-      // ═══ 9. Breath noise — soft turbulent air ═══
-      var noiseLen = ctx.sampleRate * 1.5;
-      var noiseBuffer = ctx.createBuffer(1, noiseLen, ctx.sampleRate);
-      var noiseData = noiseBuffer.getChannelData(0);
-      for (var ni = 0; ni < noiseLen; ni++) {
-        noiseData[ni] = Math.random() * 2 - 1;
-      }
-      var noiseSrc = ctx.createBufferSource();
-      noiseSrc.buffer = noiseBuffer;
-      noiseSrc.loop = true;
-
-      var noiseFilter = ctx.createBiquadFilter();
-      noiseFilter.type = 'bandpass';
-      noiseFilter.frequency.setValueAtTime(550, now);
-      noiseFilter.frequency.exponentialRampToValueAtTime(2100, now + duration * 0.4);
-      noiseFilter.frequency.exponentialRampToValueAtTime(400, now + duration);
-      noiseFilter.Q.value = 1.5;
-
-      var noiseGain = ctx.createGain();
-      noiseGain.gain.setValueAtTime(0, now);
-      noiseGain.gain.linearRampToValueAtTime(peakGain * 0.04, now + 0.06);
-      noiseGain.gain.exponentialRampToValueAtTime(0.00001, now + duration);
-
-      noiseSrc.connect(noiseFilter);
-      noiseFilter.connect(noiseGain);
-      noiseGain.connect(ctx.destination);
-      noiseSrc.start(now);
-      noiseSrc.stop(now + duration + 0.1);
-
-      // ═══ Start and stop ═══
-      osc.start(now);
-      osc.stop(now + duration + 0.1);
-
-      // ═══ 10. Optional second meow — quieter, shorter, lower ═══
-      if (doDouble) {
-        var gap = 0.13 + Math.random() * 0.22;
-        var dStart = now + gap;
-        var dDuration = duration * (0.35 + Math.random() * 0.3);
-        var dPitch = basePitch * (0.7 + Math.random() * 0.25);
-        var dPeak = peakGain * (0.3 + Math.random() * 0.25);
-
-        var dOsc = ctx.createOscillator();
-        dOsc.type = 'triangle';
-
-        var dFormant = ctx.createBiquadFilter();
-        dFormant.type = 'peaking';
-        dFormant.Q.setValueAtTime(3 + Math.random() * 4, dStart);
-
-        var dMainGain = ctx.createGain();
-        dOsc.connect(dFormant);
-        dFormant.connect(dMainGain);
-        dMainGain.connect(ctx.destination);
-
-        dOsc.frequency.setValueAtTime(dPitch, dStart);
-        dOsc.frequency.linearRampToValueAtTime(dPitch + 15, dStart + dDuration * 0.3);
-        dOsc.frequency.linearRampToValueAtTime(dPitch - 60, dStart + dDuration);
-
-        dFormant.frequency.setValueAtTime(480, dStart);
-        dFormant.frequency.exponentialRampToValueAtTime(1600 + Math.random() * 400, dStart + dDuration * 0.35);
-        dFormant.frequency.exponentialRampToValueAtTime(320 + Math.random() * 100, dStart + dDuration);
-
-        dMainGain.gain.setValueAtTime(0.001, dStart);
-        dMainGain.gain.linearRampToValueAtTime(dPeak, dStart + 0.06);
-        dMainGain.gain.setValueAtTime(dPeak, dStart + dDuration * 0.4);
-        dMainGain.gain.exponentialRampToValueAtTime(0.001, dStart + dDuration);
-
-        dOsc.start(dStart);
-        dOsc.stop(dStart + dDuration + 0.1);
-      }
-
-      // Close context after sound finishes
-      var maxEnd = now + duration + 0.15;
-      if (doDouble) {
-        var doubleEnd = now + 0.35 + duration * 0.65 + 0.15;
-        if (doubleEnd > maxEnd) maxEnd = doubleEnd;
-      }
-      setTimeout(function() { ctx.close(); }, Math.ceil((maxEnd - now) * 1000) + 100);
+  function dismissIntro() {
+    if (dismissed || !overlay) return;
+    dismissed = true;
+    overlay.classList.add('dismiss');
+    setTimeout(function() {
+      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
+    }, 550);
   }
 
   window.__introMarkLoaded = function() {
-    pending--;
-    if (pending <= 0 && !dismissed) {
+    loadsDone++;
+    if (loadsDone >= 3 && !dismissed) {
       var elapsed = performance.now() - pageStart;
-      var remaining = Math.max(0, MIN_INTRO_MS - elapsed);
+      var remaining = Math.max(0, Math.min(MAX_INTRO_MS - elapsed, 500));
       setTimeout(dismissIntro, remaining);
     }
   };
 
   window.__introMarkFailed = function() {
-    // Still count as done on failure so we don't hang
     window.__introMarkLoaded();
   };
 
-  function dismissIntro() {
-    if (dismissed || !overlay) return;
-    dismissed = true;
-    overlay.classList.add('dismiss');
-    // Remove from DOM after transition
-    setTimeout(function() {
-      if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
-    }, 550);
-  }
+  // Safety net: dismiss after MAX_INTRO_MS regardless
+  setTimeout(function() {
+    if (!dismissed) dismissIntro();
+  }, MAX_INTRO_MS + 500);
 })();
 
 const ogConsoleLog = console.log
@@ -296,6 +152,50 @@ function videoNameWithProgress(vID, vidName) {
     name += ` - ${asMin} min`;
   }
   return name;
+}
+
+// prettyMediaName returns a human-readable display name from an item.
+// Prefers classified metadata over raw filenames:
+//   Movies → "Movie Title"
+//   Shows  → "Show Name · S1·E5" or "Show Name · S1·E5 – Episode Title"
+//   Fallback → cleaned-up filename (dots/underscores → spaces, extension stripped)
+function prettyMediaName(it) {
+  if (!it) return '';
+  var md = (it.Metadata && typeof it.Metadata === 'object') ? it.Metadata : null;
+
+  // 1. Classified name (movie title or episode title from metadata)
+  var classifiedName = '';
+  if (md && md.name && typeof md.name === 'string') classifiedName = md.name.trim();
+
+  // 2. Show name from metadata (set during classification or show extraction)
+  var showName = '';
+  if (md && md.showName && typeof md.showName === 'string') showName = md.showName.trim();
+  if (!showName) {
+    // Try Metadata.title as a fallback
+    if (md && md.title && typeof md.title === 'string') showName = md.title.trim();
+  }
+
+  // 3. Season and episode numbers
+  var season = (md && md.season) ? md.season : 0;
+  var episode = (md && md.episode) ? md.episode : 0;
+
+  // Show episode path: "Show Name · S1·E5" or "Show Name · S1·E5 – Episode Title"
+  if (showName && season && episode) {
+    var result = showName + ' \u00B7 S' + season + '\u00B7E' + episode;
+    if (classifiedName && classifiedName !== showName) {
+      result += ' \u2013 ' + classifiedName;
+    }
+    return result;
+  }
+
+  // Movie path: just the classified name
+  if (classifiedName) return classifiedName;
+
+  // Fallback: clean up the raw filename
+  var name = it.Name || '';
+  name = name.replace(/\.[^.]+$/, '');       // strip extension
+  name = name.replace(/[._-]/g, ' ').replace(/\s+/g, ' ').trim();
+  return name || (it.Name || '');
 }
 
 fetch('/gallery?start=0&am=1000&mime=video')
@@ -493,7 +393,7 @@ function requestRecommendation() {
         status.innerText = "No recommendation found — try rephrasing.";
         return;
       }
-      status.innerText = "▶ Now playing: " + (item.Name || item.ID);
+      status.innerText = "▶ Now playing: " + prettyMediaName(item);
       selectMedia(item.ID);
     })
     .catch(err => {
@@ -680,7 +580,7 @@ function loadSuggestions() {
         };
 
         const title = document.createElement("strong");
-        title.innerText = rec.Name;
+        title.innerText = prettyMediaName(rec);
 
         const motivation = document.createElement("p");
         motivation.innerText = rec.motivation;
@@ -1085,11 +985,12 @@ function loadSuggestions() {
 
   const state = {
     id: "",
-    transcoded: false,
-    duration: 0, // best-known total seconds (0 = unknown)
-    base: 0,     // stream start offset for transcoded seeks
+    isMkv: false,    // source is .mkv — needs ?t= reload for seeking
+    transcoded: false, // current stream is transcoded (affects time display)
+    duration: 0,      // best-known total seconds (0 = unknown)
+    base: 0,          // stream start offset for transcoded seeks
     wasPlaying: true,
-    resumeAt: 0, // pending native resume applied on loadedmetadata
+    resumeAt: 0,      // pending native resume applied on loadedmetadata
     dragging: false,
   };
 
@@ -1100,6 +1001,15 @@ function loadSuggestions() {
       if (isFinite(s) && s > 0) return s;
     }
     return 0;
+  }
+
+  // Mirror the server's decision (VideoHandlerFunc): .mkv is transcoded to a
+  // fragmented mp4 on the fly EXCEPT for SmartTV/webOS clients, which get the
+  // raw file. In all cases state.isMkv governs seeking — for MKV files we
+  // always use ?t= reload seeks because native currentTime is unreliable on
+  // SmartTV/webOS (restarts from 0).
+  function serverWillTranscode(name) {
+    return /\.mkv$/i.test(name) && !/SmartTV/i.test(navigator.userAgent || "");
   }
 
   function total() {
@@ -1142,11 +1052,12 @@ function loadSuggestions() {
     mostRecentID = id;
     const it = media[id] || {};
     const name = it.Name || "";
-    state.transcoded = /\.mkv$/i.test(name);
+    state.isMkv = /\.mkv$/i.test(name);
+    state.transcoded = serverWillTranscode(name);
     state.duration = itemDurationSec(id);
     const resume = getResume(id, state.duration);
 
-    titleEl.textContent = it.Name || "";
+    titleEl.textContent = prettyMediaName(it);
     if (hero) hero.classList.add("hidden");
     el.setAttribute("data-state", "active");
     el.classList.add("buffering");
@@ -1166,12 +1077,17 @@ function loadSuggestions() {
   }
 
   // Seek to an absolute position (seconds from the start of the media).
+  // For MKV sources we always use a ?t= server-side seek (reliable across
+  // all browsers, including SmartTV/webOS where native currentTime fails).
+  // For non-MKV (e.g. MP4) sources we use native currentTime which is
+  // efficient and works everywhere.
   function seekTo(target, keepPlaying) {
     const tot = total();
     let t = Math.max(0, target);
     if (tot > 0) t = Math.min(t, tot - 0.5);
 
-    if (state.transcoded) {
+    if (state.isMkv) {
+      state.transcoded = true;
       state.wasPlaying = keepPlaying !== undefined ? keepPlaying : !video.paused;
       state.base = t;
       el.classList.add("buffering");
