@@ -814,10 +814,19 @@ body {
 .search-results-empty { padding: 0.9rem; color: var(--text-muted); font-size: 0.82rem; text-align: center; }
 
 /* ── Intro Overlay ── */
+/* NOTE: explicit top/right/bottom/left rather than `inset: 0` — the `inset`
+   shorthand is Chromium 87+, so on webOS TV 4.x–6.x (Chromium 53–79) this
+   overlay would collapse to content size and never cover the screen. */
 .intro-overlay {
-  position: fixed; inset: 0; z-index: 9999;
-  display: flex; align-items: center; justify-content: center;
+  position: fixed; top: 0; right: 0; bottom: 0; left: 0;
+  width: 100%; height: 100%;
+  z-index: 9999;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  overflow: hidden;
   background: #000;
+  -webkit-transition: background 0.5s ease-out, opacity 0.5s ease-out;
   transition: background 0.5s ease-out, opacity 0.5s ease-out;
 }
 .low-perf .intro-overlay { transition: background 0s, opacity 0.5s ease-out; }
@@ -825,25 +834,363 @@ body {
 .intro-overlay.bg-reveal { background: #0f172a; }
 .intro-overlay.dismiss { opacity: 0; pointer-events: none; }
 
-.intro-logo-wrapper { display: flex; align-items: center; justify-content: center; }
+.intro-logo-wrapper {
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+}
 .intro-logo {
   width: 70vw; max-width: 700px; height: auto;
-  opacity: 0; transform: scale(0.57);
+  opacity: 0;
+  -webkit-transform: scale(0.57); transform: scale(0.57);
 }
 .intro-logo.reveal {
+  -webkit-animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards,
+                     introLogoBlow 0.7s ease-in-out 0.6s;
   animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards,
              introLogoBlow 0.7s ease-in-out 0.6s;
 }
-.low-perf .intro-logo.reveal { animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+.low-perf .intro-logo.reveal {
+  -webkit-animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+  animation: introLogoReveal 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
 
+@-webkit-keyframes introLogoReveal {
+  0%   { opacity: 0; -webkit-transform: scale(0.57); }
+  100% { opacity: 1; -webkit-transform: scale(1); }
+}
 @keyframes introLogoReveal {
   0%   { opacity: 0; transform: scale(0.57); }
   100% { opacity: 1; transform: scale(1); }
+}
+@-webkit-keyframes introLogoBlow {
+  0%, 100% { -webkit-transform: scale(1); }
+  30% { -webkit-transform: scale(1.02); }
+  60% { -webkit-transform: scale(0.992); }
 }
 @keyframes introLogoBlow {
   0%, 100% { transform: scale(1); }
   30% { transform: scale(1.02); }
   60% { transform: scale(0.992); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Intro stage — the walk-on cast
+   Built from divs + border-radius on purpose: CSS transforms applied to
+   SVG child elements are unreliable on the old Blink/WebKit builds in
+   webOS TVs. Only `transform` and `opacity` are animated so the
+   compositor does the work — TV CPUs are weak.
+   Coat colours arrive as inline custom properties from the director.
+   ══════════════════════════════════════════════════════════════════════ */
+.intro-stage {
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+/* An actor is parked at its final mark via `left`; only the walk-in offset is
+   animated. That ordering matters: if the engine refuses to run the animation
+   the cat is simply *already standing there*, rather than stranded off-screen.
+   Scale and facing live here and are set inline by the director. */
+.actor {
+  position: absolute;
+  bottom: 12%;
+  left: 0;
+  width: 160px; height: 112px;
+  opacity: 0;
+  /* Grow up from the floor line, so scaling never sinks the paws */
+  -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%;
+}
+.actor.staged { opacity: 1; }
+
+/* Entrance layer. One keyframe set serves both directions: when the parent is
+   mirrored for a right-hand entrance, this local -75vw becomes a visual +75vw,
+   so the cat always walks forward relative to the way it is facing. */
+.actor-walk {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+}
+.actor.entering .actor-walk {
+  -webkit-animation: actorWalkIn 1.4s linear both;
+  animation: actorWalkIn 1.4s linear both;
+}
+@-webkit-keyframes actorWalkIn {
+  from { -webkit-transform: translate3d(-75vw, 0, 0); }
+  to   { -webkit-transform: translate3d(0, 0, 0); }
+}
+@keyframes actorWalkIn {
+  from { transform: translate3d(-75vw, 0, 0); }
+  to   { transform: translate3d(0, 0, 0); }
+}
+
+.actor-inner {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+  -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%;
+}
+
+/* ── Cat ───────────────────────────────────────────────────────────── */
+.cat { position: absolute; top: 0; left: 0; width: 160px; height: 112px; }
+
+.cat-body {
+  position: absolute; left: 22px; bottom: 30px;
+  width: 94px; height: 50px;
+  background: var(--fur, #e8913c);
+  border-radius: 50% 46% 44% 50% / 56% 52% 48% 54%;
+}
+/* Lighter belly + chest, so the body reads as volume rather than a blob */
+.cat-belly {
+  position: absolute; left: 34px; bottom: 30px;
+  width: 68px; height: 26px;
+  background: var(--belly, #f7c58a);
+  border-radius: 50% 50% 46% 46% / 20% 20% 80% 80%;
+  opacity: 0.85;
+}
+
+.cat-head {
+  position: absolute; left: 92px; bottom: 50px;
+  width: 54px; height: 48px;
+  background: var(--fur, #e8913c);
+  border-radius: 48% 50% 44% 44% / 46% 46% 52% 52%;
+  -webkit-transform-origin: 30% 90%; transform-origin: 30% 90%;
+}
+.cat-cheek {
+  position: absolute; left: 8px; bottom: 4px;
+  width: 40px; height: 20px;
+  background: var(--belly, #f7c58a);
+  border-radius: 50%;
+  opacity: 0.8;
+}
+
+.cat-ear {
+  position: absolute; top: -9px;
+  width: 0; height: 0;
+  border-left: 9px solid transparent;
+  border-right: 9px solid transparent;
+  border-bottom: 17px solid var(--fur, #e8913c);
+}
+.cat-ear-l {
+  left: 5px;
+  -webkit-transform: rotate(-18deg); transform: rotate(-18deg);
+  -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%;
+}
+.cat-ear-r {
+  right: 6px;
+  -webkit-transform: rotate(14deg); transform: rotate(14deg);
+  -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%;
+}
+.cat-ear-inner {
+  position: absolute; left: -4px; top: 6px;
+  width: 0; height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-bottom: 8px solid var(--inner-ear, #c96a72);
+}
+
+.cat-eye {
+  position: absolute; bottom: 24px;
+  width: 8px; height: 10px;
+  background: var(--eye, #24313f);
+  border-radius: 50%;
+  -webkit-transform-origin: 50% 50%; transform-origin: 50% 50%;
+}
+.cat-eye-l { left: 16px; }
+.cat-eye-r { left: 34px; }
+/* Blink: squash vertically. Driven by a class the director toggles. */
+.cat.blink .cat-eye {
+  -webkit-transform: scaleY(0.12); transform: scaleY(0.12);
+}
+
+.cat-nose {
+  position: absolute; left: 27px; bottom: 17px;
+  width: 7px; height: 5px;
+  background: var(--nose, #d98a94);
+  border-radius: 50% 50% 60% 60%;
+}
+.cat-mouth {
+  position: absolute; left: 26px; bottom: 9px;
+  width: 10px; height: 3px;
+  background: var(--mouth, #2b2118);
+  border-radius: 40% 40% 60% 60%;
+  -webkit-transform-origin: 50% 0%; transform-origin: 50% 0%;
+  -webkit-transition: height 0.12s ease-out, width 0.12s ease-out;
+  transition: height 0.12s ease-out, width 0.12s ease-out;
+}
+
+/* Whiskers fan forward from the muzzle, ahead of the nose — not across it */
+.cat-whiskers {
+  position: absolute; left: 33px; bottom: 15px;
+  width: 19px; height: 1px;
+  background: rgba(255,255,255,0.5);
+  box-shadow: 0 4px 0 rgba(255,255,255,0.34), 0 -4px 0 rgba(255,255,255,0.3);
+}
+
+/* Legs rotate from the hip. Far-side pair is darkened for depth. */
+.cat-leg {
+  position: absolute; bottom: 0;
+  width: 9px; height: 37px;
+  background: var(--fur, #e8913c);
+  border-radius: 4px 4px 3px 3px;
+  -webkit-transform-origin: 50% 0%; transform-origin: 50% 0%;
+}
+.cat-leg-far { background: var(--fur-dark, #c2762e); }
+.cat-leg-bl { left: 27px; }
+.cat-leg-br { left: 38px; }
+.cat-leg-fl { left: 89px; }
+.cat-leg-fr { left: 100px; }
+/* Paw */
+.cat-leg:after {
+  content: ''; position: absolute; bottom: 0; left: -1px;
+  width: 11px; height: 6px;
+  background: inherit;
+  border-radius: 3px 4px 4px 4px;
+}
+
+/* Tail hangs off the rear and sweeps UP — note the rotation is positive:
+   the bar extends leftwards from its right-hand origin, and in screen
+   coordinates (y down) a positive angle lifts that free end. */
+.cat-tail {
+  position: absolute; left: -14px; bottom: 48px;
+  width: 46px; height: 8px;
+  background: var(--fur, #e8913c);
+  border-radius: 5px;
+  -webkit-transform-origin: 100% 50%; transform-origin: 100% 50%;
+  -webkit-transform: rotate(34deg); transform: rotate(34deg);
+}
+/* Second segment continues the arc so the tail curls instead of poking out.
+   It overlaps the parent's free end and adds only a gentle extra angle — a
+   big compound rotation here visibly snaps the joint apart on the palettes
+   whose tip colour differs from the fur (tuxedo, siamese). */
+.cat-tail-tip {
+  position: absolute; left: -13px; top: 0;
+  width: 19px; height: 8px;
+  background: var(--tail-tip, #e8913c);
+  border-radius: 5px;
+  -webkit-transform-origin: 100% 50%; transform-origin: 100% 50%;
+  -webkit-transform: rotate(16deg); transform: rotate(16deg);
+}
+
+/* ── Walk cycle ─────────────────────────────────────────────────────
+   Diagonal gait: the two diagonal pairs alternate, achieved with a
+   negative animation-delay of half the cycle rather than a second
+   keyframe set. */
+/* Durations and the half-cycle delay are assigned inline by the director:
+   `calc()` on a `var()` time value is shaky on the older Blink builds in
+   webOS, so the timing never depends on it. */
+.actor.walking .cat-leg {
+  -webkit-animation: catLegSwing 0.34s linear infinite;
+  animation: catLegSwing 0.34s linear infinite;
+}
+.actor.walking .actor-inner {
+  -webkit-animation: catBodyBob 0.17s ease-in-out infinite;
+  animation: catBodyBob 0.17s ease-in-out infinite;
+}
+.actor.walking .cat-tail {
+  -webkit-animation: catTailWalk 0.68s ease-in-out infinite;
+  animation: catTailWalk 0.68s ease-in-out infinite;
+}
+.actor.walking .cat-head {
+  -webkit-animation: catHeadBob 0.34s ease-in-out infinite;
+  animation: catHeadBob 0.34s ease-in-out infinite;
+}
+
+@-webkit-keyframes catLegSwing {
+  0%   { -webkit-transform: rotate(24deg); }
+  50%  { -webkit-transform: rotate(-22deg); }
+  100% { -webkit-transform: rotate(24deg); }
+}
+@keyframes catLegSwing {
+  0%   { transform: rotate(24deg); }
+  50%  { transform: rotate(-22deg); }
+  100% { transform: rotate(24deg); }
+}
+@-webkit-keyframes catBodyBob {
+  0%, 100% { -webkit-transform: translate3d(0, 0, 0); }
+  50%      { -webkit-transform: translate3d(0, -3px, 0); }
+}
+@keyframes catBodyBob {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  50%      { transform: translate3d(0, -3px, 0); }
+}
+@-webkit-keyframes catHeadBob {
+  0%, 100% { -webkit-transform: rotate(0deg); }
+  50%      { -webkit-transform: rotate(-2.5deg); }
+}
+@keyframes catHeadBob {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(-2.5deg); }
+}
+@-webkit-keyframes catTailWalk {
+  0%, 100% { -webkit-transform: rotate(30deg); }
+  50%      { -webkit-transform: rotate(46deg); }
+}
+@keyframes catTailWalk {
+  0%, 100% { transform: rotate(30deg); }
+  50%      { transform: rotate(46deg); }
+}
+
+/* ── Idle (arrived) ─────────────────────────────────────────────────── */
+.actor.idle .cat-tail {
+  -webkit-animation: catTailIdle 1.6s ease-in-out infinite;
+  animation: catTailIdle 1.6s ease-in-out infinite;
+}
+@-webkit-keyframes catTailIdle {
+  0%, 100% { -webkit-transform: rotate(28deg); }
+  50%      { -webkit-transform: rotate(52deg); }
+}
+@keyframes catTailIdle {
+  0%, 100% { transform: rotate(28deg); }
+  50%      { transform: rotate(52deg); }
+}
+
+/* ── The meow ───────────────────────────────────────────────────────
+   Mouth opens, head tilts up and the chest lifts — a cat throws its
+   whole head into a meow. Timed to match the audio envelope. */
+.actor.vocalizing .cat-mouth {
+  width: 14px; height: 11px;
+  border-radius: 45% 45% 55% 55%;
+}
+.actor.vocalizing .cat-head {
+  -webkit-animation: catMeowHead 0.62s ease-in-out;
+  animation: catMeowHead 0.62s ease-in-out;
+}
+.actor.vocalizing .cat-ear-l,
+.actor.vocalizing .cat-ear-r {
+  -webkit-animation: catEarPerk 0.62s ease-in-out;
+  animation: catEarPerk 0.62s ease-in-out;
+}
+@-webkit-keyframes catMeowHead {
+  0%   { -webkit-transform: rotate(0deg) translate3d(0,0,0); }
+  25%  { -webkit-transform: rotate(-11deg) translate3d(0,-3px,0); }
+  70%  { -webkit-transform: rotate(-8deg) translate3d(0,-2px,0); }
+  100% { -webkit-transform: rotate(0deg) translate3d(0,0,0); }
+}
+@keyframes catMeowHead {
+  0%   { transform: rotate(0deg) translate3d(0,0,0); }
+  25%  { transform: rotate(-11deg) translate3d(0,-3px,0); }
+  70%  { transform: rotate(-8deg) translate3d(0,-2px,0); }
+  100% { transform: rotate(0deg) translate3d(0,0,0); }
+}
+@-webkit-keyframes catEarPerk {
+  0%, 100% { -webkit-transform: rotate(-18deg) scale(1); }
+  30%      { -webkit-transform: rotate(-24deg) scale(1.1); }
+}
+@keyframes catEarPerk {
+  0%, 100% { transform: rotate(-18deg) scale(1); }
+  30%      { transform: rotate(-24deg) scale(1.1); }
+}
+
+/* ── Degraded modes ────────────────────────────────────────────────── */
+/* Weak hardware: keep the entrance, drop the per-limb animation. */
+.low-perf .actor.walking .cat-leg,
+.low-perf .actor.walking .cat-tail,
+.low-perf .actor.walking .cat-head,
+.low-perf .actor.walking .actor-inner,
+.low-perf .actor.idle .cat-tail {
+  -webkit-animation: none; animation: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .actor { display: none; }
 }
 
 /* Compact the player control bar on small screens so nothing clips */

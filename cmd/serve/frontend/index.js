@@ -29,69 +29,355 @@ const media = {}
 })();
 
 // ── Intro animation loader ──
+// ES5 on purpose (var/function, no arrow fns, no template literals): the baseline
+// target is webOS TV 4.x, i.e. Chromium 53. Same reason the CSS ships -webkit-
+// prefixes and avoids `inset`.
 ;(function() {
-  const MAX_INTRO_MS = 4000;
-  const pageStart = performance.now();
-  const overlay = document.getElementById('intro-overlay');
-  const logo = overlay ? overlay.querySelector('.intro-logo') : null;
-  let dismissed = false;
-  let loadsDone = 0;
+  var MAX_INTRO_MS = 5200;   // hard cap; the performance itself runs ~3s
+  var pageStart = performance.now();
+  var overlay = document.getElementById('intro-overlay');
+  var stage = document.getElementById('intro-stage');
+  var logo = overlay ? overlay.querySelector('.intro-logo') : null;
+  var dismissed = false;
+  var loadsDone = 0;
+  var performanceDone = false;
+  var timers = [];
 
-  // Phase 1: logo emerges on black — nearly immediate
-  setTimeout(function() {
+  function at(ms, fn) { timers.push(setTimeout(fn, ms)); }
+  function rand(a, b) { return a + Math.random() * (b - a); }
+  function pick(arr) { return arr[Math.floor(Math.random() * arr.length)]; }
+
+  var reducedMotion = false;
+  try {
+    reducedMotion = !!(window.matchMedia &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+  } catch (e) {}
+
+  /* ══════════════════════════════════════════════════════════════════
+     CAST — one entry per species.
+     A species supplies: a `build` returning its DOM, the coat palettes to
+     choose from, its physical range, and a `voice` that *schedules* its
+     call on an AudioContext at an absolute time. Adding a dog means adding
+     a `dog:` entry here; the director below is species-agnostic.
+     ══════════════════════════════════════════════════════════════════ */
+  var CAST = {
+    cat: {
+      build: buildCat,
+      voice: voiceCat,
+      scale: [0.85, 1.15],
+      walkMs: [1250, 1700],
+      stepMs: [290, 380],       // one leg cycle
+      swayMs: [1300, 1900],     // idle tail
+      vocalDelayMs: [200, 340], // settle → open mouth
+      vocalMs: 620,
+      // tailTip normally matches the fur so the tip just continues the tail;
+      // only the breeds that really have a marked tip differ (tuxedo, siamese).
+      palettes: [
+        { name: 'ginger',  fur: '#e8913c', furDark: '#c2762e', belly: '#f7c58a', tailTip: '#e8913c', innerEar: '#c96a72', nose: '#d98a94', eye: '#2f4a2c' },
+        { name: 'grey',    fur: '#8d97a4', furDark: '#6f7885', belly: '#c3cad4', tailTip: '#8d97a4', innerEar: '#b0757c', nose: '#c98c93', eye: '#3f6b3a' },
+        { name: 'cream',   fur: '#e6d3b3', furDark: '#c8b291', belly: '#f6ecd9', tailTip: '#e6d3b3', innerEar: '#cf8f95', nose: '#dfa0a6', eye: '#4a6ea8' },
+        // Dark coats are deliberately lifted well clear of the overlay
+        // background (#000 → #0f172a); at true black-cat values the body and
+        // tail disappear and only the belly and tail tip read.
+        { name: 'tuxedo',  fur: '#4b5464', furDark: '#3a4250', belly: '#f2f4f7', tailTip: '#f2f4f7', innerEar: '#a5666d', nose: '#c98c93', eye: '#c8a63e' },
+        { name: 'char',    fur: '#5d6880', furDark: '#485266', belly: '#8b94a8', tailTip: '#5d6880', innerEar: '#9d626a', nose: '#b47f86', eye: '#d8b23f' },
+        { name: 'siamese', fur: '#d8c6ab', furDark: '#5c4a3d', belly: '#efe4d1', tailTip: '#5c4a3d', innerEar: '#5c4a3d', nose: '#7d6152', eye: '#4d8fc4' }
+      ]
+    }
+  };
+
+  /* ── Cat DOM ─────────────────────────────────────────────────────── */
+  function buildCat(coat) {
+    var cat = el('div', 'cat');
+    // Far-side legs first so the near pair paints on top of them.
+    cat.appendChild(el('div', 'cat-leg cat-leg-far cat-leg-bl'));
+    cat.appendChild(el('div', 'cat-leg cat-leg-far cat-leg-fl'));
+    var tail = el('div', 'cat-tail');
+    tail.appendChild(el('div', 'cat-tail-tip'));
+    cat.appendChild(tail);
+    cat.appendChild(el('div', 'cat-body'));
+    cat.appendChild(el('div', 'cat-belly'));
+    cat.appendChild(el('div', 'cat-leg cat-leg-br'));
+    cat.appendChild(el('div', 'cat-leg cat-leg-fr'));
+
+    var head = el('div', 'cat-head');
+    var earL = el('div', 'cat-ear cat-ear-l');
+    earL.appendChild(el('div', 'cat-ear-inner'));
+    var earR = el('div', 'cat-ear cat-ear-r');
+    earR.appendChild(el('div', 'cat-ear-inner'));
+    head.appendChild(earL);
+    head.appendChild(earR);
+    head.appendChild(el('div', 'cat-cheek'));
+    head.appendChild(el('div', 'cat-eye cat-eye-l'));
+    head.appendChild(el('div', 'cat-eye cat-eye-r'));
+    head.appendChild(el('div', 'cat-whiskers'));
+    head.appendChild(el('div', 'cat-nose'));
+    head.appendChild(el('div', 'cat-mouth'));
+    cat.appendChild(head);
+
+    // Coat travels as custom properties so one palette drives every part.
+    setVar(cat, '--fur', coat.fur);
+    setVar(cat, '--fur-dark', coat.furDark);
+    setVar(cat, '--belly', coat.belly);
+    setVar(cat, '--tail-tip', coat.tailTip);
+    setVar(cat, '--inner-ear', coat.innerEar);
+    setVar(cat, '--nose', coat.nose);
+    setVar(cat, '--eye', coat.eye);
+    return cat;
+  }
+
+  // Schedule the cat's call. Returns when the audio ends.
+  function voiceCat(ctx, when) {
+    var dur = 0.42 + Math.random() * 0.18;
+    var f0  = 620 + Math.random() * 150;
+    var end = renderMeow(ctx, when, dur, f0, 0.50 + Math.random() * 0.25);
+    if (Math.random() < 0.30) {
+      end = renderMeow(ctx, end + rand(0.06, 0.20),
+        dur * rand(0.55, 0.80), f0 * rand(0.82, 1.02), rand(0.28, 0.42));
+    }
+    return end;
+  }
+
+  function el(tag, cls) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    return n;
+  }
+  function setVar(node, name, value) {
+    if (node.style.setProperty) node.style.setProperty(name, value);
+  }
+  function setAnim(node, prop, value) {
+    node.style[prop] = value;
+    node.style['webkit' + prop.charAt(0).toUpperCase() + prop.slice(1)] = value;
+  }
+  function setTransform(node, value) {
+    node.style.webkitTransform = value;
+    node.style.transform = value;
+  }
+
+  /* ── Casting ──────────────────────────────────────────────────────
+     Returns the actors for this run. Today: exactly one cat. The shape is
+     already a list so extra actors only need extra entries (each gets its
+     own lane, mark and stagger). */
+  function castList() {
+    return [{ species: 'cat', lane: 0, stagger: 0, vocal: true }];
+  }
+
+  /* ── The performance ─────────────────────────────────────────────── */
+  function runIntro() {
+    if (!overlay) return;
+
+    // Background fade happens regardless of whether the cast shows up.
+    at(400, function() { overlay.classList.add('bg-reveal'); });
+
+    if (!stage || reducedMotion) return logoOnly();
+
+    var audio = openAudio();
+    var actors = castList();
+    var lastBeat = 0;
+
+    for (var i = 0; i < actors.length; i++) {
+      var beat = stageActor(actors[i], audio);
+      if (beat > lastBeat) lastBeat = beat;
+    }
+
+    // Logo blooms once the cast has spoken, then we hand over to the app.
+    at(lastBeat + 120, function() { if (logo) logo.classList.add('reveal'); });
+    at(lastBeat + 780, function() {
+      performanceDone = true;
+      maybeDismiss();
+    });
+  }
+
+  function logoOnly() {
     if (logo) logo.classList.add('reveal');
-    playIntroMeow();
-  }, 50);
+    playVoiceOnly();
+    at(700, function() { performanceDone = true; maybeDismiss(); });
+  }
 
-  // Phase 2: background fades from black to marine blue behind the logo
-  setTimeout(function() {
-    if (overlay) overlay.classList.add('bg-reveal');
-  }, 400);
+  // Returns the timestamp (ms from intro start) at which this actor finishes.
+  function stageActor(spec, audio) {
+    var def = CAST[spec.species];
+    if (!def) return 0;
 
-  function playIntroMeow() {
-    try {
-      var ctx = new (window.AudioContext || window.webkitAudioContext)();
-      if (ctx.state === 'suspended') {
-        ctx.resume().then(function() { scheduleMeow(ctx); });
-      } else {
-        scheduleMeow(ctx);
+    var coat = pick(def.palettes);
+    var scale = rand(def.scale[0], def.scale[1]);
+    var walkMs = rand(def.walkMs[0], def.walkMs[1]);
+    var stepMs = rand(def.stepMs[0], def.stepMs[1]);
+    var fromRight = Math.random() < 0.5;
+    var lowPerf = document.body.classList.contains('low-perf');
+
+    var actor = el('div', 'actor');
+    var walk = el('div', 'actor-walk');
+    var inner = el('div', 'actor-inner');
+    inner.appendChild(def.build(coat));
+    walk.appendChild(inner);
+    actor.appendChild(walk);
+
+    // Vertical placement: lane 0 is the front. Extra lanes sit further back
+    // and are drawn smaller, so a future crowd has depth.
+    var lane = spec.lane || 0;
+    actor.style.bottom = (12 + lane * 7) + '%';
+
+    // The actor is parked at its mark; the entrance animation supplies the
+    // off-screen offset. Marks are spread around centre so a group does not
+    // stack on one spot.
+    var vw = Math.max(320, window.innerWidth || 960);
+
+    // The cat is drawn at 160px; scale it to the viewport or it vanishes on a
+    // TV. Capped so a 4K panel does not give us a billboard cat.
+    var fit = Math.min(2.4, Math.max(1, vw / 640));
+    var depth = scale * fit * (1 - lane * 0.12);
+    var markX = vw * (fromRight ? rand(0.54, 0.66) : rand(0.34, 0.46));
+    actor.style.left = Math.round(markX) + 'px';
+    // Mirroring for a right-hand entrance also reverses the walk-in direction,
+    // so the cat always faces the way it is travelling.
+    setTransform(actor, 'scale(' + depth.toFixed(3) + ')' +
+      (fromRight ? ' scaleX(-1)' : ''));
+    stage.appendChild(actor);
+
+    var t0 = spec.stagger || 0;
+
+    at(t0, function() {
+      actor.classList.add('staged');
+      setAnim(walk, 'animationDuration', walkMs + 'ms');
+      actor.classList.add('entering');
+      if (!lowPerf) {
+        actor.classList.add('walking');
+        // Timing set inline rather than via calc(var()) — see style.css.
+        var legs = actor.getElementsByClassName('cat-leg');
+        for (var i = 0; i < legs.length; i++) {
+          setAnim(legs[i], 'animationDuration', stepMs + 'ms');
+          // Diagonal pairs: offset half a cycle via a negative delay.
+          var far = legs[i].className.indexOf('cat-leg-far') !== -1;
+          var front = legs[i].className.indexOf('-f') !== -1;
+          if (far === front) setAnim(legs[i], 'animationDelay', (-stepMs / 2) + 'ms');
+        }
+        setAnim(inner, 'animationDuration', (stepMs / 2) + 'ms');
+        var head = actor.getElementsByClassName('cat-head')[0];
+        if (head) setAnim(head, 'animationDuration', stepMs + 'ms');
+        var tw = actor.getElementsByClassName('cat-tail')[0];
+        if (tw) setAnim(tw, 'animationDuration', (stepMs * 2) + 'ms');
       }
-    } catch(e) {
-      // Silently fail if AudioContext unavailable
+    });
+
+    // Arrival: stop the feet, start an idle tail, settle.
+    var arriveAt = t0 + walkMs;
+    at(arriveAt, function() {
+      actor.classList.remove('walking');
+      actor.classList.add('idle');
+      var ti = actor.getElementsByClassName('cat-tail')[0];
+      if (ti && !lowPerf) {
+        setAnim(ti, 'animationDuration', rand(def.swayMs[0], def.swayMs[1]) + 'ms');
+      }
+      scheduleBlinks(actor, lowPerf);
+    });
+
+    if (!spec.vocal) return arriveAt + 300;
+
+    // The call. The audio is *queued* against the AudioContext clock at an
+    // absolute time rather than fired from this timer, so a janky TV cannot
+    // drift the sound away from the mouth opening.
+    var vocalDelay = rand(def.vocalDelayMs[0], def.vocalDelayMs[1]);
+    var vocalAt = arriveAt + vocalDelay;
+    if (audio && audio.ctx) {
+      queueVoice(audio, def, vocalAt);
+    }
+    at(vocalAt, function() { actor.classList.add('vocalizing'); });
+    at(vocalAt + def.vocalMs, function() { actor.classList.remove('vocalizing'); });
+
+    return vocalAt + def.vocalMs;
+  }
+
+  function scheduleBlinks(actor, lowPerf) {
+    if (lowPerf) return;
+    var cat = actor.getElementsByClassName('cat')[0];
+    if (!cat) return;
+    var n = Math.random() < 0.5 ? 1 : 2;
+    for (var i = 0; i < n; i++) {
+      (function(delay) {
+        at(delay, function() {
+          cat.classList.add('blink');
+          // 130ms from *now* — the inner delay is relative to the outer firing,
+          // so reusing `delay` here would hold the eyes shut for delay+130ms.
+          at(130, function() { cat.classList.remove('blink'); });
+        });
+      })(rand(150, 900) + i * rand(400, 700));
     }
   }
 
-  function scheduleMeow(ctx) {
-      // A meow is the spoken word "m-e-ow": an articulatory gesture, not a tone.
-      // Grounded in feline bioacoustics (Meowsic / Nicastro / Sedova et al.):
-      //   • the mouth traces  [m] nasal → [ɛ/æ] open → [ɑ] → [ɔ/o→u] rounded close
-      //   • that mouth open→close gesture (muffled→bright→muffled) is what the ear
-      //     decodes as "M-E-OW"; three formants (F1/F2/F3) carve each vowel out of a
-      //     harmonic-rich glottal source.
-      // Tuned for "cute" rather than "gruff": young/female register (higher f0), a
-      // short call, formants scaled up for a small vocal tract, a sweet sine voice
-      // blended under the fundamental, and no subharmonic FM (that reads as hoarse).
-      var now = ctx.currentTime;
-      var d1  = 0.42 + Math.random() * 0.18;   // 0.42–0.60 s — short and chirpy
-      var p1  = 620 + Math.random() * 150;     // 620–770 Hz — kitten/♀ register
-      var g1  = 0.50 + Math.random() * 0.25;
-      var end = renderMeow(ctx, now, d1, p1, g1);
-
-      // ~30% chance of a shorter, softer follow-up meow (a chatty cat)
-      if (Math.random() < 0.30) {
-        var start2 = end + 0.06 + Math.random() * 0.14;
-        end = renderMeow(ctx, start2,
-          d1 * (0.55 + Math.random() * 0.25),
-          p1 * (0.82 + Math.random() * 0.20),
-          g1 * (0.55 + Math.random() * 0.25));
+  /* ── Audio: open the context early so calls can be queued ahead ───── */
+  function openAudio() {
+    try {
+      var Ctor = window.AudioContext || window.webkitAudioContext;
+      if (!Ctor) return null;
+      var ctx = new Ctor();
+      var bag = { ctx: ctx, origin: ctx.currentTime, ready: ctx.state !== 'suspended' };
+      if (!bag.ready && ctx.resume) {
+        ctx.resume().then(function() {
+          bag.ready = true;
+          // Re-anchor: currentTime only advances once running.
+          bag.origin = ctx.currentTime;
+          flushPending(bag);
+        })['catch'](function() {});
       }
+      bag.pending = [];
+      return bag;
+    } catch (e) {
+      return null;
+    }
+  }
 
-      // Close the context once every voice has finished
-      setTimeout(function() { try { ctx.close(); } catch (e) {} },
-        Math.ceil((end - now + 0.2) * 1000));
+  function queueVoice(bag, def, whenMs) {
+    if (!bag.ready) {
+      // Context still suspended — remember it and schedule on resume.
+      bag.pending.push({ def: def, whenMs: whenMs, queuedAt: performance.now() });
+      return;
+    }
+    var lead = Math.max(0, whenMs - (performance.now() - pageStart)) / 1000;
+    var end = def.voice(bag.ctx, bag.ctx.currentTime + lead);
+    closeWhenDone(bag, end);
+  }
+
+  // The context resumed after a call was already due. Keep whatever lead time
+  // is left; if the moment has passed, fire immediately rather than drop it.
+  function flushPending(bag) {
+    if (!bag.pending) return;
+    while (bag.pending.length) {
+      var p = bag.pending.shift();
+      var lead = Math.max(0, p.whenMs - (performance.now() - pageStart)) / 1000;
+      closeWhenDone(bag, p.def.voice(bag.ctx, bag.ctx.currentTime + lead));
+    }
+  }
+
+  function closeWhenDone(bag, endTime) {
+    var ms = Math.ceil((endTime - bag.ctx.currentTime + 0.25) * 1000);
+    setTimeout(function() { try { bag.ctx.close(); } catch (e) {} }, Math.max(0, ms));
+  }
+
+  // Fallback when there is no stage (reduced motion): just make the sound.
+  function playVoiceOnly() {
+    var bag = openAudio();
+    if (!bag) return;
+    var def = CAST.cat;
+    if (bag.ready) {
+      closeWhenDone(bag, def.voice(bag.ctx, bag.ctx.currentTime + 0.05));
+    } else {
+      bag.pending.push({ def: def, whenMs: 0, queuedAt: performance.now() });
+    }
   }
 
   // Render one meow starting at t0; returns the time it finishes.
+  //
+  // A meow is the spoken word "m-e-ow": an articulatory gesture, not a tone.
+  // Grounded in feline bioacoustics (Meowsic / Nicastro / Sedova et al.):
+  //   • the mouth traces  [m] nasal → [ɛ/æ] open → [ɑ] → [ɔ/o→u] rounded close
+  //   • that mouth open→close gesture (muffled→bright→muffled) is what the ear
+  //     decodes as "M-E-OW"; three formants (F1/F2/F3) carve each vowel out of a
+  //     harmonic-rich glottal source.
+  // Tuned for "cute" rather than "gruff": young/female register (higher f0), a
+  // short call, formants scaled up for a small vocal tract, a sweet sine voice
+  // blended under the fundamental, and no subharmonic FM (that reads as hoarse).
   function renderMeow(ctx, t0, dur, f0, amp) {
       var tEnd = t0 + dur;
 
@@ -218,29 +504,44 @@ const media = {}
   function dismissIntro() {
     if (dismissed || !overlay) return;
     dismissed = true;
+    for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
+    timers.length = 0;
     overlay.classList.add('dismiss');
     setTimeout(function() {
       if (overlay.parentNode) overlay.parentNode.removeChild(overlay);
     }, 550);
   }
 
+  // Hand over only once the cat has had its say *and* the app is ready — then
+  // whichever of the two finishes last decides when we go.
+  function maybeDismiss() {
+    if (dismissed || !performanceDone || loadsDone < 3) return;
+    var elapsed = performance.now() - pageStart;
+    var remaining = Math.max(0, Math.min(MAX_INTRO_MS - elapsed, 350));
+    setTimeout(dismissIntro, remaining);
+  }
+
   window.__introMarkLoaded = function() {
     loadsDone++;
-    if (loadsDone >= 3 && !dismissed) {
-      var elapsed = performance.now() - pageStart;
-      var remaining = Math.max(0, Math.min(MAX_INTRO_MS - elapsed, 500));
-      setTimeout(dismissIntro, remaining);
-    }
+    maybeDismiss();
   };
 
   window.__introMarkFailed = function() {
     window.__introMarkLoaded();
   };
 
-  // Safety net: dismiss after MAX_INTRO_MS regardless
+  // Let anyone who has seen it enough skip straight through — includes the TV
+  // remote, whose OK/Back arrive as ordinary keydowns.
+  function skip() { dismissIntro(); }
+  document.addEventListener('keydown', skip, false);
+  document.addEventListener('click', skip, false);
+
+  // Safety net: never hold the app hostage to the animation.
   setTimeout(function() {
     if (!dismissed) dismissIntro();
   }, MAX_INTRO_MS + 500);
+
+  runIntro();
 })();
 
 const ogConsoleLog = console.log
