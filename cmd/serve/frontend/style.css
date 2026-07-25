@@ -888,13 +888,16 @@ body {
   pointer-events: none;
 }
 
-/* An actor is parked at its final mark via `left`; only the walk-in offset is
-   animated. That ordering matters: if the engine refuses to run the animation
-   the cat is simply *already standing there*, rather than stranded off-screen.
-   Scale and facing live here and are set inline by the director. */
+/* An actor is four nested layers, one transform each, so they never fight:
+     .actor       left anchor + scale      (anchor is the DESTINATION)
+     .actor-walk  movement offset          (transitioned from JS)
+     .actor-face  facing                   (scaleX)
+     .actor-inner walk bob                 (animation)
+   Only the offset is animated: if the engine refuses to animate, everyone is
+   simply standing where they belong rather than stranded off-screen. */
 .actor {
   position: absolute;
-  bottom: 12%;
+  bottom: 11%;
   left: 0;
   width: 160px; height: 112px;
   opacity: 0;
@@ -903,31 +906,12 @@ body {
 }
 .actor.staged { opacity: 1; }
 
-/* Entrance layer. One keyframe set serves both directions: when the parent is
-   mirrored for a right-hand entrance, this local -75vw becomes a visual +75vw,
-   so the cat always walks forward relative to the way it is facing. */
-.actor-walk {
+.actor-walk, .actor-face, .actor-inner {
   position: absolute; top: 0; left: 0;
   width: 100%; height: 100%;
 }
-.actor.entering .actor-walk {
-  -webkit-animation: actorWalkIn 1.4s linear both;
-  animation: actorWalkIn 1.4s linear both;
-}
-@-webkit-keyframes actorWalkIn {
-  from { -webkit-transform: translate3d(-75vw, 0, 0); }
-  to   { -webkit-transform: translate3d(0, 0, 0); }
-}
-@keyframes actorWalkIn {
-  from { transform: translate3d(-75vw, 0, 0); }
-  to   { transform: translate3d(0, 0, 0); }
-}
-
-.actor-inner {
-  position: absolute; top: 0; left: 0;
-  width: 100%; height: 100%;
-  -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%;
-}
+.actor-inner { -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%; }
+.actor-face  { -webkit-transform-origin: 50% 50%;  transform-origin: 50% 50%; }
 
 /* ── Cat ───────────────────────────────────────────────────────────── */
 .cat { position: absolute; top: 0; left: 0; width: 160px; height: 112px; }
@@ -1077,7 +1061,9 @@ body {
 /* Durations and the half-cycle delay are assigned inline by the director:
    `calc()` on a `var()` time value is shaky on the older Blink builds in
    webOS, so the timing never depends on it. */
-.actor.walking .cat-leg {
+.actor.walking .cat-leg,
+.actor.walking .dog-leg,
+.actor.walking .mouse-leg {
   -webkit-animation: catLegSwing 0.34s linear infinite;
   animation: catLegSwing 0.34s linear infinite;
 }
@@ -1089,7 +1075,19 @@ body {
   -webkit-animation: catTailWalk 0.68s ease-in-out infinite;
   animation: catTailWalk 0.68s ease-in-out infinite;
 }
-.actor.walking .cat-head {
+/* A dog wags rather than sways, and faster */
+.actor.walking .dog-tail,
+.actor.resting .dog-tail {
+  -webkit-animation: dogTailWag 0.30s ease-in-out infinite;
+  animation: dogTailWag 0.30s ease-in-out infinite;
+}
+.actor.walking .mouse-tail {
+  -webkit-animation: mouseTailFlick 0.42s ease-in-out infinite;
+  animation: mouseTailFlick 0.42s ease-in-out infinite;
+}
+.actor.walking .cat-head,
+.actor.walking .dog-head,
+.actor.walking .mouse-head {
   -webkit-animation: catHeadBob 0.34s ease-in-out infinite;
   animation: catHeadBob 0.34s ease-in-out infinite;
 }
@@ -1130,7 +1128,7 @@ body {
 }
 
 /* ── Idle (arrived) ─────────────────────────────────────────────────── */
-.actor.idle .cat-tail {
+.actor.resting .cat-tail {
   -webkit-animation: catTailIdle 1.6s ease-in-out infinite;
   animation: catTailIdle 1.6s ease-in-out infinite;
 }
@@ -1149,6 +1147,13 @@ body {
 .actor.vocalizing .cat-mouth {
   width: 14px; height: 11px;
   border-radius: 45% 45% 55% 55%;
+}
+.actor.vocalizing .dog-mouth { height: 9px; border-radius: 40% 40% 60% 60%; }
+.actor.vocalizing .mouse-snout { -webkit-transform: scaleY(1.5); transform: scaleY(1.5); }
+.actor.vocalizing .dog-head,
+.actor.vocalizing .mouse-head {
+  -webkit-animation: catMeowHead 0.5s ease-in-out;
+  animation: catMeowHead 0.5s ease-in-out;
 }
 .actor.vocalizing .cat-head {
   -webkit-animation: catMeowHead 0.62s ease-in-out;
@@ -1186,7 +1191,7 @@ body {
 .low-perf .actor.walking .cat-tail,
 .low-perf .actor.walking .cat-head,
 .low-perf .actor.walking .actor-inner,
-.low-perf .actor.idle .cat-tail {
+.low-perf .actor.resting .cat-tail {
   -webkit-animation: none; animation: none;
 }
 @media (prefers-reduced-motion: reduce) {
@@ -1207,4 +1212,413 @@ body {
 
 @media (prefers-reduced-motion: reduce) {
   * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.15s !important; }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Freija the dog — bigger body, longer snout, one floppy ear, wagging tail
+   ══════════════════════════════════════════════════════════════════════ */
+.actor--dog { width: 184px; height: 126px; }
+.dog { position: absolute; top: 0; left: 0; width: 184px; height: 126px; }
+
+.dog-body {
+  position: absolute; left: 24px; bottom: 36px;
+  width: 108px; height: 56px;
+  background: var(--fur, #d9a15e);
+  border-radius: 48% 44% 42% 48% / 54% 52% 48% 52%;
+}
+.dog-belly {
+  position: absolute; left: 38px; bottom: 36px;
+  width: 78px; height: 28px;
+  background: var(--belly, #f0d6a8);
+  border-radius: 50% 50% 46% 46% / 22% 22% 78% 78%;
+  opacity: 0.8;
+}
+.dog-head {
+  position: absolute; left: 106px; bottom: 56px;
+  width: 62px; height: 52px;
+  -webkit-transform-origin: 26% 92%; transform-origin: 26% 92%;
+}
+.dog-skull {
+  position: absolute; left: 0; bottom: 0;
+  width: 50px; height: 50px;
+  background: var(--fur, #d9a15e);
+  border-radius: 46% 48% 44% 44% / 46% 46% 52% 52%;
+}
+/* Snout juts forward — the clearest "not a cat" cue */
+.dog-snout {
+  position: absolute; left: 32px; bottom: 6px;
+  width: 30px; height: 22px;
+  background: var(--belly, #f0d6a8);
+  border-radius: 32% 48% 46% 30% / 40% 50% 50% 40%;
+}
+.dog-nose {
+  position: absolute; right: 0; top: 3px;
+  width: 11px; height: 9px;
+  background: var(--nose, #4a3b33);
+  border-radius: 50%;
+}
+.dog-mouth {
+  position: absolute; right: 4px; bottom: 2px;
+  width: 14px; height: 3px;
+  background: rgba(0,0,0,0.45);
+  border-radius: 40% 40% 60% 60%;
+  -webkit-transform-origin: 50% 0%; transform-origin: 50% 0%;
+  -webkit-transition: height 0.1s ease-out; transition: height 0.1s ease-out;
+}
+/* Floppy ear hangs down instead of standing up */
+.dog-ear {
+  position: absolute; left: 2px; top: -4px;
+  width: 19px; height: 34px;
+  background: var(--fur-dark, #b5813f);
+  border-radius: 50% 50% 46% 46% / 34% 34% 66% 66%;
+  -webkit-transform-origin: 50% 6%; transform-origin: 50% 6%;
+  -webkit-transform: rotate(-12deg); transform: rotate(-12deg);
+}
+.dog-ear-inner {
+  position: absolute; left: 5px; top: 8px;
+  width: 9px; height: 18px;
+  background: var(--inner-ear, #a8636a);
+  border-radius: 50%;
+  opacity: 0.5;
+}
+.dog-eye {
+  position: absolute; bottom: 28px;
+  width: 8px; height: 9px;
+  background: var(--eye, #3b2c22);
+  border-radius: 50%;
+}
+.dog-eye-l { left: 20px; }
+.dog-eye-r { left: 34px; }
+.dog-brow {
+  position: absolute; left: 19px; bottom: 38px;
+  width: 22px; height: 3px;
+  background: var(--fur-dark, #b5813f);
+  border-radius: 3px;
+  opacity: 0.75;
+}
+.dog-leg {
+  position: absolute; bottom: 0;
+  width: 11px; height: 42px;
+  background: var(--fur, #d9a15e);
+  border-radius: 5px 5px 3px 3px;
+  -webkit-transform-origin: 50% 0%; transform-origin: 50% 0%;
+}
+.dog-leg-far { background: var(--fur-dark, #b5813f); }
+.dog-leg-bl { left: 30px; }
+.dog-leg-br { left: 43px; }
+.dog-leg-fl { left: 100px; }
+.dog-leg-fr { left: 113px; }
+.dog-leg:after {
+  content: ''; position: absolute; bottom: 0; left: -1px;
+  width: 13px; height: 7px;
+  background: inherit;
+  border-radius: 3px 4px 4px 4px;
+}
+/* Short upright tail, wags */
+.dog-tail {
+  position: absolute; left: 6px; bottom: 62px;
+  width: 30px; height: 10px;
+  background: var(--fur, #d9a15e);
+  border-radius: 5px;
+  -webkit-transform-origin: 100% 50%; transform-origin: 100% 50%;
+  -webkit-transform: rotate(46deg); transform: rotate(46deg);
+}
+.dog-tail-tip {
+  position: absolute; left: -9px; top: 0;
+  width: 14px; height: 10px;
+  background: var(--tail-tip, #d9a15e);
+  border-radius: 5px;
+  -webkit-transform-origin: 100% 50%; transform-origin: 100% 50%;
+  -webkit-transform: rotate(14deg); transform: rotate(14deg);
+}
+@-webkit-keyframes dogTailWag {
+  0%, 100% { -webkit-transform: rotate(38deg); }
+  50%      { -webkit-transform: rotate(62deg); }
+}
+@keyframes dogTailWag {
+  0%, 100% { transform: rotate(38deg); }
+  50%      { transform: rotate(62deg); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   The mouse — small, round-eared, long thin tail
+   ══════════════════════════════════════════════════════════════════════ */
+.actor--mouse { width: 84px; height: 52px; }
+.mouse { position: absolute; top: 0; left: 0; width: 84px; height: 52px; }
+
+.mouse-body {
+  position: absolute; left: 14px; bottom: 8px;
+  width: 44px; height: 26px;
+  background: var(--fur, #9c9188);
+  border-radius: 50% 44% 42% 50% / 56% 54% 46% 50%;
+}
+.mouse-head {
+  position: absolute; left: 50px; bottom: 10px;
+  width: 26px; height: 24px;
+  -webkit-transform-origin: 20% 90%; transform-origin: 20% 90%;
+}
+.mouse-head:before {
+  content: ''; position: absolute; left: 0; bottom: 0;
+  width: 24px; height: 22px;
+  background: var(--fur, #9c9188);
+  border-radius: 46% 50% 42% 44%;
+}
+/* Big round ears are the whole silhouette */
+.mouse-ear {
+  position: absolute; top: -6px;
+  width: 15px; height: 15px;
+  background: var(--fur-dark, #7d746c);
+  border-radius: 50%;
+}
+.mouse-ear-b { left: -3px; }
+.mouse-ear-f { left: 8px; background: var(--fur, #9c9188); }
+.mouse-ear-f:after {
+  content: ''; position: absolute; left: 3px; top: 3px;
+  width: 9px; height: 9px;
+  background: var(--inner-ear, #d3a3a8);
+  border-radius: 50%;
+}
+.mouse-eye {
+  position: absolute; left: 13px; bottom: 10px;
+  width: 4px; height: 5px;
+  background: var(--eye, #241f1c);
+  border-radius: 50%;
+  z-index: 2;
+}
+.mouse-snout {
+  position: absolute; left: 18px; bottom: 4px;
+  width: 10px; height: 8px;
+  background: var(--belly, #ded8d0);
+  border-radius: 30% 55% 55% 30%;
+  -webkit-transform-origin: 0% 50%; transform-origin: 0% 50%;
+  z-index: 2;
+}
+.mouse-nose {
+  position: absolute; left: 26px; bottom: 6px;
+  width: 4px; height: 4px;
+  background: var(--nose, #c98c93);
+  border-radius: 50%;
+  z-index: 3;
+}
+.mouse-leg {
+  position: absolute; bottom: 0;
+  width: 5px; height: 10px;
+  background: var(--fur-dark, #7d746c);
+  border-radius: 3px;
+  -webkit-transform-origin: 50% 0%; transform-origin: 50% 0%;
+}
+.mouse-leg-b { left: 20px; }
+.mouse-leg-f { left: 46px; }
+/* Long bare tail, curled up behind */
+.mouse-tail {
+  position: absolute; left: -12px; bottom: 20px;
+  width: 32px; height: 4px;
+  background: var(--tail-tip, #c2a8a4);
+  border-radius: 2px;
+  -webkit-transform-origin: 100% 50%; transform-origin: 100% 50%;
+  -webkit-transform: rotate(24deg); transform: rotate(24deg);
+}
+@-webkit-keyframes mouseTailFlick {
+  0%, 100% { -webkit-transform: rotate(18deg); }
+  50%      { -webkit-transform: rotate(40deg); }
+}
+@keyframes mouseTailFlick {
+  0%, 100% { transform: rotate(18deg); }
+  50%      { transform: rotate(40deg); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Props
+   ══════════════════════════════════════════════════════════════════════ */
+.prop {
+  position: absolute;
+  bottom: 11%;
+  left: 0;
+  -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%;
+}
+.prop-yarn { width: 34px; height: 34px; }
+.yarn-ball {
+  position: absolute; bottom: 0; left: 0;
+  width: 32px; height: 32px;
+  background: #cf5f6d;
+  border-radius: 50%;
+  box-shadow: inset -5px -4px 0 rgba(0,0,0,0.14), inset 4px 4px 0 rgba(255,255,255,0.16);
+}
+.yarn-strand {
+  position: absolute; bottom: 6px; left: 26px;
+  width: 16px; height: 3px;
+  background: #cf5f6d;
+  border-radius: 2px;
+  -webkit-transform: rotate(-18deg); transform: rotate(-18deg);
+}
+.prop-box { width: 92px; height: 62px; }
+.box-back {
+  position: absolute; bottom: 22px; left: 6px;
+  width: 80px; height: 30px;
+  background: #8a6440;
+  border-radius: 3px;
+}
+.box-front {
+  position: absolute; bottom: 0; left: 0;
+  width: 92px; height: 34px;
+  background: #a87a4f;
+  border-radius: 3px 3px 4px 4px;
+  box-shadow: inset 0 3px 0 rgba(0,0,0,0.12);
+}
+/* Knocked about by a paw */
+.prop.jostled {
+  -webkit-animation: propJostle 0.5s ease-out;
+  animation: propJostle 0.5s ease-out;
+}
+@-webkit-keyframes propJostle {
+  0%   { -webkit-transform: translate3d(0,0,0) rotate(0deg); }
+  30%  { -webkit-transform: translate3d(10px,-6px,0) rotate(22deg); }
+  60%  { -webkit-transform: translate3d(16px,0,0) rotate(38deg); }
+  100% { -webkit-transform: translate3d(14px,0,0) rotate(34deg); }
+}
+@keyframes propJostle {
+  0%   { transform: translate3d(0,0,0) rotate(0deg); }
+  30%  { transform: translate3d(10px,-6px,0) rotate(22deg); }
+  60%  { transform: translate3d(16px,0,0) rotate(38deg); }
+  100% { transform: translate3d(14px,0,0) rotate(34deg); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Beat states — one class per action, driven from the story player
+   ══════════════════════════════════════════════════════════════════════ */
+/* Sit: hindquarters drop and the rear legs FOLD UNDER.
+   Folding is scaleY from the hip, never a big rotation — rotating a full
+   length leg 45deg+ throws the paw clear of the body and reads as a detached
+   stick rather than a folded limb. */
+.actor.sitting .actor-inner {
+  -webkit-transform: translate3d(0, 7px, 0); transform: translate3d(0, 7px, 0);
+  -webkit-transition: -webkit-transform 0.28s ease-out; transition: transform 0.28s ease-out;
+}
+.actor.sitting .cat-leg-bl, .actor.sitting .cat-leg-br,
+.actor.sitting .dog-leg-bl, .actor.sitting .dog-leg-br {
+  -webkit-transform: scaleY(0.42); transform: scaleY(0.42);
+  -webkit-transition: -webkit-transform 0.28s ease-out; transition: transform 0.28s ease-out;
+}
+/* Nap: flattened, eyes shut */
+.actor.napping .actor-inner {
+  -webkit-transform: translate3d(0, 12px, 0) scaleY(0.82);
+  transform: translate3d(0, 12px, 0) scaleY(0.82);
+  -webkit-transition: -webkit-transform 0.4s ease-out; transition: transform 0.4s ease-out;
+}
+.actor.napping .cat-eye, .actor.napping .dog-eye {
+  -webkit-transform: scaleY(0.12); transform: scaleY(0.12);
+}
+/* Napping: legs tucked away entirely, same reasoning as the sit. */
+.actor.napping .cat-leg, .actor.napping .dog-leg {
+  -webkit-transform: scaleY(0.16); transform: scaleY(0.16);
+  -webkit-transition: -webkit-transform 0.4s ease-out; transition: transform 0.4s ease-out;
+}
+/* The tail settles rather than keeps swishing */
+.actor.napping .cat-tail, .actor.napping .dog-tail {
+  -webkit-animation: none; animation: none;
+  -webkit-transform: rotate(6deg); transform: rotate(6deg);
+}
+/* Blink */
+.actor.blinking .cat-eye, .actor.blinking .dog-eye, .actor.blinking .mouse-eye {
+  -webkit-transform: scaleY(0.12); transform: scaleY(0.12);
+}
+/* Stretch: front down, rear up — the classic cat bow */
+.actor.stretching .actor-inner {
+  -webkit-animation: actorStretch 0.7s ease-in-out;
+  animation: actorStretch 0.7s ease-in-out;
+}
+@-webkit-keyframes actorStretch {
+  0%, 100% { -webkit-transform: translate3d(0,0,0) rotate(0deg); }
+  45%      { -webkit-transform: translate3d(0,3px,0) rotate(-7deg); }
+}
+@keyframes actorStretch {
+  0%, 100% { transform: translate3d(0,0,0) rotate(0deg); }
+  45%      { transform: translate3d(0,3px,0) rotate(-7deg); }
+}
+/* Stare: dead still, pupils wide */
+.actor.staring .cat-eye, .actor.staring .dog-eye {
+  -webkit-transform: scale(1.25); transform: scale(1.25);
+}
+.actor.staring .cat-tail, .actor.staring .dog-tail {
+  -webkit-animation: none; animation: none;
+}
+/* Greet: a small bob of the head */
+.actor.greeting .cat-head, .actor.greeting .dog-head {
+  -webkit-animation: actorGreet 0.5s ease-in-out;
+  animation: actorGreet 0.5s ease-in-out;
+}
+@-webkit-keyframes actorGreet {
+  0%, 100% { -webkit-transform: rotate(0deg); }
+  50%      { -webkit-transform: rotate(9deg) translate3d(2px,2px,0); }
+}
+@keyframes actorGreet {
+  0%, 100% { transform: rotate(0deg); }
+  50%      { transform: rotate(9deg) translate3d(2px,2px,0); }
+}
+/* Pounce: crouch, then spring */
+.actor.pouncing .actor-inner {
+  -webkit-animation: actorPounce 0.42s ease-out;
+  animation: actorPounce 0.42s ease-out;
+}
+@-webkit-keyframes actorPounce {
+  0%   { -webkit-transform: translate3d(0,0,0) scaleY(1); }
+  25%  { -webkit-transform: translate3d(0,4px,0) scaleY(0.88); }
+  60%  { -webkit-transform: translate3d(0,-16px,0) scaleY(1.08); }
+  100% { -webkit-transform: translate3d(0,0,0) scaleY(1); }
+}
+@keyframes actorPounce {
+  0%   { transform: translate3d(0,0,0) scaleY(1); }
+  25%  { transform: translate3d(0,4px,0) scaleY(0.88); }
+  60%  { transform: translate3d(0,-16px,0) scaleY(1.08); }
+  100% { transform: translate3d(0,0,0) scaleY(1); }
+}
+/* Run: leaning forward, legs a blur */
+.actor.running .actor-inner {
+  -webkit-transform: rotate(-5deg); transform: rotate(-5deg);
+}
+/* Bat: a quick paw swipe */
+.actor.batting .cat-leg-fr, .actor.batting .dog-leg-fr {
+  -webkit-animation: actorSwipe 0.38s ease-out;
+  animation: actorSwipe 0.38s ease-out;
+}
+@-webkit-keyframes actorSwipe {
+  0%, 100% { -webkit-transform: rotate(0deg); }
+  40%      { -webkit-transform: rotate(-58deg); }
+}
+@keyframes actorSwipe {
+  0%, 100% { transform: rotate(0deg); }
+  40%      { transform: rotate(-58deg); }
+}
+
+/* ══════════════════════════════════════════════════════════════════════
+   Story title card
+   ══════════════════════════════════════════════════════════════════════ */
+.intro-title {
+  position: absolute;
+  left: 0; right: 0;
+  bottom: 6%;
+  z-index: 40;
+  text-align: center;
+  padding: 0 8%;
+  font-family: var(--font-family);
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: rgba(248, 250, 252, 0.86);
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+  opacity: 0;
+  -webkit-transform: translate3d(0, 8px, 0); transform: translate3d(0, 8px, 0);
+  -webkit-transition: opacity 0.45s ease-out, -webkit-transform 0.45s ease-out;
+  transition: opacity 0.45s ease-out, transform 0.45s ease-out;
+}
+.intro-title.show {
+  opacity: 1;
+  -webkit-transform: translate3d(0, 0, 0); transform: translate3d(0, 0, 0);
+}
+/* Readable across the room on a TV */
+@media (min-width: 1200px) {
+  .intro-title { font-size: 1.5rem; bottom: 7%; }
+}
+@media (max-width: 640px) {
+  .intro-title { font-size: 0.9rem; }
 }

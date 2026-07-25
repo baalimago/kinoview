@@ -127,3 +127,63 @@ func (i *Indexer) suggestionsHandler() http.HandlerFunc {
 		}
 	}
 }
+
+// introStoryHandler serves the story the intro splash should play now, then
+// asks the storyteller to prepare the next one.
+//
+// Preparing on consume (rather than only on session end) is deliberate: a TV
+// app can be killed without ever firing an unload event, and we would then
+// replay the same story forever. The storyteller's cooldown is what keeps this
+// from turning every page refresh into an LLM call.
+func (i *Indexer) introStoryHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if i.storyteller == nil {
+			http.Error(w, "storyteller not configured", http.StatusNotFound)
+			return
+		}
+
+		story := i.storyteller.Next()
+
+		w.Header().Set("Content-Type", "application/json")
+		// The splash is per-visit; a cached copy would freeze the story.
+		w.Header().Set("Cache-Control", "no-store")
+		if err := json.NewEncoder(w).Encode(story); err != nil {
+			ancli.Errf("failed to encode intro story: %v", err)
+			return
+		}
+
+		i.prepareNextStory("story consumed")
+	}
+}
+
+// introSessionEndHandler is the target of the frontend's unload beacon.
+func (i *Indexer) introSessionEndHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if i.storyteller == nil {
+			http.Error(w, "storyteller not configured", http.StatusNotFound)
+			return
+		}
+		// sendBeacon does not read the response; answer immediately and work after.
+		w.WriteHeader(http.StatusNoContent)
+		i.prepareNextStory("session ended")
+	}
+}
+
+// prepareNextStory kicks off preparation in the background. Generation can take
+// tens of seconds on an LLM, so it must never block the request. The
+// storyteller itself enforces the cooldown and single-flight.
+func (i *Indexer) prepareNextStory(reason string) {
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		i.storyteller.Prepare(ctx, reason)
+	}()
+}

@@ -14,6 +14,7 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
+	"github.com/baalimago/kinoview/internal/agents/storyteller"
 	"github.com/baalimago/kinoview/internal/loghandler"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
 	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
@@ -79,6 +80,7 @@ type Indexer struct {
 	recommender           agents.Recommender
 	butler                agents.Butler
 	concierge             agents.Concierge
+	storyteller           storyteller.Teller
 	conciergeStartupDelay time.Duration
 
 	// Agent support managers
@@ -124,6 +126,13 @@ func WithButler(b agents.Butler) IndexerOption {
 func WithConcierge(c agents.Concierge) IndexerOption {
 	return func(i *Indexer) {
 		i.concierge = c
+	}
+}
+
+// WithStoryteller sets the agent which prepares the intro splash story.
+func WithStoryteller(t storyteller.Teller) IndexerOption {
+	return func(i *Indexer) {
+		i.storyteller = t
 	}
 }
 
@@ -363,6 +372,8 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())
 	mux.HandleFunc("/shows", i.showsHandler())
+	mux.HandleFunc("/intro/story", i.introStoryHandler())
+	mux.HandleFunc("/intro/session-end", i.introSessionEndHandler())
 	mux.HandleFunc("/log", loghandler.Func())
 	mux.HandleFunc("/ws", i.eventStream())
 	return mux

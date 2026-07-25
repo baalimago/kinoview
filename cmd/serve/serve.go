@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents/storyteller"
 )
 
 //go:embed frontend/*
@@ -51,6 +52,8 @@ type command struct {
 	conciergeModel                *string
 	conciergeStartupDelay         *time.Duration
 	startupWriteDelay             *time.Duration
+	storytellerModel              *string
+	storytellerCooldown           *time.Duration
 }
 
 func Command() *command {
@@ -61,6 +64,7 @@ func Command() *command {
 		recommenderModel:              &defaultModel,
 		butlerModel:                   &defaultModel,
 		conciergeModel:                &defaultModel,
+		storytellerModel:              &defaultModel,
 		conciergeStartupDelay:         new(time.Duration),
 		classificationWorkers:         new(int),
 		classificationRate:            new(float64),
@@ -71,6 +75,8 @@ func Command() *command {
 	*ret.classificationRate = 0.2
 	*ret.classificationBurst = 3
 	*ret.conciergeStartupDelay = 60 * time.Second
+	ret.storytellerCooldown = new(time.Duration)
+	*ret.storytellerCooldown = storyteller.DefaultCooldown
 	ret.startupWriteDelay = new(time.Duration)
 	*ret.startupWriteDelay = 30 * time.Second
 	configDir, err := os.UserConfigDir()
@@ -208,6 +214,8 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeStartupDelay = fs.Duration("conciergeStartupDelay", 60*time.Second, "delay before first concierge run, 0 runs immediately")
+	c.storytellerModel = fs.String("storyteller", "", "set to LLM text model used to write the intro splash story. If unset, a deterministic composer is used instead.")
+	c.storytellerCooldown = fs.Duration("storytellerCooldown", storyteller.DefaultCooldown, "minimum time between intro story generations, so refreshes don't each cost an LLM call")
 	c.startupWriteDelay = fs.Duration("startupWriteDelay", 30*time.Second, "delay before store writes are flushed to disk, 0 writes immediately")
 
 	c.flagset = fs

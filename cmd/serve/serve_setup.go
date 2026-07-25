@@ -17,6 +17,7 @@ import (
 	"github.com/baalimago/kinoview/internal/agents/classifier"
 	"github.com/baalimago/kinoview/internal/agents/concierge"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
+	"github.com/baalimago/kinoview/internal/agents/storyteller"
 	"github.com/baalimago/kinoview/internal/agents/tools"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
@@ -167,6 +168,22 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 
 	////////////
+	// Storyteller setup
+	////////////
+	// Always constructed: with no model configured it runs composer-only, which
+	// is what keeps the intro splash working offline and without an API key.
+	bard := storyteller.New(
+		models.Configurations{
+			Model:         *c.storytellerModel,
+			ConfigDir:     *c.configDir,
+			InternalTools: []models.ToolName{},
+		}, *c.cacheDir, *c.storytellerCooldown,
+	)
+	if *c.storytellerModel == "" {
+		ancli.Noticef("storyteller running composer-only (no -storyteller model set)")
+	}
+
+	////////////
 	// Indexer setup
 	////////////
 	indexer, err := media.NewIndexer(
@@ -179,6 +196,7 @@ func (c *command) Setup(ctx context.Context) error {
 		media.WithConcierge(conkidonk),
 		media.WithConciergeStartupDelay(*c.conciergeStartupDelay),
 		media.WithClientContextManager(userContextMgr),
+		media.WithStoryteller(bard),
 	)
 	if err != nil {
 		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)
