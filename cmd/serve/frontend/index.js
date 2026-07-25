@@ -64,15 +64,17 @@ const media = {}
   function scheduleMeow(ctx) {
       // A meow is the spoken word "m-e-ow": an articulatory gesture, not a tone.
       // Grounded in feline bioacoustics (Meowsic / Nicastro / Sedova et al.):
-      //   • f0 ~420–560 Hz with a rise-then-fall "friendly greeting" contour
       //   • the mouth traces  [m] nasal → [ɛ/æ] open → [ɑ] → [ɔ/o→u] rounded close
       //   • that mouth open→close gesture (muffled→bright→muffled) is what the ear
       //     decodes as "M-E-OW"; three formants (F1/F2/F3) carve each vowel out of a
-      //     harmonic-rich glottal source, with light FM + vibrato + breath for life.
+      //     harmonic-rich glottal source.
+      // Tuned for "cute" rather than "gruff": young/female register (higher f0), a
+      // short call, formants scaled up for a small vocal tract, a sweet sine voice
+      // blended under the fundamental, and no subharmonic FM (that reads as hoarse).
       var now = ctx.currentTime;
-      var d1  = 0.55 + Math.random() * 0.30;   // 0.55–0.85 s
-      var p1  = 420 + Math.random() * 140;     // 420–560 Hz
-      var g1  = 0.55 + Math.random() * 0.30;
+      var d1  = 0.42 + Math.random() * 0.18;   // 0.42–0.60 s — short and chirpy
+      var p1  = 620 + Math.random() * 150;     // 620–770 Hz — kitten/♀ register
+      var g1  = 0.50 + Math.random() * 0.25;
       var end = renderMeow(ctx, now, d1, p1, g1);
 
       // ~30% chance of a shorter, softer follow-up meow (a chatty cat)
@@ -93,49 +95,54 @@ const media = {}
   function renderMeow(ctx, t0, dur, f0, amp) {
       var tEnd = t0 + dur;
 
-      // ── Glottal source: bright sawtooth (rich harmonics for formants to carve) ──
+      // ── Glottal source: sawtooth for harmonics, plus a sine for sweetness ──
+      // The pitch arc: a quick lift then a gentle fall — a bright "hello!", not a wail.
+      // The fall is shallow (down to 0.82×) so it stays perky instead of mournful.
+      function pitchArc(param) {
+        param.setValueAtTime(f0 * 0.94, t0);
+        param.linearRampToValueAtTime(f0 * 1.16, t0 + dur * 0.16);
+        param.exponentialRampToValueAtTime(Math.max(60, f0 * 0.82), tEnd);
+      }
+
       var osc = ctx.createOscillator();
       osc.type = 'sawtooth';
+      pitchArc(osc.frequency);
 
-      // Pitch: quick rise to a peak then a long fall — the "hello!" greeting shape.
-      osc.frequency.setValueAtTime(f0 * 0.95, t0);
-      osc.frequency.linearRampToValueAtTime(f0 * 1.18, t0 + dur * 0.18);
-      osc.frequency.exponentialRampToValueAtTime(Math.max(60, f0 * 0.66), tEnd);
+      // A pure sine on the fundamental, blended in under the formants. This is what
+      // takes the edge off — it thickens the tone without adding harsh upper harmonics.
+      var pure = ctx.createOscillator();
+      pure.type = 'sine';
+      pitchArc(pure.frequency);
+      var pureGain = ctx.createGain();
+      pureGain.gain.value = 0.42;
 
-      // Light FM near a subharmonic → the raspy, non-linear grit of a real larynx.
-      var mod = ctx.createOscillator();
-      mod.type = 'sine';
-      mod.frequency.setValueAtTime(f0 * 0.5, t0);
-      mod.frequency.linearRampToValueAtTime(f0 * 0.33, tEnd);
-      var modGain = ctx.createGain();
-      modGain.gain.setValueAtTime(0, t0);
-      modGain.gain.linearRampToValueAtTime(f0 * 0.12, t0 + dur * 0.5);
-      modGain.gain.linearRampToValueAtTime(0, tEnd);
-      mod.connect(modGain);
-      modGain.connect(osc.frequency);
-
-      // Vibrato — the living wobble (~±2%).
+      // Vibrato — the living wobble (~±2%), on both voices so they stay locked.
       var vib = ctx.createOscillator();
       vib.type = 'sine';
-      vib.frequency.value = 6 + Math.random() * 3;   // 6–9 Hz
+      vib.frequency.value = 7 + Math.random() * 3;   // 7–10 Hz
       var vibGain = ctx.createGain();
       vibGain.gain.value = f0 * 0.02;
       vib.connect(vibGain);
       vibGain.connect(osc.frequency);
+      vibGain.connect(pure.frequency);
 
       // ── Formant bank: three parallel band-passes tracing the vowel path ──
       //   frac:  0.00 nasal[m]   0.20 open[ɛ/æ]   0.55 [ɑ]   1.00 round-close[o→u]
+      // Scaled ~1.2× above an adult-male tract: a shorter tract means higher
+      // resonances, which is precisely what the ear hears as "small animal".
       var kf     = [0.00, 0.20, 0.55, 1.00];
       var tracks = [
-        [ 420,  900,  780,  400],   // F1  (mouth height)
-        [ 950, 1800, 1300,  820],   // F2  (front↔back, rounding)
-        [2500, 2850, 2600, 2400]    // F3  (timbre)
+        [ 500, 1050,  900,  470],   // F1  (mouth height)
+        [1150, 2150, 1600, 1000],   // F2  (front↔back, rounding)
+        [3000, 3400, 3150, 2900]    // F3  (timbre)
       ];
-      var fGain = [1.0, 0.55, 0.28];
-      var fQ    = [8, 11, 12];
+      var fGain = [1.0, 0.45, 0.14];  // F3 kept low — it's what made it sound gruff
+      var fQ    = [7, 10, 11];
 
       var formantSum = ctx.createGain();
       formantSum.gain.value = 1;
+      pure.connect(pureGain);
+      pureGain.connect(formantSum);
 
       for (var i = 0; i < tracks.length; i++) {
         var bp = ctx.createBiquadFilter();
@@ -156,23 +163,28 @@ const media = {}
       var mouth = ctx.createBiquadFilter();
       mouth.type = 'lowpass';
       mouth.Q.value = 0.7;
-      mouth.frequency.setValueAtTime(500, t0);                             // closed / nasal [m]
-      mouth.frequency.exponentialRampToValueAtTime(6500, t0 + dur * 0.20); // mouth wide open
-      mouth.frequency.exponentialRampToValueAtTime(3200, t0 + dur * 0.55);
-      mouth.frequency.exponentialRampToValueAtTime(700, tEnd);             // lips round & close
+      // Ceiling kept at ~4.6 kHz (was 6.5 k) — above that it starts to buzz.
+      mouth.frequency.setValueAtTime(550, t0);                             // closed / nasal [m]
+      mouth.frequency.exponentialRampToValueAtTime(4600, t0 + dur * 0.20); // mouth wide open
+      mouth.frequency.exponentialRampToValueAtTime(2900, t0 + dur * 0.55);
+      mouth.frequency.exponentialRampToValueAtTime(780, tEnd);             // lips round & close
       formantSum.connect(mouth);
 
       // ── Amplitude: quiet nasal onset → swell on the open vowel → decay on close ──
       var env = ctx.createGain();
       env.gain.setValueAtTime(0.0001, t0);
-      env.gain.linearRampToValueAtTime(amp * 0.22, t0 + dur * 0.06);  // [m] hum
-      env.gain.linearRampToValueAtTime(amp, t0 + dur * 0.20);         // open peak
-      env.gain.linearRampToValueAtTime(amp * 0.85, t0 + dur * 0.55);
+      env.gain.linearRampToValueAtTime(amp * 0.22, t0 + dur * 0.10);  // [m] hum, eased in
+      env.gain.linearRampToValueAtTime(amp, t0 + dur * 0.24);         // open peak
+      env.gain.linearRampToValueAtTime(amp * 0.78, t0 + dur * 0.55);
+      // Hold real level through the rounding close — a single long exponential to
+      // near-zero collapses in the first few ms and swallows the whole "…ow".
+      env.gain.linearRampToValueAtTime(amp * 0.42, t0 + dur * 0.80);
       env.gain.exponentialRampToValueAtTime(0.0001, tEnd);
       mouth.connect(env);
       env.connect(ctx.destination);
 
       // ── Breath noise, gated by mouth openness (turbulent air) ──
+      // Barely there: audible breath is a large chesty animal, and reads as hoarse.
       var nLen = Math.ceil(ctx.sampleRate * (dur + 0.1));
       var nBuf = ctx.createBuffer(1, nLen, ctx.sampleRate);
       var nDat = nBuf.getChannelData(0);
@@ -182,12 +194,12 @@ const media = {}
       var nBp = ctx.createBiquadFilter();
       nBp.type = 'bandpass';
       nBp.Q.value = 1.5;
-      nBp.frequency.setValueAtTime(900, t0);
-      nBp.frequency.exponentialRampToValueAtTime(2600, t0 + dur * 0.20);
-      nBp.frequency.exponentialRampToValueAtTime(700, tEnd);
+      nBp.frequency.setValueAtTime(1100, t0);
+      nBp.frequency.exponentialRampToValueAtTime(3000, t0 + dur * 0.20);
+      nBp.frequency.exponentialRampToValueAtTime(900, tEnd);
       var nGain = ctx.createGain();
       nGain.gain.setValueAtTime(0, t0);
-      nGain.gain.linearRampToValueAtTime(amp * 0.06, t0 + dur * 0.20);
+      nGain.gain.linearRampToValueAtTime(amp * 0.02, t0 + dur * 0.20);
       nGain.gain.exponentialRampToValueAtTime(0.0001, tEnd);
       nSrc.connect(nBp);
       nBp.connect(nGain);
@@ -196,7 +208,7 @@ const media = {}
       // ── Start / stop every voice ──
       var tStop = tEnd + 0.05;
       osc.start(t0);  osc.stop(tStop);
-      mod.start(t0);  mod.stop(tStop);
+      pure.start(t0); pure.stop(tStop);
       vib.start(t0);  vib.stop(tStop);
       nSrc.start(t0); nSrc.stop(tStop);
 
