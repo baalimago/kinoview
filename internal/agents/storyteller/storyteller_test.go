@@ -18,7 +18,7 @@ import (
 // minimalStory in production.
 func TestCompose_AllScenesValidateAcrossSeeds(t *testing.T) {
 	seen := map[string]bool{}
-	for seed := int64(0); seed < 400; seed++ {
+	for seed := range int64(400) {
 		r := rand.New(rand.NewSource(seed))
 		s := Compose(r)
 		if err := s.Validate(); err != nil {
@@ -44,7 +44,7 @@ func TestCompose_AllScenesValidateAcrossSeeds(t *testing.T) {
 // Anyone who acts must have entered first, otherwise the player would be asked
 // to animate a character that is not on stage.
 func TestCompose_EveryActorEntersBeforeActing(t *testing.T) {
-	for seed := int64(0); seed < 200; seed++ {
+	for seed := range int64(200) {
 		r := rand.New(rand.NewSource(seed))
 		s := Compose(r)
 		entered := map[string]int{}
@@ -72,7 +72,7 @@ func TestCompose_EveryActorEntersBeforeActing(t *testing.T) {
 }
 
 func TestCompose_BeatsWithinDuration(t *testing.T) {
-	for seed := int64(0); seed < 200; seed++ {
+	for seed := range int64(200) {
 		s := Compose(rand.New(rand.NewSource(seed)))
 		for _, b := range s.Beats {
 			if b.T > s.DurationMs {
@@ -106,7 +106,7 @@ func TestPrepare_CooldownBlocksRepeats(t *testing.T) {
 	if !tl.Prepare(ctx, "first") {
 		t.Fatal("first Prepare should run")
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		if tl.Prepare(ctx, "refresh") {
 			t.Fatalf("Prepare ran again within the cooldown (attempt %d)", i)
 		}

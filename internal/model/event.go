@@ -9,6 +9,8 @@ const (
 	HealthEvent EventType = "health"
 	// ClientContextEvent used to send context from client to server
 	ClientContextEvent EventType = "clientContext"
+	// SuggestionsEvent pushed from server when suggestions change
+	SuggestionsEvent EventType = "suggestions"
 )
 
 type Health struct{}

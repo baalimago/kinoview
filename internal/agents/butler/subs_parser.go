@@ -59,7 +59,7 @@ func (b *butler) prepSuggestion(ctx context.Context,
 	sug suggestionResponse, items []model.Item) (
 	model.Suggestion, error,
 ) {
-	item, err := b.semanticIndexerSelect(ctx, sug, items)
+	item, err := b.resolveItem(ctx, sug, items)
 	if err != nil {
 		return model.Suggestion{},
 			fmt.Errorf("failed to semanticIndexer select: %w",

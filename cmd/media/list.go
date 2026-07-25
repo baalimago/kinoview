@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -379,10 +380,8 @@ func addSubtitlePath(item *model.Item, filePath string) error {
 	}
 
 	// Deduplicate
-	for _, existing := range item.SubtitlePaths {
-		if existing == filePath {
-			return fmt.Errorf("path already associated: %s", filePath)
-		}
+	if slices.Contains(item.SubtitlePaths, filePath) {
+		return fmt.Errorf("path already associated: %s", filePath)
 	}
 
 	item.SubtitlePaths = append(item.SubtitlePaths, filePath)
@@ -548,7 +547,7 @@ func isNumericSelection(tok string) bool {
 	}
 	// Allow comma-separated: "0,1,2"
 	if strings.Contains(tok, ",") {
-		for _, part := range strings.Split(tok, ",") {
+		for part := range strings.SplitSeq(tok, ",") {
 			if !isDigitsOrRange(strings.TrimSpace(part)) {
 				return false
 			}

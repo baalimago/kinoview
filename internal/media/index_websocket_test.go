@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -16,7 +17,7 @@ import (
 )
 
 type mockButler struct {
-	called bool
+	called atomic.Bool
 	ctx    model.ClientContext
 	recs   []model.Suggestion
 }
@@ -26,7 +27,7 @@ func (m *mockButler) Setup(ctx context.Context) error {
 }
 
 func (m *mockButler) PrepSuggestions(ctx context.Context, c model.ClientContext, items []model.Item) ([]model.Suggestion, error) {
-	m.called = true
+	m.called.Store(true)
 	m.ctx = c
 	return m.recs, nil
 }
@@ -110,8 +111,11 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Fatalf("Dial failed: %v", err)
 	}
 
-	// Send context
-	ctx := model.ClientContext{}
+	// Send context with minimal viewing history so the empty-context guard
+	// does not suppress the cascade.
+	ctx := model.ClientContext{
+		LastPlayedName: "Test Movie",
+	}
 	evt := model.Event[model.ClientContext]{
 		Type:    model.ClientContextEvent,
 		Created: time.Now(),
@@ -132,7 +136,7 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	// Wait for butler (handled in goroutine)
 	time.Sleep(200 * time.Millisecond)
 
-	if !butler.called {
+	if !butler.called.Load() {
 		t.Error("Butler was not called after disconnect")
 	}
 	// Now check if suggestions are available via HTTP
@@ -146,11 +150,12 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Errorf("Expected status 200, got %d", resp.StatusCode)
 	}
 
-	var recs []model.Suggestion
-	if err := json.NewDecoder(resp.Body).Decode(&recs); err != nil {
+	var payload model.SuggestionsPayload
+	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
 		t.Fatalf("Failed to decode response: %v", err)
 	}
 
+	recs := payload.Suggestions
 	if len(recs) != 1 {
 		t.Fatalf("Expected 1 recommendation, got %d", len(recs))
 	}
@@ -159,5 +164,9 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	}
 	if recs[0].Motivation != "Because you like tests" {
 		t.Errorf("Expected motivation 'Because you like tests', got '%s'", recs[0].Motivation)
+	}
+
+	if payload.State != "available" {
+		t.Errorf("Expected state 'available', got '%s'", payload.State)
 	}
 }

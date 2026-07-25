@@ -40,7 +40,7 @@ type Item struct {
 	Metadata  *json.RawMessage
 
 	ClassificationAttempts int       `json:"classificationAttempts,omitempty"`
-	ClassificationLastTry  time.Time `json:"classificationLastTry,omitempty"`
+	ClassificationLastTry  time.Time `json:"classificationLastTry"`
 	ClassificationError    string    `json:"classificationError,omitempty"`
 
 	// SubtitlePaths are user-specified absolute paths to external subtitle files
@@ -132,6 +132,30 @@ type Suggestion struct {
 	Item
 	Motivation string `json:"motivation"`
 	SubtitleID string `json:"subtitleID"`
+}
+
+// SuggestionsPayload is the payload for the suggestions websocket event
+// and the body of GET /gallery/suggestions.
+type SuggestionsPayload struct {
+	State       string       `json:"state"`
+	Suggestions []Suggestion `json:"suggestions"`
+	Generated   string       `json:"generated,omitempty"`
+}
+
+// SuggestionFingerprint identifies the inputs a butler answer depends on.
+type SuggestionFingerprint struct {
+	Library string `json:"library"` // sha256 over the marshalled []butlerItemView
+	Context string `json:"context"` // sha256 over the context fields
+	Version int    `json:"version"` // bump to invalidate all caches on a prompt/schema change
+}
+
+// SuggestionsFile is the on-disk envelope for persisted suggestions and their
+// cache fingerprint. When Fingerprint is nil the file was written by an older
+// version and the next cascade is a cache miss.
+type SuggestionsFile struct {
+	Suggestions []Suggestion           `json:"suggestions"`
+	Fingerprint *SuggestionFingerprint `json:"fingerprint,omitempty"`
+	Generated   string                 `json:"generated,omitempty"`
 }
 
 // MatchesGlobalSearch performs a global search across item metadata and basic fields.

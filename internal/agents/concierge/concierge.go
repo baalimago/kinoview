@@ -3,7 +3,6 @@ package concierge
 import (
 	"errors"
 	"path"
-	"time"
 
 	"github.com/baalimago/clai/pkg/agent"
 	"github.com/baalimago/clai/pkg/text/models"
@@ -77,7 +76,6 @@ type concierge struct {
 	storeDir string
 
 	model     string
-	interval  time.Duration
 	configDir string
 	cacheDir  string
 }
@@ -136,12 +134,6 @@ func WithCacheDir(dir string) ConciergeOption {
 	}
 }
 
-func WithInterval(d time.Duration) ConciergeOption {
-	return func(c *concierge) {
-		c.interval = d
-	}
-}
-
 func WithUserContextManager(ucm agents.ClientContextManager) ConciergeOption {
 	return func(c *concierge) {
 		c.userContextMgr = ucm
@@ -174,9 +166,7 @@ func WithModel(m string) ConciergeOption {
 // 17. cat
 // 18. rows_between
 func New(opts ...ConciergeOption) (agents.Concierge, error) {
-	c := concierge{
-		interval: 6 * time.Hour,
-	}
+	c := concierge{}
 	for _, o := range opts {
 		o(&c)
 	}

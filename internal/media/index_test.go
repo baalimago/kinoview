@@ -3,11 +3,17 @@ package media
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
+	"os"
+	"path"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
+	"github.com/baalimago/kinoview/internal/agents"
+	"github.com/baalimago/kinoview/internal/media/suggestions"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -481,4 +487,713 @@ func TestRegisterErrorChannel(t *testing.T) {
 		// Confirm teardown/closure is safe
 		cancel()
 	})
+}
+
+// --- Phase 7: Concierge Schedule Truthfulness tests ---
+
+// mockConcierge is already defined above in the existing tests.
+// We reuse it with a call-counting wrapper for these tests.
+
+type countingConcierge struct {
+	runFn func(ctx context.Context) (string, error)
+	calls atomic.Int32
+}
+
+func (m *countingConcierge) Setup(ctx context.Context) error { return nil }
+func (m *countingConcierge) Run(ctx context.Context) (string, error) {
+	m.calls.Add(1)
+	if m.runFn != nil {
+		return m.runFn(ctx)
+	}
+	return "", nil
+}
+
+func (m *countingConcierge) callCount() int {
+	return int(m.calls.Load())
+}
+
+func newTestIndexerForConcierge(t *testing.T, mc agents.Concierge, opts ...IndexerOption) *Indexer {
+	t.Helper()
+	// Construct directly to avoid creating a real fsnotify watcher
+	// (which leaks kernel file descriptors across many tests).
+	allOpts := append(
+		[]IndexerOption{
+			WithConcierge(mc),
+			WithConciergeStartupDelay(0),
+			WithConciergeCacheDir(t.TempDir()),
+		}, opts...,
+	)
+	idx := &Indexer{
+		clock:             time.Now,
+		conciergeInterval: 6 * time.Hour,
+		errorChannels:     make(map[string]errorListener),
+		errorUpdates:      make(chan error, 1000),
+	}
+	for _, opt := range allOpts {
+		opt(idx)
+	}
+	// Set up suggestions manager if not already set.
+	if idx.suggestions == nil {
+		sm, err := suggestions.NewManager(t.TempDir())
+		if err != nil {
+			t.Fatal(err)
+		}
+		idx.suggestions = sm
+	}
+	idx.store = &mockStore{
+		setup: func() error { return nil },
+		store: func() error { return nil },
+		items: []model.Item{},
+	}
+	idx.watcher = &mockWatcher{
+		setup: func(ctx context.Context) (<-chan model.Item, <-chan error, error) {
+			ch := make(chan model.Item)
+			close(ch)
+			return ch, nil, nil
+		},
+		watch: func(ctx context.Context, path string) error { return nil },
+	}
+	return idx
+}
+
+func TestConcierge_FreshStartNoLastRun(t *testing.T) {
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(t, mc, WithConciergeStartupDelay(0), WithConciergeInterval(time.Hour))
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Should run once after startup.
+	time.Sleep(100 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected at least 1 run on fresh start")
+	}
+}
+
+func TestConcierge_RestartWithinIntervalSkips(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write a last-run file 10 minutes ago.
+	tenMinAgo := time.Now().Add(-10 * time.Minute)
+	err := os.WriteFile(path.Join(tmpDir, "concierge_last_run"), []byte(tenMinAgo.Format(time.RFC3339)), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err = idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Should NOT run within the first 200ms — waiting for the interval to expire.
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() > 0 {
+		t.Fatalf("expected 0 runs when last-run was 10min ago with 6h interval, got %d", mc.callCount())
+	}
+}
+
+func TestConcierge_RestartAfterIntervalRuns(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Write a last-run file 7 hours ago (past the 6h interval).
+	sevenHoursAgo := time.Now().Add(-7 * time.Hour)
+	err := os.WriteFile(path.Join(tmpDir, "concierge_last_run"), []byte(sevenHoursAgo.Format(time.RFC3339)), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err = idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected run when last-run is past the interval")
+	}
+}
+
+func TestConcierge_CrashLoopSingleRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Simulate 5 restarts within 1 hour.
+	for range 5 {
+		// First iteration: no last-run file.
+		// Subsequent: last-run updated by previous run.
+		mc := &countingConcierge{}
+		idx := newTestIndexerForConcierge(
+			t, mc,
+			WithConciergeInterval(6*time.Hour),
+			WithConciergeStartupDelay(0),
+			WithConciergeCacheDir(tmpDir),
+		)
+
+		err := idx.Setup(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		go func() { _ = idx.Start(ctx) }()
+		time.Sleep(200 * time.Millisecond)
+		cancel()
+	}
+
+	// Only the first restart should have produced a run.
+	// Read all 5 counter totals. The key invariant: total runs across all 5 <= 1.
+	// (Actually, each iteration creates a fresh counter, so we track via the file.)
+	data, err := os.ReadFile(path.Join(tmpDir, "concierge_last_run"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t1, err := time.Parse(time.RFC3339, string(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Now start a 6th instance — it should skip because the last-run is recent.
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+	err = idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	go func() { _ = idx.Start(ctx) }()
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() > 0 {
+		t.Fatalf("6th restart within interval should have 0 runs, got %d (first run at %v)", mc.callCount(), t1)
+	}
+}
+
+func TestConcierge_LastRunPersistence(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(100*time.Millisecond),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Wait for at least one run.
+	time.Sleep(300 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected at least 1 run")
+	}
+
+	// Give writeConciergeLastRun time to flush (happens after Run returns).
+	time.Sleep(50 * time.Millisecond)
+
+	// File should exist and contain a valid timestamp.
+	data, err := os.ReadFile(path.Join(tmpDir, "concierge_last_run"))
+	if err != nil {
+		t.Fatalf("last-run file not found: %v", err)
+	}
+	_, err = time.Parse(time.RFC3339, string(data))
+	if err != nil {
+		t.Fatalf("last-run file has invalid timestamp: %v", err)
+	}
+}
+
+func TestConcierge_StartupDelayStillHonoured(t *testing.T) {
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(time.Hour),
+		WithConciergeStartupDelay(300*time.Millisecond),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Should NOT run immediately.
+	time.Sleep(100 * time.Millisecond)
+	if mc.callCount() > 0 {
+		t.Fatal("concierge ran before startup delay elapsed")
+	}
+
+	// Should run after the delay.
+	time.Sleep(400 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("concierge did not run after startup delay")
+	}
+}
+
+func TestConcierge_IntervalFlagRespected(t *testing.T) {
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(200*time.Millisecond),
+		WithConciergeStartupDelay(0),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// First run should happen quickly.
+	time.Sleep(100 * time.Millisecond)
+	callsAfterFirst := mc.callCount()
+	if callsAfterFirst < 1 {
+		t.Fatal("expected first run")
+	}
+
+	// Second run should happen after the interval.
+	time.Sleep(300 * time.Millisecond)
+	if mc.callCount() <= callsAfterFirst {
+		t.Fatalf("expected second run within %v, got %d calls", 200*time.Millisecond, mc.callCount())
+	}
+}
+
+// --- Error coverage tests ---
+
+func TestConcierge_UnreadableLastRunFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Create a directory where the file should be, making the file unreadable.
+	err := os.MkdirAll(path.Join(tmpDir, "concierge_last_run"), 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err = idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Should still run (treated as never-run).
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected run when last-run file is unreadable (treated as never-run)")
+	}
+}
+
+func TestConcierge_MalformedLastRunFile(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	err := os.WriteFile(path.Join(tmpDir, "concierge_last_run"), []byte("not-a-timestamp"), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err = idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Should still run (treated as never-run).
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected run when last-run file is malformed")
+	}
+}
+
+func TestConcierge_FutureLastRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	futureTime := time.Now().Add(24 * time.Hour)
+	err := os.WriteFile(path.Join(tmpDir, "concierge_last_run"), []byte(futureTime.Format(time.RFC3339)), 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err = idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Should run (future timestamp treated as never-run, not block indefinitely).
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected run when last-run timestamp is in the future")
+	}
+}
+
+func TestConcierge_FailedRunUpdatesLastRun(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	mc := &countingConcierge{
+		runFn: func(ctx context.Context) (string, error) {
+			return "", fmt.Errorf("simulated failure")
+		},
+	}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(100*time.Millisecond),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Wait for the run.
+	time.Sleep(300 * time.Millisecond)
+
+	// File should exist despite the failure.
+	data, err := os.ReadFile(path.Join(tmpDir, "concierge_last_run"))
+	if err != nil {
+		t.Fatalf("last-run file not found after failed run: %v", err)
+	}
+	_, err = time.Parse(time.RFC3339, string(data))
+	if err != nil {
+		t.Fatalf("last-run file has invalid timestamp after failed run: %v", err)
+	}
+
+	// Starting a new indexer should skip (last-run is recent).
+	mc2 := &countingConcierge{}
+	idx2 := newTestIndexerForConcierge(
+		t, mc2,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+	err = idx2.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), time.Second)
+	defer cancel2()
+	go func() { _ = idx2.Start(ctx2) }()
+	time.Sleep(200 * time.Millisecond)
+	if mc2.callCount() > 0 {
+		t.Fatal("second indexer should skip because last-run was updated even after failure")
+	}
+}
+
+func TestConcierge_PanicDoesNotKillScheduler(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// Use a concierge that panics on first call.
+	panicConcierge := &panicConcierge{panicOnCall: 1}
+	idx := newTestIndexerForConcierge(
+		t, panicConcierge,
+		WithConciergeInterval(100*time.Millisecond),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(tmpDir),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		_ = idx.Start(ctx)
+		close(done)
+	}()
+
+	// The scheduler should survive and keep running.
+	// Wait for enough time that at least 2 ticks would have occurred.
+	time.Sleep(500 * time.Millisecond)
+
+	// The goroutine should still be running (ctx not cancelled).
+	select {
+	case <-done:
+		t.Fatal("scheduler goroutine exited unexpectedly after panic")
+	default:
+		// Good — still running.
+	}
+}
+
+type panicConcierge struct {
+	calls       atomic.Int32
+	panicOnCall int
+}
+
+func (m *panicConcierge) Setup(ctx context.Context) error { return nil }
+func (m *panicConcierge) Run(ctx context.Context) (string, error) {
+	m.calls.Add(1)
+	if int(m.calls.Load()) == m.panicOnCall {
+		panic("test panic in concierge")
+	}
+	return "", nil
+}
+
+func TestConcierge_ZeroIntervalRunsOnce(t *testing.T) {
+	// Defense-in-depth: verify the indexer's runConciergeLoop safely handles
+	// zero interval by running once then stopping. Flag-level rejection in
+	// serve.go is the primary guard; this ensures the indexer path is also safe.
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(0),
+		WithConciergeStartupDelay(0),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Zero interval: runs once then stops.
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected at least 1 run with zero interval")
+	}
+}
+
+func TestConcierge_LastRunWriteFailure(t *testing.T) {
+	// Use a nonexistent path to force write failure.
+	// The run should still complete, just with a logged warning.
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir("/nonexistent/path/that/cannot/be/created/concierge_last_run"),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	// Should still run even though write fails.
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected run even if last-run write fails")
+	}
+
+	// A second start should still run (since write failed, no file persisted).
+	mc2 := &countingConcierge{}
+	idx2 := newTestIndexerForConcierge(
+		t, mc2,
+		WithConciergeInterval(6*time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir("/another/nonexistent/path"),
+	)
+	err = idx2.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx2, cancel2 := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel2()
+	go func() { _ = idx2.Start(ctx2) }()
+	time.Sleep(200 * time.Millisecond)
+	if mc2.callCount() < 1 {
+		t.Fatal("second start should also run since no last-run was persisted")
+	}
+}
+
+func TestConcierge_EmptyCacheDir(t *testing.T) {
+	// Empty cache dir: last-run persistence is silently skipped.
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(time.Hour),
+		WithConciergeStartupDelay(0),
+		WithConciergeCacheDir(""),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	go func() { _ = idx.Start(ctx) }()
+
+	time.Sleep(200 * time.Millisecond)
+	if mc.callCount() < 1 {
+		t.Fatal("expected run with empty cache dir")
+	}
+}
+
+func TestReadConciergeLastRun_NoFile(t *testing.T) {
+	idx := &Indexer{conciergeCacheDir: t.TempDir()}
+	tm, err := idx.readConciergeLastRun()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !tm.IsZero() {
+		t.Fatal("expected zero time when file does not exist")
+	}
+}
+
+func TestReadConciergeLastRun_EmptyCacheDir(t *testing.T) {
+	idx := &Indexer{conciergeCacheDir: ""}
+	tm, err := idx.readConciergeLastRun()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !tm.IsZero() {
+		t.Fatal("expected zero time for empty cache dir")
+	}
+}
+
+func TestWriteConciergeLastRun_EmptyCacheDir(t *testing.T) {
+	// Should not panic.
+	idx := &Indexer{conciergeCacheDir: "", clock: time.Now}
+	idx.writeConciergeLastRun()
+}
+
+func TestConcierge_ContextCancelStopsScheduler(t *testing.T) {
+	mc := &countingConcierge{}
+	idx := newTestIndexerForConcierge(
+		t, mc,
+		WithConciergeInterval(10*time.Second),
+		WithConciergeStartupDelay(0),
+	)
+
+	err := idx.Setup(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan struct{})
+	go func() {
+		_ = idx.Start(ctx)
+		close(done)
+	}()
+
+	// Wait for first run.
+	time.Sleep(200 * time.Millisecond)
+	callsBeforeCancel := mc.callCount()
+
+	// Cancel context.
+	cancel()
+
+	// Wait and verify the goroutine exits.
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("scheduler did not exit after context cancel")
+	}
+
+	// No more calls after cancel.
+	time.Sleep(100 * time.Millisecond)
+	if mc.callCount() != callsBeforeCancel {
+		t.Fatal("concierge ran after context cancel")
+	}
 }

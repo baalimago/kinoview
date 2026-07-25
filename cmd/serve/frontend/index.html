@@ -187,9 +187,20 @@
           <section id="butler-suggestions" class="suggestions-container" style="display: none;">
             <div class="suggestions-heading">
               <h3>Concierge picks</h3>
-              <span class="suggestions-sub">Chosen for you</span>
+              <span class="suggestions-sub" id="suggestions-age"></span>
             </div>
             <div id="suggestions-list" class="suggestions-list"></div>
+            <div id="suggestions-computing" class="suggestions-status" style="display:none;">
+              <div class="suggestions-skeleton">
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+                <div class="skeleton-card"></div>
+              </div>
+              <p class="suggestions-status-text">The butler is deliberating&hellip;</p>
+            </div>
+            <div id="suggestions-empty" class="suggestions-status" style="display:none;">
+              <p class="suggestions-status-text">Watch something and suggestions will appear.</p>
+            </div>
           </section>
         </main>
       </div>

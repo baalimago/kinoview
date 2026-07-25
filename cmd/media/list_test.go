@@ -274,7 +274,7 @@ func TestFormatMetadata(t *testing.T) {
 
 	// Long JSON gets truncated.
 	long := make(map[string]string)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		long[fmt.Sprintf("key%d", i)] = "value"
 	}
 	b, _ := json.Marshal(long)

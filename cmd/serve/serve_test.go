@@ -6,6 +6,7 @@ import (
 	"math/rand/v2"
 	"os"
 	"path"
+	"strings"
 	"testing"
 	"time"
 )
@@ -106,6 +107,25 @@ func TestSetup(t *testing.T) {
 			t.Errorf("cleanup failed: %v", err)
 		}
 	})
+}
+
+func TestSetup_ZeroIntervalRejected(t *testing.T) {
+	c := Command()
+	c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
+	c.configDir = new(t.TempDir())
+	c.classificationWorkers = new(int)
+	*c.classificationWorkers = 1
+
+	zero := time.Duration(0)
+	c.conciergeInterval = &zero
+
+	err := c.Setup(context.Background())
+	if err == nil {
+		t.Fatal("expected error for zero conciergeInterval")
+	}
+	if !strings.Contains(err.Error(), "-conciergeInterval must be positive") {
+		t.Errorf("error message does not explain the rejection: %v", err)
+	}
 }
 
 func TestRun(t *testing.T) {

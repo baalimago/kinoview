@@ -36,7 +36,8 @@ func TestValidate_DropsUnknownVocabulary(t *testing.T) {
 	// An LLM inventing characters, props and actions must not reach the player.
 	s.Cast = append(s.Cast, Cast{ID: "drag", Character: "dragon", X: 0.5})
 	s.Props = []Prop{{ID: "sword", Prop: "sword", X: 0.5}}
-	s.Beats = append(s.Beats,
+	s.Beats = append(
+		s.Beats,
 		Beat{T: 100, Actor: "ina", Action: "breatheFire"},
 		Beat{T: 200, Actor: "drag", Action: "enter"},
 	)
@@ -111,7 +112,8 @@ func TestValidate_RejectsBadIDs(t *testing.T) {
 
 func TestValidate_TargetRequiredActionsDropped(t *testing.T) {
 	s := validStory()
-	s.Beats = append(s.Beats,
+	s.Beats = append(
+		s.Beats,
 		Beat{T: 2000, Actor: "ina", Action: "pounce"},                  // no target
 		Beat{T: 2100, Actor: "ina", Action: "pounce", Target: "ghost"}, // unknown target
 		Beat{T: 2200, Actor: "ina", Action: "greet", Target: "freija"}, // fine
@@ -178,7 +180,7 @@ func TestValidate_EmptyTitleGetsFallback(t *testing.T) {
 
 func TestValidate_CapsCollectionSizes(t *testing.T) {
 	s := validStory()
-	for i := 0; i < 50; i++ {
+	for range 50 {
 		s.Beats = append(s.Beats, Beat{T: 100, Actor: "ina", Action: "blink"})
 	}
 	if err := s.Validate(); err != nil {

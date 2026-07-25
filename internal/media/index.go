@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"os"
 	"path"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
@@ -71,6 +73,15 @@ func (el *errorListener) start(ctx context.Context) {
 	}
 }
 
+type disconnectReason string
+
+const (
+	reasonSocketError disconnectReason = "socketError"
+	reasonPingFailed  disconnectReason = "pingFailed"
+	reasonPongTimeout disconnectReason = "pongTimeout"
+	reasonConnect     disconnectReason = "connect"
+)
+
 type Indexer struct {
 	watchPath string
 	watcher   watcher
@@ -80,8 +91,10 @@ type Indexer struct {
 	recommender           agents.Recommender
 	butler                agents.Butler
 	concierge             agents.Concierge
-	storyteller           storyteller.Teller
 	conciergeStartupDelay time.Duration
+	conciergeInterval     time.Duration
+	conciergeCacheDir     string
+	storyteller           storyteller.Teller
 
 	// Agent support managers
 	clientContextMgr agents.ClientContextManager
@@ -91,6 +104,29 @@ type Indexer struct {
 	heartbeatInterval time.Duration
 	pongTimeout       time.Duration
 	pingWriteTimeout  time.Duration
+
+	// Butler cascade rate-limiting
+	butlerDebounce       time.Duration
+	butlerCacheTTL       time.Duration
+	pongGrace            time.Duration
+	butlerLastCascadeAt  time.Time
+	butlerInFlight       bool
+	butlerRerunRequested bool
+	butlerRerunConsumed  bool
+	butlerMu             sync.Mutex
+	clock                func() time.Time
+
+	// cascadeGen is bumped every time triggerCascade starts a fresh cascade
+	// (i.e. when butlerInFlight was false). The cascade goroutine captures
+	// the generation and only manages its own flight slot — preventing a
+	// fast cascade from completing before queued callers have signalled,
+	// which would otherwise spawn extra cascades.
+	cascadeGen atomic.Int64
+
+	// Suggestions event broadcast to connected websocket clients
+	suggestionSubscribersMu sync.Mutex
+	suggestionSubscribers   []chan model.SuggestionsPayload
+	wsWriteMu               sync.Mutex // serializes writes across all websocket connections
 
 	fileUpdates   <-chan model.Item
 	errorChannels map[string]errorListener
@@ -142,6 +178,21 @@ func WithConciergeStartupDelay(d time.Duration) IndexerOption {
 	}
 }
 
+// WithConciergeInterval sets the interval between concierge runs.
+func WithConciergeInterval(d time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.conciergeInterval = d
+	}
+}
+
+// WithConciergeCacheDir sets the directory where the concierge last-run
+// timestamp is persisted.
+func WithConciergeCacheDir(dir string) IndexerOption {
+	return func(i *Indexer) {
+		i.conciergeCacheDir = dir
+	}
+}
+
 func WithSuggestionsManager(s *suggestions.Manager) IndexerOption {
 	return func(i *Indexer) {
 		i.suggestions = s
@@ -164,6 +215,40 @@ func WithHeartbeatConfig(interval, pongTimeout, pingWriteTimeout time.Duration) 
 	}
 }
 
+// WithButlerDebounce sets the minimum interval between butler suggestion
+// cascades. Triggers inside the window are dropped. A zero value disables
+// debounce (single-flight still applies).
+func WithButlerDebounce(d time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.butlerDebounce = d
+	}
+}
+
+// WithButlerCacheTTL sets how long a cached suggestion set is served before
+// the butler is re-queried. A zero value disables caching entirely.
+func WithButlerCacheTTL(d time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.butlerCacheTTL = d
+	}
+}
+
+// WithPongGrace sets the grace period after a pong timeout before a
+// disconnect cascade fires. If the client sends a pong within this window
+// the cascade is cancelled.
+func WithPongGrace(d time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.pongGrace = d
+	}
+}
+
+// withClock sets the time source for debounce checks. Only exported for
+// tests; production code uses time.Now.
+func withClock(fn func() time.Time) IndexerOption {
+	return func(i *Indexer) {
+		i.clock = fn
+	}
+}
+
 func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 	w, err := int_watcher.NewRecursiveWatcher()
 	if err != nil {
@@ -176,7 +261,10 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 	claiPath := path.Join(cfgDir, "kinoview", "clai")
 
 	i := &Indexer{
-		watcher: w,
+		watcher:           w,
+		clock:             time.Now,
+		pongGrace:         defaultPongGrace,
+		conciergeInterval: 6 * time.Hour,
 		recommender: recommender.New(models.Configurations{
 			Model:         "gpt-5",
 			ConfigDir:     claiPath,
@@ -315,33 +403,8 @@ func (i *Indexer) Start(ctx context.Context) error {
 
 	if i.concierge != nil {
 		conciergeErrChan := make(chan error, 1)
-		tick := time.NewTicker(time.Hour * 6)
-		go func() {
-			do := func() {
-				ancli.Okf("Running concierge")
-				_, err := i.concierge.Run(ctx)
-				if err != nil && !errors.Is(err, context.Canceled) {
-					conciergeErrChan <- err
-				}
-			}
-			if i.conciergeStartupDelay > 0 {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(i.conciergeStartupDelay):
-				}
-			}
-			do()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-tick.C:
-					do()
-				}
-			}
-		}()
 		i.registerErrorChannel(ctx, "concierge", conciergeErrChan)
+		go i.runConciergeLoop(ctx, conciergeErrChan)
 	}
 
 	for {
@@ -360,6 +423,182 @@ func (i *Indexer) Start(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+// runConciergeLoop is the background goroutine that schedules and executes
+// concierge runs at the configured interval. On startup it reads the persisted
+// last-run timestamp to avoid re-running after a restart within the interval.
+func (i *Indexer) runConciergeLoop(ctx context.Context, errChan chan<- error) {
+	do := func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ancli.Errf("concierge: panic recovered: %v", r)
+			}
+		}()
+		ancli.Okf("Running concierge")
+		_, err := i.concierge.Run(ctx)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			errChan <- err
+		}
+		// Always persist last-run to prevent crash-loop hot re-runs.
+		i.writeConciergeLastRun()
+	}
+
+	now := i.clock()
+	lastRun, err := i.readConciergeLastRun()
+
+	var firstRunDelay time.Duration
+
+	switch {
+	case err != nil || lastRun.IsZero():
+		// Never run before, or unreadable file. Apply startup delay.
+		firstRunDelay = i.conciergeStartupDelay
+		ancli.Noticef("concierge: no previous run recorded, scheduling first run after %v", firstRunDelay)
+	case lastRun.After(now):
+		// Clock skew: future timestamp. Treat as never-run.
+		ancli.Warnf("concierge: last-run timestamp %v is in the future (now=%v), treating as never-run", lastRun, now)
+		firstRunDelay = i.conciergeStartupDelay
+	case now.Sub(lastRun) < i.conciergeInterval:
+		// Within interval — skip initial run, schedule next at lastRun + interval.
+		wait := i.conciergeInterval - now.Sub(lastRun)
+		ancli.Noticef("concierge: last run at %v, next run in %v", lastRun, wait.Round(time.Second))
+		// Wait, then run, then switch to ticker.
+		if wait > 0 {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+		}
+		do()
+		if i.conciergeInterval <= 0 {
+			ancli.Noticef("concierge: interval is %v, running once then stopping", i.conciergeInterval)
+			return
+		}
+		tick := time.NewTicker(i.conciergeInterval)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				do()
+			}
+		}
+	default:
+		// Past interval — run after startup delay.
+		firstRunDelay = i.conciergeStartupDelay
+		ancli.Noticef("concierge: last run at %v (elapsed %v > interval %v), scheduling after startup delay %v",
+			lastRun, now.Sub(lastRun).Round(time.Second), i.conciergeInterval, firstRunDelay)
+	}
+
+	// First-run path: wait the startup delay, then run, then ticker.
+	if firstRunDelay > 0 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(firstRunDelay):
+		}
+	}
+	do()
+	if i.conciergeInterval <= 0 {
+		// Zero or negative interval: run once then stop (no periodic runs).
+		ancli.Noticef("concierge: interval is %v, running once then stopping", i.conciergeInterval)
+		return
+	}
+	tick := time.NewTicker(i.conciergeInterval)
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			do()
+		}
+	}
+}
+
+// conciergeLastRunPath returns the path to the persisted last-run timestamp file.
+func (i *Indexer) conciergeLastRunPath() string {
+	return path.Join(i.conciergeCacheDir, "concierge_last_run")
+}
+
+// readConciergeLastRun reads the last-run timestamp. Returns zero time if the
+// file does not exist or is unreadable.
+func (i *Indexer) readConciergeLastRun() (time.Time, error) {
+	if i.conciergeCacheDir == "" {
+		return time.Time{}, nil
+	}
+	data, err := os.ReadFile(i.conciergeLastRunPath())
+	if err != nil {
+		if os.IsNotExist(err) {
+			return time.Time{}, nil
+		}
+		return time.Time{}, err
+	}
+	t, err := time.Parse(time.RFC3339, string(data))
+	if err != nil {
+		return time.Time{}, fmt.Errorf("malformed last-run file: %w", err)
+	}
+	return t, nil
+}
+
+// writeConciergeLastRun persists the current time as the last-run timestamp.
+func (i *Indexer) writeConciergeLastRun() {
+	if i.conciergeCacheDir == "" {
+		return
+	}
+	now := i.clock()
+	err := os.WriteFile(i.conciergeLastRunPath(), []byte(now.Format(time.RFC3339)), 0o644)
+	if err != nil {
+		ancli.Errf("concierge: failed to write last-run file: %v", err)
+	}
+}
+
+// subscribeSuggestions returns a channel that receives suggestions payloads
+// when a cascade completes. Close the channel when done; the Indexer drops
+// closed channels automatically on the next broadcast.
+func (i *Indexer) subscribeSuggestions() chan model.SuggestionsPayload {
+	ch := make(chan model.SuggestionsPayload, 1)
+	i.suggestionSubscribersMu.Lock()
+	i.suggestionSubscribers = append(i.suggestionSubscribers, ch)
+	i.suggestionSubscribersMu.Unlock()
+	return ch
+}
+
+// unsubscribeSuggestions removes a subscriber channel. Safe to call with a nil
+// or already-closed channel.
+func (i *Indexer) unsubscribeSuggestions(ch chan model.SuggestionsPayload) {
+	if ch == nil {
+		return
+	}
+	i.suggestionSubscribersMu.Lock()
+	defer i.suggestionSubscribersMu.Unlock()
+	for idx, sub := range i.suggestionSubscribers {
+		if sub == ch {
+			i.suggestionSubscribers = append(i.suggestionSubscribers[:idx], i.suggestionSubscribers[idx+1:]...)
+			return
+		}
+	}
+}
+
+// broadcastSuggestions sends the payload to all active subscribers.
+// Uses non-blocking sends; a slow consumer with a full buffer is skipped.
+func (i *Indexer) broadcastSuggestions(payload model.SuggestionsPayload) {
+	i.suggestionSubscribersMu.Lock()
+	// Prune closed channels while we hold the lock.
+	active := i.suggestionSubscribers[:0]
+	for _, ch := range i.suggestionSubscribers {
+		select {
+		case ch <- payload:
+			active = append(active, ch)
+		default:
+			// Consumer is slow or channel is closed; drop it.
+			ancli.Warnf("broadcastSuggestions: dropping subscriber (buffer full or closed)")
+		}
+	}
+	i.suggestionSubscribers = active
+	i.suggestionSubscribersMu.Unlock()
 }
 
 func (i *Indexer) Handler() http.Handler {

@@ -504,53 +504,117 @@ function selectSubtitle(id) {
 
 function loadSuggestions() {
   fetch("/gallery/suggestions")
-    .then(response => {
+    .then(function(response) {
       if (!response.ok) throw new Error("status " + response.status);
       return response.json();
     })
-    .then(suggestions => {
-      if (!suggestions || suggestions.length === 0) {
-        window.__introMarkLoaded();
-        return;
-      }
-
-      const container = document.getElementById("butler-suggestions");
-      const list = document.getElementById("suggestions-list");
-      container.style.display = "block";
-      list.innerHTML = ""; // clear
-
-      suggestions.forEach(rec => {
-        // rec includes Item fields (Name, MIMEType, etc) + Motivation + SubtitleID
-        const itemDiv = document.createElement("div");
-        itemDiv.className = "suggestion-item";
-
-        itemDiv.onclick = () => {
-          selectMedia(rec.ID);
-          if (rec.subtitleID) {
-            // Wait small delay for subs stream options to populate if needed
-            setTimeout(() => {
-              selectSubtitle(rec.subtitleID);
-            }, 500);
-          }
-        };
-
-        const title = document.createElement("strong");
-        title.innerText = prettyMediaName(rec);
-
-        const motivation = document.createElement("p");
-        motivation.innerText = rec.motivation;
-
-        itemDiv.appendChild(title);
-        itemDiv.appendChild(motivation);
-
-        list.appendChild(itemDiv);
-      });
+    .then(function(payload) {
+      renderSuggestionsFromPayload(payload);
       window.__introMarkLoaded();
     })
-    .catch(err => {
+    .catch(function(err) {
       console.error("Failed to load suggestions:", err);
+      // Show empty state on fetch failure.
+      var container = document.getElementById("butler-suggestions");
+      if (container) container.style.display = "block";
+      var emptyEl = document.getElementById("suggestions-empty");
+      if (emptyEl) emptyEl.style.display = "block";
       window.__introMarkFailed();
     });
+}
+
+function formatAge(rfc3339) {
+  try {
+    var then = new Date(rfc3339);
+    var now = new Date();
+    var diffSec = Math.floor((now - then) / 1000);
+    if (diffSec < 60) return "just now";
+    if (diffSec < 3600) return Math.floor(diffSec / 60) + "m ago";
+    if (diffSec < 86400) return Math.floor(diffSec / 3600) + "h ago";
+    return Math.floor(diffSec / 86400) + "d ago";
+  } catch (e) {
+    return "";
+  }
+}
+
+// handleSuggestionsEvent is called from events.js when the server pushes
+// fresh suggestions through the websocket. It re-renders the shelf live.
+function handleSuggestionsEvent(payload) {
+  renderSuggestionsFromPayload(payload);
+}
+
+function renderSuggestionsFromPayload(payload) {
+  var suggestions = payload.suggestions || [];
+  var state = payload.state || "empty";
+  var generated = payload.generated || "";
+
+  var container = document.getElementById("butler-suggestions");
+  if (!container) return;
+  var list = document.getElementById("suggestions-list");
+  var computingEl = document.getElementById("suggestions-computing");
+  var emptyEl = document.getElementById("suggestions-empty");
+  var ageEl = document.getElementById("suggestions-age");
+
+  // Hide all sub-views.
+  if (list) list.style.display = "none";
+  if (computingEl) computingEl.style.display = "none";
+  if (emptyEl) emptyEl.style.display = "none";
+
+  if (state === "available" && suggestions.length > 0) {
+    container.style.display = "block";
+    if (list) {
+      list.style.display = "block";
+      list.innerHTML = "";
+      suggestions.forEach(function(rec) {
+        var itemDiv = document.createElement("div");
+        itemDiv.className = "suggestion-item";
+        itemDiv.onclick = function() {
+          selectMedia(rec.ID);
+          if (rec.subtitleID) {
+            setTimeout(function() { selectSubtitle(rec.subtitleID); }, 500);
+          }
+        };
+        var title = document.createElement("strong");
+        title.innerText = prettyMediaName(rec);
+        var motivation = document.createElement("p");
+        motivation.innerText = rec.motivation;
+        itemDiv.appendChild(title);
+        itemDiv.appendChild(motivation);
+        list.appendChild(itemDiv);
+      });
+    }
+    if (ageEl) {
+      ageEl.innerText = generated ? "Chosen " + formatAge(generated) : "Chosen for you";
+    }
+  } else if (state === "computing") {
+    container.style.display = "block";
+    if (computingEl) computingEl.style.display = "block";
+    // Show previous suggestions alongside skeleton.
+    if (suggestions.length > 0 && list) {
+      list.style.display = "block";
+      list.innerHTML = "";
+      suggestions.forEach(function(rec) {
+        var itemDiv = document.createElement("div");
+        itemDiv.className = "suggestion-item";
+        itemDiv.onclick = function() {
+          selectMedia(rec.ID);
+          if (rec.subtitleID) {
+            setTimeout(function() { selectSubtitle(rec.subtitleID); }, 500);
+          }
+        };
+        var title = document.createElement("strong");
+        title.innerText = prettyMediaName(rec);
+        var motivation = document.createElement("p");
+        motivation.innerText = rec.motivation;
+        itemDiv.appendChild(title);
+        itemDiv.appendChild(motivation);
+        list.appendChild(itemDiv);
+      });
+    }
+  } else {
+    container.style.display = "block";
+    if (emptyEl) emptyEl.style.display = "block";
+  }
 }
 
 // ── Sidebar Shows Browser ──

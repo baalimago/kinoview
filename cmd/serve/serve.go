@@ -54,6 +54,10 @@ type command struct {
 	startupWriteDelay             *time.Duration
 	storytellerModel              *string
 	storytellerCooldown           *time.Duration
+	butlerDebounce                *time.Duration
+	butlerCacheTTL                *time.Duration
+	pongGrace                     *time.Duration
+	conciergeInterval             *time.Duration
 }
 
 func Command() *command {
@@ -79,6 +83,14 @@ func Command() *command {
 	*ret.storytellerCooldown = storyteller.DefaultCooldown
 	ret.startupWriteDelay = new(time.Duration)
 	*ret.startupWriteDelay = 30 * time.Second
+	ret.butlerDebounce = new(time.Duration)
+	*ret.butlerDebounce = 30 * time.Second
+	ret.pongGrace = new(time.Duration)
+	*ret.pongGrace = 10 * time.Second
+	ret.butlerCacheTTL = new(time.Duration)
+	*ret.butlerCacheTTL = 6 * time.Hour
+	ret.conciergeInterval = new(time.Duration)
+	*ret.conciergeInterval = 6 * time.Hour
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		ancli.Errf("failed to find user config dir: %v", err)
@@ -217,6 +229,10 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.storytellerModel = fs.String("storyteller", "", "set to LLM text model used to write the intro splash story. If unset, a deterministic composer is used instead.")
 	c.storytellerCooldown = fs.Duration("storytellerCooldown", storyteller.DefaultCooldown, "minimum time between intro story generations, so refreshes don't each cost an LLM call")
 	c.startupWriteDelay = fs.Duration("startupWriteDelay", 30*time.Second, "delay before store writes are flushed to disk, 0 writes immediately")
+	c.butlerDebounce = fs.Duration("butlerDebounce", 30*time.Second, "minimum interval between butler suggestion cascades; triggers within the window are dropped")
+	c.butlerCacheTTL = fs.Duration("butlerCacheTTL", 6*time.Hour, "how long a cached suggestion set is served before re-querying the butler; 0 disables caching")
+	c.pongGrace = fs.Duration("pongGrace", 10*time.Second, "grace period after a pong timeout before a disconnect cascade fires; 0 disables")
+	c.conciergeInterval = fs.Duration("conciergeInterval", 6*time.Hour, "interval between concierge runs")
 
 	c.flagset = fs
 	return fs

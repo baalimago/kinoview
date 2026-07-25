@@ -40,6 +40,8 @@
                             time: new Date().toISOString(),
                             payload: {}
                         }));
+                    } else if (msg.type === "suggestions") {
+                        handleSuggestionsEvent(msg.payload);
                     }
                 } catch (e) {
                     console.error("Failed to parse incoming event:", e);

@@ -221,7 +221,7 @@ const idAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
 func newID(r *rand.Rand) string {
 	var b strings.Builder
 	b.WriteString("stry_")
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		b.WriteByte(idAlphabet[r.Intn(len(idAlphabet))])
 	}
 	return b.String()

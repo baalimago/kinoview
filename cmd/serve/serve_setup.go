@@ -34,6 +34,10 @@ func (c *command) Setup(ctx context.Context) error {
 		return errors.New("flagset not set; use the Command function")
 	}
 
+	if c.conciergeInterval != nil && *c.conciergeInterval <= 0 {
+		return fmt.Errorf("-conciergeInterval must be positive (got %v); set a positive duration or omit the flag to use the default (6h)", *c.conciergeInterval)
+	}
+
 	if len(c.flagset.Args()) == 0 {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -197,6 +201,11 @@ func (c *command) Setup(ctx context.Context) error {
 		media.WithConciergeStartupDelay(*c.conciergeStartupDelay),
 		media.WithClientContextManager(userContextMgr),
 		media.WithStoryteller(bard),
+		media.WithButlerDebounce(*c.butlerDebounce),
+		media.WithButlerCacheTTL(*c.butlerCacheTTL),
+		media.WithPongGrace(*c.pongGrace),
+		media.WithConciergeInterval(*c.conciergeInterval),
+		media.WithConciergeCacheDir(*c.cacheDir),
 	)
 	if err != nil {
 		return fmt.Errorf("c.indexer.Setup failed to create Indexer, err: %v", err)

@@ -2,7 +2,6 @@ package concierge
 
 import (
 	"testing"
-	"time"
 
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -114,7 +113,6 @@ func TestNew_OK_OptionsApplied(t *testing.T) {
 		WithSuggestionManager(sm),
 		WithSubtitleManager(subm),
 		WithModel("gpt-5"),
-		WithInterval(123*time.Second),
 		WithStoreDir("/tmp/store"),
 		WithConfigDir("/tmp/config"),
 		WithCacheDir("/tmp/cache"),
