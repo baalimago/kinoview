@@ -45,6 +45,10 @@ type teller struct {
 
 	muse Muse
 
+	// writeMu serialises disk writes independently of mu, so persisting never
+	// holds the lock that serving a story needs.
+	writeMu sync.Mutex
+
 	mu       sync.Mutex
 	current  *model.Story
 	lastGen  time.Time
@@ -142,8 +146,11 @@ func (t *teller) Next() model.Story {
 	if t.current != nil {
 		return *t.current
 	}
+	// Nothing was prepared — compose one and persist it, so the store stops
+	// being empty even if this process dies straight afterwards.
 	s := ComposeThemed(t.rnd, theme)
 	t.current = &s
+	go t.saveToDisk(s)
 	return s
 }
 
@@ -299,39 +306,97 @@ func (t *teller) loadFromDisk() {
 	// a crash-loop or a few manual restarts would each cost an LLM call, which
 	// is exactly what the cooldown exists to prevent. The file's mtime is when
 	// we last generated, so it needs no extra state.
-	if fi, statErr := os.Stat(t.path); statErr == nil {
-		t.lastGen = fi.ModTime()
+	//
+	// Only an LLM story starts the clock. The cooldown exists to limit API spend,
+	// and a composed story cost nothing — letting one gate the cooldown would
+	// mean a seeded story on disk blocked the very upgrade it is standing in for.
+	if s.Origin == "llm" {
+		if fi, statErr := os.Stat(t.path); statErr == nil {
+			t.lastGen = fi.ModTime()
+		}
 	}
 }
 
-// Warm prepares a story at startup so the first visitor gets a real one.
+// Warm guarantees a stored story exists before the first visitor arrives.
 //
-// Without it the first ever visit is always composer-authored: Next() composes
-// synchronously rather than blocking the splash on an LLM call, and the LLM only
-// runs afterwards. Warming in the background fixes that without ever making the
-// splash wait. It is a no-op when a usable story is already cached, and it goes
-// through the same cooldown and single-flight as any other preparation.
+// It does this in two steps, and the order matters. First it composes one
+// synchronously and writes it to disk, themed on whatever was watched most
+// recently — that is instant and free, so from this point on there is always a
+// prepared story on disk, whatever happens next. Then, if a model is configured,
+// it upgrades that story in the background.
+//
+// Doing only the background step would leave a window with nothing stored: an
+// LLM call takes tens of seconds and can fail outright, and a visitor arriving
+// during it would fall through to an unpersisted in-memory compose.
 func (t *teller) Warm(ctx context.Context) {
 	t.mu.Lock()
 	have := t.current != nil
 	t.mu.Unlock()
 	if have {
+		// Something usable is already on disk from a previous run.
+		if t.llm != nil {
+			go t.Prepare(ctx, "startup refresh")
+		}
 		return
 	}
-	go t.Prepare(ctx, "startup warm-up")
+
+	theme := t.theme()
+	seed := ComposeThemed(t.rnd, theme)
+	t.mu.Lock()
+	t.current = &seed
+	t.mu.Unlock()
+	t.saveToDisk(seed)
+	if theme != "" {
+		ancli.Okf("storyteller: seeded %q from last watched %q", seed.Title, theme)
+	} else {
+		ancli.Okf("storyteller: seeded %q (nothing watched yet)", seed.Title)
+	}
+
+	// Upgrade to an authored story in the background. The seeded one is already
+	// safely stored, so a slow or failing LLM costs us nothing.
+	if t.llm != nil {
+		go t.Prepare(ctx, "startup upgrade")
+	}
 }
 
+// saveToDisk writes the story atomically: temp file then rename.
+//
+// The file is the guarantee that a story is always prepared, and it is read at
+// startup. A half-written one would be rejected by Validate and leave us with
+// nothing stored, so it must never be observable in a partial state.
 func (t *teller) saveToDisk(s model.Story) {
+	t.writeMu.Lock()
+	defer t.writeMu.Unlock()
+
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		ancli.Errf("storyteller: marshal story: %v", err)
 		return
 	}
-	if err := os.MkdirAll(filepath.Dir(t.path), 0o755); err != nil {
+	dir := filepath.Dir(t.path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		ancli.Errf("storyteller: mkdir cache: %v", err)
 		return
 	}
-	if err := os.WriteFile(t.path, b, 0o644); err != nil {
-		ancli.Errf("storyteller: write story: %v", err)
+	tmp, err := os.CreateTemp(dir, "intro_story-*.json")
+	if err != nil {
+		ancli.Errf("storyteller: temp story file: %v", err)
+		return
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		ancli.Errf("storyteller: write temp story: %v", err)
+		return
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		ancli.Errf("storyteller: close temp story: %v", err)
+		return
+	}
+	if err := os.Rename(tmpName, t.path); err != nil {
+		os.Remove(tmpName)
+		ancli.Errf("storyteller: replace story: %v", err)
 	}
 }

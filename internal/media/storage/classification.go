@@ -87,6 +87,15 @@ func (r *rateLimiter) allow() bool {
 // Items may be dropped if: already in flight, startup cooldown is active,
 // rate limit is exceeded, or the downstream work queue is at capacity.
 func (s *store) AddToClassificationQueue(i model.Item) {
+	// classificationRequest is unbuffered and only drained by the classification
+	// station, which Start spawns. Anything using the store WITHOUT starting it —
+	// the `kinoview media` CLI, for instance — would otherwise block here for
+	// ever on the send. That was the "reclassify just hangs" bug: the CLI shares
+	// this write path but has no station to consume the queue.
+	if !s.started.Load() {
+		ancli.Noticef("classification station not running, not queueing: %v", i.Name)
+		return
+	}
 	if _, loaded := s.inFlight.LoadOrStore(i.ID, struct{}{}); loaded {
 		ancli.Noticef("classification dedup: %v already in flight, skipping", i.Name)
 		return
@@ -173,6 +182,13 @@ func (s *store) StartClassificationStation(ctx context.Context) error {
 		s.rateLimiter = newRateLimiter(s.classificationRate, s.classificationBurst)
 	}
 
+	// The queue is unbuffered, so enqueuing is only safe while the delegator
+	// below is draining it. Flag it here rather than only in Start() so that
+	// anything running the station directly — tests included — is covered.
+	// StartClassificationStation returns once the workers are spawned, so the
+	// flag is cleared by the delegator on its way out, not by a defer here.
+	s.started.Store(true)
+
 	if s.classificationWorkers > 3 {
 		ancli.Warnf("classification workers set to %v (>3); high worker counts increase memory pressure and may cause OOM", s.classificationWorkers)
 	}
@@ -184,6 +200,9 @@ func (s *store) StartClassificationStation(ctx context.Context) error {
 		go s.startClassificationRoutine(ctx, i, workChan, resChan)
 	}
 	go func() {
+		// Once the delegator stops there is no consumer, so enqueuing must go
+		// back to being a no-op rather than a deadlock.
+		defer s.started.Store(false)
 		ancli.Noticef("Starting classification delegator (queue cap: %v)", queueCap)
 		amToClassify := 0
 		for {

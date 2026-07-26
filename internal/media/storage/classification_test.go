@@ -1179,9 +1179,11 @@ func Test_AddToClassificationQueue_dedup_limitCleanup(t *testing.T) {
 	}
 }
 
-func Test_AddToClassificationQueue_addToChannelBlocked(t *testing.T) {
-	// Test that AddToClassificationQueue doesn't panic when classificationRequest
-	// channel is full — it just blocks (no select/default on this channel).
+func Test_AddToClassificationQueue_noStationDoesNotBlock(t *testing.T) {
+	// This test used to assert the opposite — that enqueuing with nothing draining
+	// the channel BLOCKS. That behaviour was a bug: the `kinoview media` CLI shares
+	// this write path without running a station, so reclassifying from the CLI hung
+	// for ever. The contract is now that enqueuing without a consumer is a no-op.
 
 	dir := t.TempDir()
 	s := NewStore(
@@ -1190,14 +1192,10 @@ func Test_AddToClassificationQueue_addToChannelBlocked(t *testing.T) {
 		WithClassificationRate(0),
 		WithClassificationStartupCooldown(0),
 	)
-	// Tiny buffer — after 2 items it blocks but shouldn't panic
+	// Deliberately tiny, and deliberately never drained.
 	s.classificationRequest = make(chan classificationCandidate, 2)
 	s.classifierErrors = make(chan error, 10)
 
-	// Don't start the station, so nothing drains the channel.
-	// AddToClassificationQueue should block, not panic.
-	// Each send is wrapped in a goroutine with a done signal; after the test
-	// we drain the channel to unblock any stuck sends.
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -1209,21 +1207,15 @@ func Test_AddToClassificationQueue_addToChannelBlocked(t *testing.T) {
 
 	select {
 	case <-done:
-		t.Fatal("expected blocking, but all sends completed")
-	case <-time.After(200 * time.Millisecond):
-		// Expected: goroutine is blocked on the third AddToClassificationQueue call
+		// Expected: every call returns promptly instead of deadlocking.
+	case <-time.After(2 * time.Second):
+		t.Fatal("AddToClassificationQueue blocked with no classification station running")
 	}
 
-	// Clean up: drain the channel to unblock the goroutine
-	t.Cleanup(func() {
-		for {
-			select {
-			case <-s.classificationRequest:
-			default:
-				return
-			}
-		}
-	})
+	// Nothing should have been queued, since there was nobody to receive it.
+	if got := len(s.classificationRequest); got != 0 {
+		t.Errorf("queued %v item(s) with no station running, want 0", got)
+	}
 }
 
 func Test_StartClassificationStation_cooldownDefault(t *testing.T) {

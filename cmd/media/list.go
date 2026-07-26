@@ -25,6 +25,13 @@ type mediaStore interface {
 	Snapshot() []model.Item
 	UpdateItem(model.Item) error
 	DeleteItem(id string) error
+	// ResetClassification clears an item's classification so the server
+	// reclassifies it on its next pass.
+	ResetClassification(id string) (bool, error)
+	// ClearClassificationStopLoss re-opens an item that hit the attempt ceiling.
+	ClearClassificationStopLoss(id string) (bool, error)
+	// ClassificationMaxAttempts is the ceiling itself.
+	ClassificationMaxAttempts() int
 }
 
 type listCmd struct {
@@ -207,11 +214,10 @@ func (lc *listController) interactivePostSelect(item model.Item) (done bool, bac
 		fmt.Println(string(data))
 		return true, false, nil
 	case "r":
-		item.ClassificationAttempts = 0
-		if err := lc.store.UpdateItem(item); err != nil {
+		if _, err := lc.store.ResetClassification(item.ID); err != nil {
 			return false, false, fmt.Errorf("reclassify: %w", err)
 		}
-		ancli.Okf("Reclassify queued for: %v", item.Name)
+		ancli.Okf("Classification reset for %v — the server will reclassify it on its next pass.", item.Name)
 		return true, false, nil
 	case "s":
 		return lc.interactiveSubtitleManager(item)
@@ -454,11 +460,10 @@ func (lc *listController) runMacro(tokens []string) error {
 			ancli.Okf("Deleted: %v", item.Name)
 			return nil
 		case "r":
-			item.ClassificationAttempts = 0
-			if err := lc.store.UpdateItem(item); err != nil {
+			if _, err := lc.store.ResetClassification(item.ID); err != nil {
 				return fmt.Errorf("reclassify: %w", err)
 			}
-			ancli.Okf("Reclassify queued for: %v", item.Name)
+			ancli.Okf("Classification reset for %v — the server will reclassify it on its next pass.", item.Name)
 			return nil
 		case "s":
 			// Just print subtitle info and exit (summary already printed)

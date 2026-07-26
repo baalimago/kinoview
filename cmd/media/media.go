@@ -18,11 +18,15 @@ Interact with the kinoview media store directly from the CLI.
 Commands allow browsing, inspecting, deleting, and reclassifying items
 without starting the full server.
 
+Items which failed classification too many times are permanently skipped;
+'reclassify-stale' resets that stop-loss so the server retries them.
+
 Commands:
 %v`
 
 var subcommands = map[string]cmd.Command{
-	"l|list": listCommand(),
+	"l|list":           listCommand(),
+	"reclassify-stale": reclassifyStaleCommand(),
 }
 
 func run(ctx context.Context, args []string) int {

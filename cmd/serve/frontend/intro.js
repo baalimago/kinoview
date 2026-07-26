@@ -245,7 +245,7 @@
 
   var CHARACTERS = {
     cat: {
-      cls: 'cat', w: 160, h: 112, voice: VOICES.cat,
+      cls: 'cat', w: 160, h: 112, base: 1.00, voice: VOICES.cat,
       // Dark coats are lifted clear of the overlay background; at true
       // black-cat values the body vanishes and only the belly reads.
       coats: {
@@ -259,7 +259,7 @@
       build: buildCat
     },
     dog: {
-      cls: 'dog', w: 184, h: 126, voice: VOICES.dog,
+      cls: 'dog', w: 184, h: 126, base: 1.02, voice: VOICES.dog,
       coats: {
         tan:   { fur: '#d9a15e', furDark: '#b5813f', belly: '#f0d6a8', tailTip: '#d9a15e', innerEar: '#a8636a', nose: '#4a3b33', eye: '#3b2c22' },
         cocoa: { fur: '#9a6b4a', furDark: '#7a5238', belly: '#d7b391', tailTip: '#9a6b4a', innerEar: '#96565d', nose: '#3d2f28', eye: '#33261e' },
@@ -269,7 +269,7 @@
       build: buildDog
     },
     mouse: {
-      cls: 'mouse', w: 84, h: 52, voice: VOICES.mouse,
+      cls: 'mouse', w: 84, h: 52, base: 0.44, voice: VOICES.mouse,
       coats: {
         field: { fur: '#9c9188', furDark: '#7d746c', belly: '#ded8d0', tailTip: '#c2a8a4', innerEar: '#d3a3a8', nose: '#c98c93', eye: '#241f1c' },
         white: { fur: '#e8e4de', furDark: '#c4bfb8', belly: '#f7f5f2', tailTip: '#e0bfbb', innerEar: '#e2acb1', nose: '#d99aa1', eye: '#7a2020' }
@@ -499,7 +499,11 @@
 
     var lane = spec.lane || 0;
     a.el.style.bottom = (11 + lane * 8) + '%';
-    a.depth = (spec.scale || 1) * fitScale() * (1 - lane * 0.12);
+    // `base` is the species' intrinsic size; the story's own scale only nudges
+    // it. Without this the mouse rendered at half a cat's length — the art is
+    // 84px against the cat's 160px, but both were getting the same multiplier,
+    // so it read as a capybara rather than a mouse.
+    a.depth = (spec.scale || 1) * (a.def.base || 1) * fitScale() * (1 - lane * 0.12);
     setTransform(a.el, 'scale(' + a.depth.toFixed(3) + ')');
     // Nearer lanes paint in front.
     a.el.style.zIndex = String(20 - lane);

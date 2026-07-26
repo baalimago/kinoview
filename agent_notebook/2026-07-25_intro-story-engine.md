@@ -143,3 +143,53 @@ CSS transitions and animations do not advance without a live compositor, so ever
 headless capture freezes them. Three separate "bugs" this session were that artifact
 (cat parked off-screen, translucent set pieces, grey title). The harnesses now strip
 `transition`/`animation` before capture. Motion itself remains unverified by screenshot.
+
+---
+
+## Increment 4 — "they all look the same" (user feedback)
+
+User report: every story played as *Ina from the left, Freija from the right, meet in
+the middle where the mouse is*, the mouse looked the wrong size, and no LLM flair was
+visible.
+
+### Diagnosis
+
+**The LLM had never run.** `-storyteller` defaults to empty, and with no model the
+storyteller is composer-only (it logs `storyteller running composer-only`). Everything
+the user had seen was the hand-authored Go composer. The LLM path also remains untested
+against a real provider — no API key available here.
+
+**Mouse proportion was a real bug.** The art is 84px against the cat's 160px, but both
+got the same depth multiplier, so the mouse rendered at ~52% of a cat's body length — a
+capybara. Species size is now intrinsic (`CHARACTERS[x].base`: cat 1.00, dog 1.02,
+mouse 0.44) and the story's own `scale` only nudges it.
+
+**The monotony was real and structural.** Every template hardcoded its own staging, so
+six different shapes all played identically.
+
+### Fix: staging is decided per run, not per template
+
+`staging.go` owns marks, entry sides and lanes. Templates now describe only the SHAPE of
+a scene. Five layouts (converge, wide, close, off-centre left/right), which lead takes
+which mark is a coin flip, and **entry side is chosen independently of the mark** — a
+character whose mark is on the far side crosses the whole stage, which looks nothing like
+a short walk-on even with identical beats. Two new shapes added (`crossing`, `stakeout`)
+and role assignment randomised, so Freija can lead and can have the solo scene.
+
+### Two regressions caught by looking, then fixed
+
+1. **Bodies merged.** `minGap` of 0.26 still let the (wider) dog intersect the cat; now
+   0.32, and anything under `nearGap` 0.40 is split across lanes so the overlap reads as
+   depth. Marks clamped to 0.16–0.84 so nobody stands in the wings or gets clipped.
+2. **Bare stages.** Restricting scenery to unoccupied columns dropped three-character
+   scenes to *zero* set pieces. The real rule is per-piece, not per-column: a tall piece
+   (tree, lamp, window) or a flat one (rug) may share a column with a performer, because
+   a trunk rising past a body reads as depth. Only *short* pieces whose silhouette ends
+   at body height (bush, fence, sofa, plant) need a clear column. Cell counts recovered
+   to 3–5.
+
+### Variety is now a test, not an opinion
+
+`staging_test.go` asserts across 300 seeds that both principals enter from both wings
+with neither side dominating past 80/20, that each stands in ≥5 distinct positions, that
+the leads swap sides, and that somebody sometimes crosses the stage.

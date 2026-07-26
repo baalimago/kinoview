@@ -6,6 +6,8 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -201,15 +203,34 @@ func TestSceneNames_NonEmpty(t *testing.T) {
 	}
 }
 
-// The cooldown must survive a restart. lastGen is in-memory, so a fresh teller
-// over a recently-written cache must NOT immediately regenerate — otherwise a
-// crash-loop costs one LLM call per restart.
-func TestCooldown_SurvivesRestart(t *testing.T) {
-	dir := t.TempDir()
-	first := New(models.Configurations{}, dir, time.Hour).(*teller)
-	if !first.Prepare(context.Background(), "initial") {
-		t.Fatal("first Prepare should run")
+// writeCachedStory puts a story of a given origin on disk, as a previous run
+// would have left it.
+func writeCachedStory(t *testing.T, dir, origin string, age time.Duration) string {
+	t.Helper()
+	s := ComposeThemed(newRand(9), "")
+	s.Origin = origin
+	b, err := json.MarshalIndent(s, "", "  ")
+	if err != nil {
+		t.Fatal(err)
 	}
+	path := filepath.Join(dir, "intro_story.json")
+	if err := os.WriteFile(path, b, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if age > 0 {
+		when := time.Now().Add(-age)
+		if err := os.Chtimes(path, when, when); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return path
+}
+
+// The cooldown must survive a restart for LLM stories: lastGen is in-memory, so
+// without the mtime fallback a crash-loop would cost one API call per restart.
+func TestCooldown_SurvivesRestartForLLMStories(t *testing.T) {
+	dir := t.TempDir()
+	writeCachedStory(t, dir, "llm", 0)
 
 	restarted := New(models.Configurations{}, dir, time.Hour).(*teller)
 	if restarted.Prepare(context.Background(), "after restart") {
@@ -220,16 +241,7 @@ func TestCooldown_SurvivesRestart(t *testing.T) {
 // An old cache is fair game again.
 func TestCooldown_ExpiredCacheAllowsRegeneration(t *testing.T) {
 	dir := t.TempDir()
-	seed := New(models.Configurations{}, dir, time.Hour).(*teller)
-	if !seed.Prepare(context.Background(), "initial") {
-		t.Fatal("first Prepare should run")
-	}
-	// Backdate the cache well beyond the cooldown.
-	path := filepath.Join(dir, "intro_story.json")
-	old := time.Now().Add(-3 * time.Hour)
-	if err := os.Chtimes(path, old, old); err != nil {
-		t.Fatal(err)
-	}
+	writeCachedStory(t, dir, "llm", 3*time.Hour)
 
 	restarted := New(models.Configurations{}, dir, time.Hour).(*teller)
 	if !restarted.Prepare(context.Background(), "stale cache") {
@@ -343,7 +355,7 @@ func TestDumpStories(t *testing.T) {
 		t.Skip("set DUMP_STORIES=<dir> to dump")
 	}
 	theme := os.Getenv("DUMP_THEME")
-	for i, seed := range []int64{3, 7, 11, 19, 23} {
+	for i, seed := range []int64{3, 7, 11, 19, 23, 31} {
 		s := ComposeThemed(rand.New(rand.NewSource(seed)), theme)
 		b, err := json.MarshalIndent(s, "", " ")
 		if err != nil {
@@ -354,4 +366,136 @@ func TestDumpStories(t *testing.T) {
 		}
 		t.Logf("%s -> %q [%s] cells=%d beats=%d", string(rune('a'+i)), s.Title, s.Scene.Backdrop, len(s.Scene.Cells), len(s.Beats))
 	}
+}
+
+// A story must be on disk by the time Warm returns — not eventually. The whole
+// point is that no visitor can arrive before one is prepared.
+func TestWarm_StoresSynchronously(t *testing.T) {
+	dir := t.TempDir()
+	tl := New(models.Configurations{}, dir, time.Hour).(*teller)
+
+	tl.Warm(context.Background())
+
+	// No polling, no sleeping: it is either there now or the guarantee is broken.
+	if _, err := os.Stat(filepath.Join(dir, "intro_story.json")); err != nil {
+		t.Fatalf("no story on disk when Warm returned: %v", err)
+	}
+	if s := tl.Next(); len(s.Beats) == 0 {
+		t.Error("Next returned an unplayable story after Warm")
+	}
+}
+
+// The seeded story must be themed on the most recently viewed item.
+func TestWarm_SeedsFromLastViewed(t *testing.T) {
+	dir := t.TempDir()
+	tl := New(models.Configurations{}, dir, time.Hour,
+		WithMuse(MuseFunc(func() string { return "Solaris 1972" }))).(*teller)
+
+	tl.Warm(context.Background())
+
+	s := tl.Next()
+	if s.Theme != "Solaris 1972" {
+		t.Errorf("seeded story theme = %q, want %q", s.Theme, "Solaris 1972")
+	}
+	if !strings.Contains(s.Title, "Solaris 1972") {
+		t.Errorf("seeded title %q does not mention the last watched item", s.Title)
+	}
+
+	// And it must be the persisted copy that carries the theme, not just memory.
+	b, err := os.ReadFile(filepath.Join(dir, "intro_story.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var onDisk model.Story
+	if err := json.Unmarshal(b, &onDisk); err != nil {
+		t.Fatal(err)
+	}
+	if onDisk.Theme != "Solaris 1972" {
+		t.Errorf("persisted theme = %q, want %q", onDisk.Theme, "Solaris 1972")
+	}
+}
+
+// A composed story on disk must NOT hold the cooldown shut: the cooldown limits
+// API spend, and a composed story cost nothing. Otherwise the seed Warm writes
+// would block the very LLM upgrade it stands in for.
+func TestCooldown_ComposerStoryDoesNotGateLLM(t *testing.T) {
+	dir := t.TempDir()
+	seeder := New(models.Configurations{}, dir, time.Hour).(*teller)
+	seeder.Warm(context.Background())
+
+	reloaded := New(models.Configurations{}, dir, time.Hour).(*teller)
+	if !reloaded.lastGen.IsZero() {
+		t.Errorf("a composer story started the cooldown (lastGen=%v)", reloaded.lastGen)
+	}
+	if !reloaded.Prepare(context.Background(), "upgrade") {
+		t.Error("Prepare was blocked by a cooldown that a composed story should not have started")
+	}
+}
+
+// An LLM story, on the other hand, must hold it.
+func TestCooldown_LLMStoryGatesRegeneration(t *testing.T) {
+	dir := t.TempDir()
+	writeCachedStory(t, dir, "llm", 0)
+
+	tl := New(models.Configurations{}, dir, time.Hour).(*teller)
+	if tl.lastGen.IsZero() {
+		t.Error("an llm story did not start the cooldown")
+	}
+	if tl.Prepare(context.Background(), "too soon") {
+		t.Error("Prepare ran despite a recent llm generation")
+	}
+}
+
+// Even the last-resort synchronous compose inside Next must end up on disk, so
+// the store stops being empty after the very first visit.
+func TestNext_PersistsWhatItInvents(t *testing.T) {
+	dir := t.TempDir()
+	tl := New(models.Configurations{}, dir, time.Hour).(*teller)
+
+	_ = tl.Next() // nothing cached, nothing warmed
+
+	path := filepath.Join(dir, "intro_story.json")
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("Next composed a story but never persisted it")
+}
+
+// Concurrent writers must never leave a partially written file behind.
+func TestSaveToDisk_IsAtomic(t *testing.T) {
+	dir := t.TempDir()
+	tl := New(models.Configurations{}, dir, time.Hour).(*teller)
+	path := filepath.Join(dir, "intro_story.json")
+
+	var wg sync.WaitGroup
+	for i := range 12 {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			tl.saveToDisk(ComposeThemed(newRand(int64(n)), ""))
+		}(i)
+	}
+	// Read continuously while the writers churn; every observable state must
+	// parse and validate.
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for range 200 {
+			b, err := os.ReadFile(path)
+			if err != nil {
+				continue // not created yet; a missing file is fine, a torn one is not
+			}
+			var s model.Story
+			if err := json.Unmarshal(b, &s); err != nil {
+				t.Errorf("observed a torn story file: %v", err)
+				return
+			}
+		}
+	}()
+	wg.Wait()
+	<-done
 }

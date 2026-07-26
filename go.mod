@@ -3,7 +3,7 @@ module github.com/baalimago/kinoview
 go 1.26
 
 require (
-	github.com/baalimago/clai v1.10.16
+	github.com/baalimago/clai v1.10.18
 	github.com/baalimago/go_away_boilerplate v1.33.8
 	github.com/baalimago/wd-41 v1.0.1
 	github.com/fsnotify/fsnotify v1.7.0

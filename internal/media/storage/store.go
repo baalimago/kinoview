@@ -33,6 +33,9 @@ type store struct {
 	classificationWorkers    int
 	classifierErrors         chan error
 	classificationRequest    chan classificationCandidate
+	// started reports whether Start has spawned the classification station. The
+	// queue is unbuffered, so enqueuing without a consumer deadlocks the caller.
+	started atomic.Bool
 
 	classificationRate             float64
 	classificationBurst            int
@@ -290,6 +293,9 @@ func (s *store) Start(ctx context.Context) {
 	// Initialize rate limiter and cooldown timer before spawning the goroutine
 	// to avoid data races with AddToClassificationQueue.
 	s.classificationStationStartTime = time.Now()
+	// Also set here, eagerly: the station runs in a goroutine below, and an
+	// enqueue arriving before it schedules would otherwise be dropped.
+	s.started.Store(true)
 	s.rateLimiter = newRateLimiter(s.classificationRate, s.classificationBurst)
 	s.startupWriteWindowStart.Store(time.Now().UnixNano())
 	go func() {
