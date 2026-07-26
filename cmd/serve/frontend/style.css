@@ -1637,13 +1637,19 @@ body {
   bottom: 6%;
   z-index: 40;
   text-align: center;
-  padding: 0 8%;
+  /* The band is the element's OWN background rather than a ::before: a
+     z-index:-1 pseudo-element is fragile about which stacking context it lands
+     behind, and it ended up invisible. An element's background is always
+     painted behind its own text. */
+  padding: 0.55em 8%;
+  background: -webkit-linear-gradient(top, transparent 0%, rgba(0,0,0,0.72) 34%, rgba(0,0,0,0.72) 66%, transparent 100%);
+  background: linear-gradient(180deg, transparent 0%, rgba(0,0,0,0.72) 34%, rgba(0,0,0,0.72) 66%, transparent 100%);
   font-family: var(--font-family);
   font-size: 1.05rem;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: rgba(248, 250, 252, 0.86);
-  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.8);
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #ffffff;
+  text-shadow: 0 2px 6px rgba(0, 0, 0, 0.95);
   opacity: 0;
   -webkit-transform: translate3d(0, 8px, 0); transform: translate3d(0, 8px, 0);
   -webkit-transition: opacity 0.45s ease-out, -webkit-transform 0.45s ease-out;
@@ -1660,3 +1666,263 @@ body {
 @media (max-width: 640px) {
   .intro-title { font-size: 0.9rem; }
 }
+
+/* ══════════════════════════════════════════════════════════════════════
+   The set — backdrop layers behind the cast
+   Three stacked layers (sky / scenery / ground) so a backdrop can change
+   its horizon without touching the actors. Fades in rather than snapping,
+   because the overlay starts black.
+   ══════════════════════════════════════════════════════════════════════ */
+.intro-backdrop {
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  overflow: hidden;
+  opacity: 0;
+  -webkit-transition: opacity 0.8s ease-out; transition: opacity 0.8s ease-out;
+}
+.intro-backdrop.lit { opacity: 1; }
+
+.backdrop-sky     { position: absolute; top: 0; right: 0; bottom: 0; left: 0; }
+.backdrop-scenery { position: absolute; top: 0; right: 0; bottom: 11%; left: 0; }
+/* The floor the cast stands on — bottom 11% matches .actor's bottom */
+.backdrop-ground  { position: absolute; right: 0; bottom: 0; left: 0; height: 11%; }
+
+/* Night — deep blue sky, moon, a scatter of stars */
+.backdrop--night .backdrop-sky {
+  background: -webkit-linear-gradient(top, #070b1a 0%, #101c3d 55%, #1b2c53 100%);
+  background: linear-gradient(180deg, #070b1a 0%, #101c3d 55%, #1b2c53 100%);
+}
+.backdrop--night .backdrop-scenery {
+  background-image:
+    radial-gradient(circle at 78% 22%, rgba(238,242,255,0.95) 0 2.2%, transparent 2.4%),
+    radial-gradient(circle at 12% 18%, rgba(255,255,255,0.75) 0 0.30%, transparent 0.4%),
+    radial-gradient(circle at 26% 34%, rgba(255,255,255,0.55) 0 0.24%, transparent 0.34%),
+    radial-gradient(circle at 45% 14%, rgba(255,255,255,0.65) 0 0.26%, transparent 0.36%),
+    radial-gradient(circle at 61% 40%, rgba(255,255,255,0.45) 0 0.22%, transparent 0.32%),
+    radial-gradient(circle at 88% 52%, rgba(255,255,255,0.55) 0 0.24%, transparent 0.34%),
+    radial-gradient(circle at 34% 60%, rgba(255,255,255,0.40) 0 0.20%, transparent 0.30%);
+}
+.backdrop--night .backdrop-ground {
+  background: -webkit-linear-gradient(top, #1d2b4a 0%, #131d33 100%);
+  background: linear-gradient(180deg, #1d2b4a 0%, #131d33 100%);
+  box-shadow: inset 0 2px 0 rgba(255,255,255,0.06);
+}
+
+/* Living room — warm wall, wainscot, a rug of light from off-stage */
+.backdrop--livingroom .backdrop-sky {
+  background: -webkit-linear-gradient(top, #2a2118 0%, #3b2e21 60%, #46372a 100%);
+  background: linear-gradient(180deg, #2a2118 0%, #3b2e21 60%, #46372a 100%);
+}
+.backdrop--livingroom .backdrop-scenery {
+  background-image:
+    radial-gradient(ellipse at 50% 118%, rgba(255, 214, 150, 0.20) 0%, transparent 62%),
+    -webkit-linear-gradient(left, transparent 0%, transparent 96%, rgba(0,0,0,0.25) 100%);
+  background-image:
+    radial-gradient(ellipse at 50% 118%, rgba(255, 214, 150, 0.20) 0%, transparent 62%),
+    linear-gradient(90deg, transparent 0%, transparent 96%, rgba(0,0,0,0.25) 100%);
+}
+.backdrop--livingroom .backdrop-ground {
+  background: -webkit-linear-gradient(top, #6b4a30 0%, #4e351f 100%);
+  background: linear-gradient(180deg, #6b4a30 0%, #4e351f 100%);
+  box-shadow: inset 0 3px 0 rgba(255, 222, 173, 0.16);
+}
+
+/* Garden — daylight sky over grass */
+.backdrop--garden .backdrop-sky {
+  background: -webkit-linear-gradient(top, #4a86c4 0%, #7db6df 55%, #b6dcf0 100%);
+  background: linear-gradient(180deg, #4a86c4 0%, #7db6df 55%, #b6dcf0 100%);
+}
+.backdrop--garden .backdrop-scenery {
+  background-image:
+    radial-gradient(ellipse at 16% 104%, #4e8f45 0 22%, transparent 23%),
+    radial-gradient(ellipse at 46% 108%, #56994c 0 26%, transparent 27%),
+    radial-gradient(ellipse at 82% 104%, #4a8a41 0 20%, transparent 21%),
+    radial-gradient(circle at 20% 20%, rgba(255,255,255,0.55) 0 5%, transparent 6%),
+    radial-gradient(circle at 30% 24%, rgba(255,255,255,0.45) 0 4%, transparent 5%),
+    radial-gradient(circle at 72% 16%, rgba(255,255,255,0.50) 0 4.5%, transparent 5.5%);
+}
+.backdrop--garden .backdrop-ground {
+  background: -webkit-linear-gradient(top, #5da34f 0%, #3f7a37 100%);
+  background: linear-gradient(180deg, #5da34f 0%, #3f7a37 100%);
+  box-shadow: inset 0 3px 0 rgba(190, 240, 170, 0.22);
+}
+
+/* Theatre — red curtains framing a lit boards stage */
+.backdrop--theatre .backdrop-sky {
+  background: -webkit-linear-gradient(top, #1a0d12 0%, #2c141c 100%);
+  background: linear-gradient(180deg, #1a0d12 0%, #2c141c 100%);
+}
+.backdrop--theatre .backdrop-scenery {
+  background-image:
+    radial-gradient(ellipse at 50% 112%, rgba(255, 230, 170, 0.24) 0%, transparent 58%),
+    -webkit-linear-gradient(left, #7d1626 0%, #a3202f 7%, #6e1220 13%, transparent 15%,
+                transparent 85%, #6e1220 87%, #a3202f 93%, #7d1626 100%);
+  background-image:
+    radial-gradient(ellipse at 50% 112%, rgba(255, 230, 170, 0.24) 0%, transparent 58%),
+    linear-gradient(90deg, #7d1626 0%, #a3202f 7%, #6e1220 13%, transparent 15%,
+                transparent 85%, #6e1220 87%, #a3202f 93%, #7d1626 100%);
+}
+.backdrop--theatre .backdrop-ground {
+  background: -webkit-linear-gradient(top, #8a6236 0%, #5f4222 100%);
+  background: linear-gradient(180deg, #8a6236 0%, #5f4222 100%);
+  box-shadow: inset 0 3px 0 rgba(255, 226, 168, 0.24);
+}
+
+/* Sunset — the warm one */
+.backdrop--sunset .backdrop-sky {
+  background: -webkit-linear-gradient(top, #2b1b46 0%, #7d3b63 40%, #d9713f 78%, #f0a557 100%);
+  background: linear-gradient(180deg, #2b1b46 0%, #7d3b63 40%, #d9713f 78%, #f0a557 100%);
+}
+.backdrop--sunset .backdrop-scenery {
+  background-image:
+    radial-gradient(circle at 62% 82%, rgba(255, 214, 140, 0.85) 0 5%, transparent 5.6%),
+    radial-gradient(ellipse at 14% 106%, #4a2f52 0 20%, transparent 21%),
+    radial-gradient(ellipse at 74% 108%, #57365c 0 24%, transparent 25%);
+}
+.backdrop--sunset .backdrop-ground {
+  background: -webkit-linear-gradient(top, #513154 0%, #33203a 100%);
+  background: linear-gradient(180deg, #513154 0%, #33203a 100%);
+  box-shadow: inset 0 3px 0 rgba(255, 190, 130, 0.20);
+}
+
+/* On a weak TV, drop the multi-stop radial stacks — they are fill-rate heavy */
+.low-perf .backdrop-scenery { background-image: none; }
+
+/* Contact shadow — this is what makes a character look like it is STANDING on
+   the set rather than pasted over it. It lives on .actor-walk, not .actor,
+   because .actor is the anchor pinned at the destination: on .actor the shadow
+   would sit at the mark while the body walked away from it. */
+.actor-walk:after {
+  content: '';
+  position: absolute;
+  left: 6%; right: 6%; bottom: -3px;
+  height: 11px;
+  background: -webkit-radial-gradient(50% 50%, ellipse, rgba(0,0,0,0.50) 0%, rgba(0,0,0,0.22) 45%, transparent 72%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0.50) 0%, rgba(0,0,0,0.22) 45%, transparent 72%);
+  z-index: -1;
+  pointer-events: none;
+}
+/* A running animal's shadow tightens; a napping one's spreads */
+.actor.running .actor-walk:after { left: 12%; right: 12%; opacity: 0.75; }
+.actor.napping .actor-walk:after { left: 2%; right: 2%; height: 13px; }
+
+.prop:after {
+  content: '';
+  position: absolute;
+  left: 4%; right: 4%; bottom: -3px;
+  height: 9px;
+  background: -webkit-radial-gradient(50% 50%, ellipse, rgba(0,0,0,0.45) 0%, transparent 70%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(0,0,0,0.45) 0%, transparent 70%);
+  z-index: -1;
+  pointer-events: none;
+}
+.low-perf .actor-walk:after, .low-perf .prop:after { display: none; }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Cell grid and set pieces
+   A cell is an addressable slot; a piece stands in it. Pieces are pure divs
+   so they cost nothing to swap, and every swap is a class change rather than
+   a re-layout of the stage.
+   ══════════════════════════════════════════════════════════════════════ */
+.cell {
+  position: absolute;
+  height: 0;                       /* pieces size themselves from the baseline */
+  -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%;
+  -webkit-transition: opacity 0.45s ease-in-out; transition: opacity 0.45s ease-in-out;
+}
+.cell.swapping { opacity: 0; }     /* fade out, swap at the midpoint, fade back */
+
+.piece {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  margin-left: -40px;              /* pieces are authored 80px wide */
+  width: 80px;
+}
+.piece.arriving {
+  -webkit-animation: pieceArrive 0.5s ease-out;
+  animation: pieceArrive 0.5s ease-out;
+}
+@-webkit-keyframes pieceArrive {
+  0%   { opacity: 0; -webkit-transform: translate3d(0,6px,0); }
+  100% { opacity: 1; -webkit-transform: translate3d(0,0,0); }
+}
+@keyframes pieceArrive {
+  0%   { opacity: 0; transform: translate3d(0,6px,0); }
+  100% { opacity: 1; transform: translate3d(0,0,0); }
+}
+
+/* Tree */
+.piece-tree { height: 96px; }
+.tree-trunk { position: absolute; bottom: 0; left: 35px; width: 11px; height: 38px; background: #5b3f28; border-radius: 2px; }
+.tree-crown { position: absolute; bottom: 28px; left: 8px; width: 64px; height: 56px; background: #3f7a3a; border-radius: 50%; }
+.tree-crown2 { position: absolute; bottom: 46px; left: 22px; width: 46px; height: 42px; background: #4b9044; border-radius: 50%; }
+
+/* Bush */
+.piece-bush { height: 40px; }
+.bush-a { position: absolute; bottom: 0; left: 8px; width: 46px; height: 32px; background: #3d7038; border-radius: 50% 50% 40% 40%; }
+.bush-b { position: absolute; bottom: 0; left: 32px; width: 40px; height: 26px; background: #49823f; border-radius: 50% 50% 40% 40%; }
+
+/* Fence */
+.piece-fence { height: 42px; }
+.fence-rail { position: absolute; bottom: 16px; left: 0; width: 80px; height: 7px; background: #b39b76; border-radius: 2px; }
+.fence-post { position: absolute; bottom: 0; width: 9px; height: 34px; background: #c7ad86; border-radius: 2px 2px 0 0; }
+.fence-post.p1 { left: 6px; } .fence-post.p2 { left: 36px; } .fence-post.p3 { left: 66px; }
+
+/* Cloud */
+.piece-cloud { height: 40px; }
+.cloud-a { position: absolute; bottom: 4px; left: 4px;  width: 44px; height: 24px; background: rgba(255,255,255,0.88); border-radius: 50%; }
+.cloud-b { position: absolute; bottom: 10px; left: 24px; width: 38px; height: 28px; background: rgba(255,255,255,0.92); border-radius: 50%; }
+.cloud-c { position: absolute; bottom: 2px; left: 44px; width: 32px; height: 20px; background: rgba(255,255,255,0.82); border-radius: 50%; }
+
+/* Moon */
+.piece-moon { height: 60px; }
+.moon-disc { position: absolute; bottom: 12px; left: 24px; width: 34px; height: 34px; background: #f2f0dd; border-radius: 50%; }
+.moon-glow { position: absolute; bottom: 2px; left: 12px; width: 58px; height: 58px; border-radius: 50%;
+  background: -webkit-radial-gradient(50% 50%, circle, rgba(245,243,220,0.34) 0%, transparent 62%);
+  background: radial-gradient(circle at 50% 50%, rgba(245,243,220,0.34) 0%, transparent 62%); }
+
+/* Sofa */
+.piece-sofa { height: 54px; }
+.sofa-back { position: absolute; bottom: 16px; left: 4px; width: 72px; height: 30px; background: #4e6079; border-radius: 8px 8px 3px 3px; }
+.sofa-seat { position: absolute; bottom: 6px; left: 0; width: 80px; height: 22px; background: #61748e; border-radius: 5px; }
+.sofa-arm  { position: absolute; bottom: 6px; width: 12px; height: 30px; background: #56687f; border-radius: 6px; }
+.sofa-arm.a1 { left: 0; } .sofa-arm.a2 { right: 0; }
+
+/* Lamp — the one worth swapping mid-scene */
+.piece-lamp { height: 92px; }
+.lamp-pole  { position: absolute; bottom: 0; left: 37px; width: 6px; height: 62px; background: #8b8272; border-radius: 2px; }
+.lamp-pole:after { content: ''; position: absolute; bottom: -3px; left: -11px; width: 28px; height: 6px; background: #6f6759; border-radius: 3px; }
+.lamp-shade { position: absolute; bottom: 58px; left: 20px; width: 40px; height: 26px; background: #e8c073;
+  border-radius: 6px 6px 3px 3px; -webkit-transform: perspective(40px) rotateX(6deg); }
+.lamp-glow  { position: absolute; bottom: 18px; left: 4px; width: 72px; height: 60px; border-radius: 50%;
+  background: -webkit-radial-gradient(50% 30%, ellipse, rgba(255,214,140,0.42) 0%, transparent 68%);
+  background: radial-gradient(ellipse at 50% 30%, rgba(255,214,140,0.42) 0%, transparent 68%); }
+
+/* Potted plant */
+.piece-plant { height: 66px; }
+.plant-pot  { position: absolute; bottom: 0; left: 27px; width: 26px; height: 22px; background: #a4623f; border-radius: 3px 3px 7px 7px; }
+.plant-leaf { position: absolute; bottom: 18px; width: 13px; height: 34px; background: #3f7f45; border-radius: 50% 50% 40% 40%; -webkit-transform-origin: 50% 100%; transform-origin: 50% 100%; }
+.plant-leaf.l1 { left: 24px; -webkit-transform: rotate(-24deg); transform: rotate(-24deg); }
+.plant-leaf.l2 { left: 34px; }
+.plant-leaf.l3 { left: 44px; -webkit-transform: rotate(24deg); transform: rotate(24deg); }
+
+/* Window */
+.piece-window { height: 74px; }
+.win-frame { position: absolute; bottom: 8px; left: 8px; width: 64px; height: 60px; background: #7b6a52; border-radius: 3px; }
+.win-pane  { position: absolute; bottom: 12px; left: 12px; width: 56px; height: 52px;
+  background: -webkit-linear-gradient(top, #2b3f63 0%, #46639a 100%);
+  background: linear-gradient(180deg, #2b3f63 0%, #46639a 100%); border-radius: 2px; }
+.win-bar-v { position: absolute; bottom: 12px; left: 38px; width: 4px; height: 52px; background: #7b6a52; }
+.win-bar-h { position: absolute; bottom: 36px; left: 12px; width: 56px; height: 4px; background: #7b6a52; }
+.win-sill  { position: absolute; bottom: 2px; left: 2px; width: 76px; height: 8px; background: #8d7a5e; border-radius: 2px; }
+
+/* Rug — flat, sits under everything */
+.piece-rug { height: 16px; }
+.rug-base  { position: absolute; bottom: 0; left: 0; width: 80px; height: 11px; background: #6d4a4e; border-radius: 50%; opacity: 0.85; }
+.rug-inner { position: absolute; bottom: 2px; left: 12px; width: 56px; height: 7px; background: #855a5f; border-radius: 50%; opacity: 0.9; }
+
+/* Backdrop cross-fade when a beat changes the set */
+.intro-backdrop.changing { opacity: 0; }
+
+.low-perf .piece.arriving { -webkit-animation: none; animation: none; }
+.low-perf .lamp-glow, .low-perf .moon-glow { display: none; }

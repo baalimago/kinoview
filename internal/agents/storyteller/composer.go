@@ -13,11 +13,22 @@ import (
 // API key being present or a network call succeeding, so every failure path ends
 // here. It recombines hand-authored scene templates with randomised casting,
 // marks, coats and timings, which gives plenty of variety on its own.
-func Compose(r *rand.Rand) model.Story {
+func Compose(r *rand.Rand) model.Story { return ComposeThemed(r, "") }
+
+// ComposeThemed is Compose with a subject to riff on — normally the title of
+// the last thing watched. The composer cannot invent new choreography for it,
+// so it bills the existing scene under the theme instead: "Ina & Freija in:
+// <whatever you just watched>". That is enough to make the splash feel like it
+// noticed, without an LLM.
+func ComposeThemed(r *rand.Rand, theme string) model.Story {
 	scene := scenes[r.Intn(len(scenes))]
 	s := scene.build(r)
 	s.ID = newID(r)
 	s.Origin = "composer"
+	if theme != "" {
+		s.Theme = theme
+		s.Title = billing(r, theme)
+	}
 	if s.DurationMs == 0 {
 		s.DurationMs = 4000
 	}
@@ -61,6 +72,75 @@ func dogCast(r *rand.Rand, x float64) model.Cast {
 	}
 }
 
+// Backdrops that suit each scene, so the set matches the action rather than
+// being picked at random against it.
+var (
+	indoorSets  = []string{"livingroom", "theatre"}
+	outdoorSets = []string{"garden", "night", "sunset"}
+	anySets     = []string{"night", "livingroom", "garden", "theatre", "sunset"}
+)
+
+func setOf(r *rand.Rand, choices []string) model.Scene {
+	return model.Scene{Backdrop: pick(r, choices)}
+}
+
+// dress puts pieces on the set. Cells are addressed so a later setCell beat can
+// swap what stands in one part way through the play.
+func dress(backdrop string, r *rand.Rand, cells ...model.Cell) model.Scene {
+	return model.Scene{Backdrop: backdrop, Cells: cells}
+}
+
+func cellAt(id, row string, col int, piece string) model.Cell {
+	return model.Cell{ID: id, Row: row, Col: col, Piece: piece}
+}
+
+// indoorSet and outdoorSet dress a room or a garden with a little variation, so
+// two runs of the same scene template do not look identical.
+// The cast performs between x=0.34 and x=0.76, which spans columns 2, 3 and 4.
+// Scenery therefore lives in the WINGS — columns 0 and 5 — exactly as it would
+// on a real stage. Anything else ends up growing out of somebody's back. The
+// sky row is exempt: it sits above every head.
+const (
+	wingLeft  = 0
+	wingRight = 5
+)
+
+// skyPieceFor keeps the sky honest: a moon belongs over a night, not over a
+// midday garden.
+func skyPieceFor(backdrop string, r *rand.Rand) string {
+	switch backdrop {
+	case "night":
+		return "moon"
+	case "sunset":
+		return pick(r, []string{"moon", "cloud"})
+	default:
+		return "cloud"
+	}
+}
+
+func indoorSet(r *rand.Rand) model.Scene {
+	backdrop := pick(r, indoorSets)
+	return dress(backdrop, r,
+		cellAt("set_a", "far", wingLeft, pick(r, []string{"window", "sofa"})),
+		cellAt("set_b", "mid", wingRight, "lamp"),
+		// Near row, not far: a plant in FRONT of the lamp reads as depth. Behind
+		// it, in the same column, it just grows through the lampshade.
+		cellAt("set_c", "near", wingRight, "plant"),
+		cellAt("set_d", "near", wingLeft, "rug"),
+	)
+}
+
+func outdoorSet(r *rand.Rand) model.Scene {
+	backdrop := pick(r, outdoorSets)
+	return dress(backdrop, r,
+		cellAt("set_a", "far", wingLeft, "tree"),
+		cellAt("set_b", "far", wingRight, pick(r, []string{"tree", "bush"})),
+		cellAt("set_c", "mid", wingLeft, "bush"),
+		cellAt("set_d", "sky", 2+r.Intn(3), skyPieceFor(backdrop, r)),
+		cellAt("set_e", "mid", wingRight, "fence"),
+	)
+}
+
 func mouseCast(x float64) model.Cast {
 	return model.Cast{ID: mouse, Character: "mouse", Lane: 0, X: x, Scale: 1}
 }
@@ -70,129 +150,172 @@ type scene struct {
 	build func(r *rand.Rand) model.Story
 }
 
-// Each scene is a little three-act shape: someone arrives, something happens,
-// it resolves. Titles are picked per scene so the card matches the action.
+// Each scene is a three-act piece over ~9.5s: a setup, a complication and a
+// resolution, with deliberate stillness between actions. Constant motion for ten
+// seconds reads as noise; the pauses are what make it look authored.
 var scenes = []scene{
 	{"mousehunt", func(r *rand.Rand) model.Story {
-		// The mouse scurries through; Ina spots it, Freija joins the chase.
+		// Act 1 Ina settles. Act 2 a mouse. Act 3 everyone leaves at speed.
 		return model.Story{
 			Title:      pick(r, []string{"The Great Mouse Hunt", "A Mouse Appears", "The Pursuit"}),
-			DurationMs: 4000,
+			Scene:      outdoorSet(r),
+			DurationMs: 9500,
 			Cast: []model.Cast{
 				catCast(r, 0.34),
-				dogCast(r, 0.66),
-				mouseCast(0.5),
+				dogCast(r, 0.68),
+				mouseCast(0.52),
 			},
 			Beats: []model.Beat{
-				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1100, 150)},
-				{T: jitter(r, 500, 100), Actor: mouse, Action: "enter", From: "right", Ms: 700},
-				{T: jitter(r, 1150, 100), Actor: ina, Action: "vocalize"},
-				{T: jitter(r, 1300, 120), Actor: freija, Action: "enter", From: "right", Ms: 900},
-				{T: jitter(r, 2000, 100), Actor: freija, Action: "vocalize"},
-				{T: jitter(r, 2350, 120), Actor: mouse, Action: "vocalize"},
-				{T: jitter(r, 2500, 100), Actor: ina, Action: "pounce", Target: mouse},
-				{T: jitter(r, 2700, 100), Actor: mouse, Action: "exit", From: "left", Ms: 700},
-				{T: jitter(r, 2900, 100), Actor: ina, Action: "chase", Target: mouse, Ms: 800},
-				{T: jitter(r, 3050, 100), Actor: freija, Action: "chase", Target: mouse, Ms: 800},
+				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1500, 150)},
+				{T: jitter(r, 1700, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 2350, 150), Actor: ina, Action: "sit", Ms: 1400},
+				{T: jitter(r, 3000, 150), Actor: ina, Action: "blink"},
+				// Act 2: something small moves.
+				{T: jitter(r, 3700, 150), Actor: mouse, Action: "enter", From: "right", Ms: 1200},
+				{T: jitter(r, 4900, 120), Actor: mouse, Action: "vocalize"},
+				{T: jitter(r, 5200, 120), Actor: ina, Action: "stareoff", Target: mouse, Ms: 900},
+				{T: jitter(r, 5900, 150), Actor: freija, Action: "enter", From: "right", Ms: 1200},
+				{T: jitter(r, 6600, 120), Actor: freija, Action: "vocalize"},
+				// Act 3: the chase.
+				{T: jitter(r, 7100, 120), Actor: ina, Action: "pounce", Target: mouse},
+				{T: jitter(r, 7450, 120), Actor: mouse, Action: "exit", From: "left", Ms: 900},
+				{T: jitter(r, 7700, 120), Actor: ina, Action: "chase", Target: mouse, Ms: 1100},
+				{T: jitter(r, 7950, 120), Actor: freija, Action: "chase", Target: mouse, Ms: 1100},
+				{T: jitter(r, 8200, 100), Actor: freija, Action: "vocalize"},
 			},
 		}
 	}},
 	{"greeting", func(r *rand.Rand) model.Story {
-		// Cat and dog meet in the middle and say hello.
+		// Two friends converge, say hello, and settle down together.
 		return model.Story{
 			Title:      pick(r, []string{"Ina & Freija Say Hello", "An Introduction", "Old Friends"}),
-			DurationMs: 3800,
+			Scene:      outdoorSet(r),
+			DurationMs: 9200,
 			Cast: []model.Cast{
 				catCast(r, 0.40),
 				dogCast(r, 0.60),
 			},
 			Beats: []model.Beat{
-				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1150, 150)},
-				{T: jitter(r, 200, 100), Actor: freija, Action: "enter", From: "right", Ms: jitter(r, 1200, 150)},
-				{T: jitter(r, 1500, 100), Actor: ina, Action: "greet", Target: freija},
-				{T: jitter(r, 1700, 100), Actor: ina, Action: "vocalize"},
-				{T: jitter(r, 2150, 100), Actor: freija, Action: "vocalize"},
-				{T: jitter(r, 2600, 150), Actor: freija, Action: "sit"},
-				{T: jitter(r, 2800, 150), Actor: ina, Action: "blink"},
+				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1600, 150)},
+				{T: jitter(r, 600, 150), Actor: freija, Action: "enter", From: "right", Ms: jitter(r, 1700, 150)},
+				{T: jitter(r, 2400, 150), Actor: ina, Action: "stareoff", Target: freija, Ms: 800},
+				{T: jitter(r, 3300, 150), Actor: ina, Action: "greet", Target: freija, Ms: 600},
+				{T: jitter(r, 3900, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 4600, 120), Actor: freija, Action: "vocalize"},
+				{T: jitter(r, 5300, 150), Actor: freija, Action: "greet", Target: ina, Ms: 600},
+				{T: jitter(r, 6100, 150), Actor: ina, Action: "stretch"},
+				{T: jitter(r, 6900, 150), Actor: freija, Action: "sit", Ms: 2000},
+				{T: jitter(r, 7500, 150), Actor: ina, Action: "sit", Ms: 1600},
+				{T: jitter(r, 8300, 150), Actor: ina, Action: "blink"},
+				{T: jitter(r, 8700, 120), Actor: freija, Action: "vocalize"},
 			},
 		}
 	}},
 	{"yarn", func(r *rand.Rand) model.Story {
-		// Ina finds the yarn. Freija watches, unimpressed.
+		// Ina discovers the yarn and will not leave it alone.
 		return model.Story{
 			Title:      pick(r, []string{"Ina and the Yarn", "A Ball of Yarn", "Batting Practice"}),
-			DurationMs: 3900,
+			Scene:      indoorSet(r),
+			DurationMs: 9400,
 			Cast: []model.Cast{
-				catCast(r, 0.42),
-				dogCast(r, 0.74),
+				catCast(r, 0.40),
+				dogCast(r, 0.76),
 			},
 			Props: []model.Prop{{ID: "yarn1", Prop: "yarn", Lane: 0, X: 0.52}},
 			Beats: []model.Beat{
-				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1200, 150)},
-				{T: jitter(r, 400, 150), Actor: freija, Action: "enter", From: "right", Ms: 1100},
-				{T: jitter(r, 1550, 100), Actor: ina, Action: "bat", Target: "yarn1"},
-				{T: jitter(r, 1900, 100), Actor: ina, Action: "vocalize"},
-				{T: jitter(r, 2250, 100), Actor: ina, Action: "bat", Target: "yarn1"},
-				{T: jitter(r, 2500, 150), Actor: freija, Action: "sit"},
-				{T: jitter(r, 3000, 150), Actor: ina, Action: "stretch"},
+				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1600, 150)},
+				{T: jitter(r, 900, 150), Actor: freija, Action: "enter", From: "right", Ms: 1500},
+				{T: jitter(r, 2300, 150), Actor: ina, Action: "stareoff", Target: "yarn1", Ms: 700},
+				{T: jitter(r, 3100, 120), Actor: ina, Action: "bat", Target: "yarn1"},
+				{T: jitter(r, 3600, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 4300, 150), Actor: freija, Action: "sit", Ms: 2400},
+				{T: jitter(r, 4900, 120), Actor: ina, Action: "bat", Target: "yarn1"},
+				{T: jitter(r, 5500, 120), Actor: freija, Action: "vocalize"},
+				{T: jitter(r, 6200, 120), Actor: ina, Action: "pounce", Target: "yarn1"},
+				{T: jitter(r, 6900, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 7600, 150), Actor: ina, Action: "stretch"},
+				{T: jitter(r, 8400, 150), Actor: ina, Action: "nap", Ms: 1100},
+				// The lamp goes out as she settles: the set reacting to the story.
+				{T: jitter(r, 8600, 120), Action: "setCell", Target: "set_b", Piece: ""},
 			},
 		}
 	}},
 	{"boxnap", func(r *rand.Rand) model.Story {
-		// The cat claims the box. The dog arrives too late.
+		// The cat claims the box. The dog registers a complaint. Nothing changes.
 		return model.Story{
 			Title:      pick(r, []string{"If I Fits", "The Box", "Ina Claims the Box"}),
-			DurationMs: 4000,
+			Scene:      indoorSet(r),
+			DurationMs: 9500,
 			Cast: []model.Cast{
-				catCast(r, 0.46),
-				dogCast(r, 0.72),
+				catCast(r, 0.44),
+				dogCast(r, 0.74),
 			},
-			Props: []model.Prop{{ID: "box1", Prop: "box", Lane: 0, X: 0.46}},
+			Props: []model.Prop{{ID: "box1", Prop: "box", Lane: 0, X: 0.44}},
 			Beats: []model.Beat{
-				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1150, 150)},
-				{T: jitter(r, 1400, 100), Actor: ina, Action: "vocalize"},
-				{T: jitter(r, 1750, 150), Actor: ina, Action: "nap"},
-				{T: jitter(r, 2100, 150), Actor: freija, Action: "enter", From: "right", Ms: 1000},
-				{T: jitter(r, 3150, 100), Actor: freija, Action: "stareoff", Target: ina},
-				{T: jitter(r, 3350, 100), Actor: freija, Action: "vocalize"},
+				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: jitter(r, 1600, 150)},
+				{T: jitter(r, 1900, 150), Actor: ina, Action: "stareoff", Target: "box1", Ms: 700},
+				{T: jitter(r, 2700, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 3300, 120), Actor: ina, Action: "bat", Target: "box1"},
+				{T: jitter(r, 3900, 150), Actor: ina, Action: "nap", Ms: 5000},
+				{T: jitter(r, 4900, 150), Actor: freija, Action: "enter", From: "right", Ms: 1500},
+				{T: jitter(r, 6600, 120), Actor: freija, Action: "stareoff", Target: ina, Ms: 1100},
+				{T: jitter(r, 7300, 120), Actor: freija, Action: "vocalize"},
+				{T: jitter(r, 8100, 150), Actor: freija, Action: "sit", Ms: 1200},
+				{T: jitter(r, 8800, 120), Actor: freija, Action: "vocalize"},
+				// Someone switches a lamp on over the sleeping cat.
+				{T: jitter(r, 5600, 150), Action: "setCell", Target: "set_c", Piece: "lamp"},
 			},
 		}
 	}},
 	{"standoff", func(r *rand.Rand) model.Story {
-		// A brief staring contest, settled by the mouse walking past.
+		// A staring contest, settled by a third party wandering through.
 		return model.Story{
 			Title:      pick(r, []string{"The Standoff", "Who Blinks First", "A Difference of Opinion"}),
-			DurationMs: 4000,
+			Scene:      outdoorSet(r),
+			DurationMs: 9500,
 			Cast: []model.Cast{
-				catCast(r, 0.38),
-				dogCast(r, 0.62),
+				catCast(r, 0.36),
+				dogCast(r, 0.64),
 				mouseCast(0.5),
 			},
 			Beats: []model.Beat{
-				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: 1000},
-				{T: jitter(r, 150, 80), Actor: freija, Action: "enter", From: "right", Ms: 1050},
-				{T: jitter(r, 1300, 100), Actor: ina, Action: "stareoff", Target: freija},
-				{T: jitter(r, 1350, 100), Actor: freija, Action: "stareoff", Target: ina},
-				{T: jitter(r, 1900, 100), Actor: freija, Action: "vocalize"},
-				{T: jitter(r, 2200, 100), Actor: mouse, Action: "enter", From: "left", Ms: 900},
-				{T: jitter(r, 2900, 100), Actor: mouse, Action: "vocalize"},
-				{T: jitter(r, 3100, 100), Actor: ina, Action: "pounce", Target: mouse},
-				{T: jitter(r, 3300, 100), Actor: mouse, Action: "exit", From: "right", Ms: 600},
+				{T: 0, Actor: ina, Action: "enter", From: "left", Ms: 1500},
+				{T: jitter(r, 300, 120), Actor: freija, Action: "enter", From: "right", Ms: 1600},
+				{T: jitter(r, 2200, 150), Actor: ina, Action: "stareoff", Target: freija, Ms: 1600},
+				{T: jitter(r, 2300, 150), Actor: freija, Action: "stareoff", Target: ina, Ms: 1600},
+				{T: jitter(r, 3200, 120), Actor: freija, Action: "vocalize"},
+				{T: jitter(r, 3900, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 4700, 150), Actor: ina, Action: "blink"},
+				// The interruption.
+				{T: jitter(r, 5300, 150), Actor: mouse, Action: "enter", From: "left", Ms: 1400},
+				{T: jitter(r, 6600, 120), Actor: mouse, Action: "vocalize"},
+				{T: jitter(r, 7000, 120), Actor: ina, Action: "stareoff", Target: mouse, Ms: 600},
+				{T: jitter(r, 7400, 120), Actor: ina, Action: "pounce", Target: mouse},
+				{T: jitter(r, 7800, 120), Actor: mouse, Action: "exit", From: "right", Ms: 900},
+				{T: jitter(r, 8100, 120), Actor: freija, Action: "chase", Target: mouse, Ms: 1100},
+				{T: jitter(r, 8500, 100), Actor: freija, Action: "vocalize"},
+				// Dusk falls over the standoff.
+				{T: jitter(r, 4900, 200), Action: "setBackdrop", Piece: "sunset"},
 			},
 		}
 	}},
 	{"soloina", func(r *rand.Rand) model.Story {
-		// The quiet one: just the cat, as before. Keeps the rotation calm
-		// sometimes instead of always staging a full production.
+		// The quiet one. Keeps the rotation calm instead of always staging a
+		// full production.
 		return model.Story{
 			Title:      pick(r, []string{"Ina Arrives", "Good Evening", "Just Ina"}),
-			DurationMs: 3200,
-			Cast:       []model.Cast{catCast(r, 0.44)},
+			Scene:      indoorSet(r),
+			DurationMs: 8200,
+			Cast:       []model.Cast{catCast(r, 0.46)},
 			Beats: []model.Beat{
-				{T: 0, Actor: ina, Action: "enter", From: pick(r, []string{"left", "right"}), Ms: jitter(r, 1250, 200)},
-				{T: jitter(r, 1600, 120), Actor: ina, Action: "vocalize"},
-				{T: jitter(r, 2300, 150), Actor: ina, Action: "stretch"},
-				{T: jitter(r, 2700, 150), Actor: ina, Action: "blink"},
+				{T: 0, Actor: ina, Action: "enter", From: pick(r, []string{"left", "right"}), Ms: jitter(r, 1700, 200)},
+				{T: jitter(r, 2100, 150), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 2900, 150), Actor: ina, Action: "stretch"},
+				{T: jitter(r, 3800, 150), Actor: ina, Action: "blink"},
+				{T: jitter(r, 4400, 150), Actor: ina, Action: "sit", Ms: 2200},
+				{T: jitter(r, 5400, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 6300, 150), Actor: ina, Action: "blink"},
+				{T: jitter(r, 7000, 150), Actor: ina, Action: "nap", Ms: 1200},
 			},
 		}
 	}},
@@ -214,6 +337,20 @@ func minimalStory(r *rand.Rand) model.Story {
 	// fall back to.
 	_ = s.Validate()
 	return s
+}
+
+// billing puts the theme on the marquee. Kept short so it survives the title
+// length cap with the cast names intact.
+func billing(r *rand.Rand, theme string) string {
+	if len(theme) > 38 {
+		theme = strings.TrimSpace(theme[:38])
+	}
+	return pick(r, []string{
+		"Ina & Freija in: " + theme,
+		theme + ", Reenacted",
+		"Tonight: " + theme,
+		"A Tribute to " + theme,
+	})
 }
 
 const idAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"

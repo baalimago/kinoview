@@ -12,12 +12,13 @@
   var STORY_URL = '/gallery/intro/story';
   var SESSION_END_URL = '/gallery/intro/session-end';
   var FETCH_BUDGET_MS = 320;   // how long we'll wait for a story before improvising
-  var MAX_INTRO_MS = 7000;     // hard cap; a story is ~4s
+  var MAX_INTRO_MS = 13000;    // hard cap; a story runs ~9.5s
 
   var pageStart = now();
   var overlay = document.getElementById('intro-overlay');
   var stage = document.getElementById('intro-stage');
   var titleEl = document.getElementById('intro-title');
+  var backdropEl = document.getElementById('intro-backdrop');
   var logo = overlay ? overlay.querySelector('.intro-logo') : null;
 
   var dismissed = false;
@@ -41,6 +42,8 @@
   } catch (e) {}
 
   function lowPerf() { return document.body.classList.contains('low-perf'); }
+
+  var BACKDROPS = { night: 1, livingroom: 1, garden: 1, theatre: 1, sunset: 1 };
 
   /* ══════════════════════════════════════════════════════════════════════
      VOICES
@@ -369,6 +372,83 @@
   };
 
   /* ══════════════════════════════════════════════════════════════════════
+     SET PIECES & THE CELL GRID
+     The set is a grid of addressable cells. The playwright puts a piece in a
+     cell when dressing the stage, and a `setCell` beat can swap it mid-play.
+     Pieces are built as DOM from a whitelist — never innerHTML, because the
+     story that names them is LLM-authored.
+     ══════════════════════════════════════════════════════════════════════ */
+  var PIECES = {
+    tree:   function() { return layered('piece piece-tree',   ['tree-trunk', 'tree-crown', 'tree-crown2']); },
+    bush:   function() { return layered('piece piece-bush',   ['bush-a', 'bush-b']); },
+    fence:  function() { return layered('piece piece-fence',  ['fence-rail', 'fence-post p1', 'fence-post p2', 'fence-post p3']); },
+    cloud:  function() { return layered('piece piece-cloud',  ['cloud-a', 'cloud-b', 'cloud-c']); },
+    moon:   function() { return layered('piece piece-moon',   ['moon-disc', 'moon-glow']); },
+    sofa:   function() { return layered('piece piece-sofa',   ['sofa-back', 'sofa-seat', 'sofa-arm a1', 'sofa-arm a2']); },
+    lamp:   function() { return layered('piece piece-lamp',   ['lamp-pole', 'lamp-shade', 'lamp-glow']); },
+    plant:  function() { return layered('piece piece-plant',  ['plant-pot', 'plant-leaf l1', 'plant-leaf l2', 'plant-leaf l3']); },
+    window: function() { return layered('piece piece-window', ['win-frame', 'win-pane', 'win-bar-v', 'win-bar-h', 'win-sill']); },
+    rug:    function() { return layered('piece piece-rug',    ['rug-base', 'rug-inner']); }
+  };
+
+  function layered(rootCls, parts) {
+    var root = el('div', rootCls);
+    for (var i = 0; i < parts.length; i++) root.appendChild(el('div', parts[i]));
+    return root;
+  }
+
+  // Rows are depth bands. Further back reads smaller and hazier — cheap
+  // atmospheric perspective that stops the set competing with the cast.
+  // Pieces are authored on an 80px grid and scaled up here. The scales are set
+  // against the cast, not against each other: a mid-row tree must read as
+  // TALLER than a dog, or the whole set looks like dollhouse furniture.
+  // `dim` is applied as a brightness filter, NOT opacity: a translucent tree
+  // lets the backdrop bleed through and stops reading as a solid object.
+  var ROWS = {
+    sky:  { bottom: 58, scale: 1.30, dim: 1.00 },
+    far:  { bottom: 26, scale: 1.45, dim: 0.72 },
+    mid:  { bottom: 15, scale: 1.90, dim: 0.88 },
+    near: { bottom: 6,  scale: 2.30, dim: 1.00 }
+  };
+
+  // Build the cell grid and remember each cell so beats can address it.
+  function buildCells(story, sc) {
+    var cells = (story.scene && story.scene.cells) || [];
+    for (var i = 0; i < cells.length; i++) {
+      var spec = cells[i];
+      var row = ROWS[spec.row];
+      if (!row) continue;
+      var holder = el('div', 'cell cell--' + spec.row);
+      var col = Math.max(0, Math.min(5, spec.col || 0));
+      // Columns are sixths; the piece is centred in its column.
+      holder.style.left = (col * (100 / 6)) + '%';
+      holder.style.width = (100 / 6) + '%';
+      holder.style.bottom = row.bottom + '%';
+      holder.style.zIndex = String(spec.row === 'near' ? 15 : 5);
+      setTransform(holder, 'scale(' + (row.scale * fitScale()).toFixed(3) + ')');
+      if (row.dim < 1) {
+        var f = 'brightness(' + row.dim + ')';
+        holder.style.webkitFilter = f;
+        holder.style.filter = f;
+      }
+      stage.appendChild(holder);
+      sc.cells[spec.id] = holder;
+      fillCell(holder, spec.piece);
+    }
+  }
+
+  // Replace a cell's contents. Empty piece clears it.
+  function fillCell(holder, piece) {
+    while (holder.firstChild) holder.removeChild(holder.firstChild);
+    var make = piece && PIECES[piece];
+    if (!make) return;
+    var node = make();
+    holder.appendChild(node);
+    // Let it arrive rather than pop.
+    node.classList.add('arriving');
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
      STAGE & MOVEMENT
      Each actor is four nested layers, one transform each, so they compose
      without fighting:
@@ -577,6 +657,9 @@
       at(ms, function() { a.el.classList.remove('running'); });
     },
 
+    // ── Scene actions: dress the set mid-play ──────────────────────────
+    // These carry no actor; the player routes them separately.
+
     // Swat at a prop; the prop reacts.
     bat: function(a, b, sc) {
       var p = sc.props[b.Target];
@@ -589,6 +672,28 @@
           p.el.classList.add('jostled');
         });
       }
+    }
+  };
+
+  // Scene beats are dispatched separately because they act on the set, not on
+  // a character, and so have no actor to look up.
+  var SCENE_ACTIONS = {
+    setCell: function(beat, sc) {
+      var holder = sc.cells[beat.target];
+      if (!holder) return;
+      holder.classList.remove('swapping');
+      void holder.offsetWidth;
+      holder.classList.add('swapping');
+      // Swap at the midpoint of the fade so the change is not seen happening.
+      at(220, function() { fillCell(holder, beat.piece); });
+    },
+    setBackdrop: function(beat) {
+      if (!backdropEl || !BACKDROPS[beat.piece]) return;
+      backdropEl.classList.add('changing');
+      at(320, function() {
+        backdropEl.className = 'intro-backdrop lit changing backdrop--' + beat.piece;
+        at(60, function() { backdropEl.classList.remove('changing'); });
+      });
     }
   };
 
@@ -658,10 +763,14 @@
     started = true;
 
     at(400, function() { if (overlay) overlay.classList.add('bg-reveal'); });
+    dressStage(story);
 
     if (!stage || reducedMotion) return logoOnly();
 
-    var sc = { actors: {}, props: {} };
+    var sc = { actors: {}, props: {}, cells: {} };
+
+    // Dress the set before anything else paints.
+    buildCells(story, sc);
 
     // Props first so characters paint in front of them.
     var props = story.props || [];
@@ -701,14 +810,20 @@
     // Title card, once the scene has begun.
     if (titleEl && story.title) {
       titleEl.textContent = story.title;   // never innerHTML: LLM-authored text
-      at(500, function() { titleEl.classList.add('show'); });
-      at(2600, function() { titleEl.classList.remove('show'); });
+      at(600, function() { titleEl.classList.add('show'); });
+      at(3800, function() { titleEl.classList.remove('show'); });
     }
 
     // Schedule the beats.
     var lastBeat = 0;
     for (var b = 0; b < beats.length; b++) {
       (function(beat) {
+        var scene = SCENE_ACTIONS[beat.action];
+        if (scene) {
+          at(beat.t, function() { try { scene(beat, sc); } catch (e) {} });
+          if (beat.t > lastBeat) lastBeat = beat.t;
+          return;
+        }
         var fn = ACTIONS[beat.action];
         var actor = sc.actors[beat.actor];
         if (!fn || !actor) return;
@@ -721,9 +836,19 @@
       })(beats[b]);
     }
 
-    var storyEnd = Math.max(lastBeat + 700, story.durationMs || 4000);
+    var storyEnd = Math.max(lastBeat + 800, story.durationMs || 9500);
     at(storyEnd, function() { if (logo) logo.classList.add('reveal'); });
     at(storyEnd + 700, function() { performanceDone = true; maybeDismiss(); });
+  }
+
+  // Dress the set before anyone walks on. An unknown backdrop is already
+  // normalised server-side; the guard here is for the local fallback story.
+  function dressStage(story) {
+    if (!backdropEl) return;
+    var name = (story.scene && story.scene.backdrop) || 'night';
+    if (!BACKDROPS[name]) name = 'night';
+    backdropEl.className = 'intro-backdrop backdrop--' + name;
+    at(120, function() { backdropEl.classList.add('lit'); });
   }
 
   function logoOnly() {

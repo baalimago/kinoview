@@ -30,6 +30,9 @@ type Teller interface {
 	// Prepare generates the story for the *next* visit. Subject to the cooldown
 	// and to single-flight; returns true if a generation actually ran.
 	Prepare(ctx context.Context, reason string) bool
+
+	// Warm makes sure something good is ready before the first visitor arrives.
+	Warm(ctx context.Context)
 }
 
 type teller struct {
@@ -40,6 +43,8 @@ type teller struct {
 
 	cooldown time.Duration
 
+	muse Muse
+
 	mu       sync.Mutex
 	current  *model.Story
 	lastGen  time.Time
@@ -47,7 +52,7 @@ type teller struct {
 }
 
 const systemPrompt = `You write tiny wordless slapstick scenes for a media-server splash screen.
-The scene is acted out by simple cartoon animals in about 4 seconds, then the app opens.
+The scene is acted out by simple cartoon animals over about 10 seconds, then the app opens.
 
 The permanent cast:
   - "ina"    : a cat  (character "cat")
@@ -59,13 +64,15 @@ You do not have to use all of them. Two characters is usually funnier than three
 Respond with ONLY a JSON object, no prose and no code fences:
 {
   "title": "<short, charming, max 60 chars>",
-  "durationMs": 4000,
+  "durationMs": 9500,
+  "scene":  { "backdrop": "livingroom" },
   "cast":  [ { "id": "ina", "character": "cat", "lane": 0, "x": 0.35, "scale": 1.0 } ],
   "props": [ { "id": "yarn1", "prop": "yarn", "lane": 0, "x": 0.5 } ],
   "beats": [ { "t": 0, "actor": "ina", "action": "enter", "from": "left", "ms": 1100 } ]
 }
 
 Rules:
+  * "scene".backdrop must be one of: night, livingroom, garden, theatre, sunset
   * "character" must be one of: cat, dog, mouse
   * "prop" must be one of: yarn, box            (props are optional)
   * "action" must be one of: enter, exit, walkTo, vocalize, sit, stretch, blink,
@@ -73,15 +80,26 @@ Rules:
   * pounce, chase, greet, stareoff and bat REQUIRE a "target" naming another id
   * "x" is a fraction of screen width, 0.05 to 0.95. "t" and "ms" are milliseconds.
   * every character must "enter" before it does anything else
-  * "t" must be between 0 and durationMs, and durationMs at most 5000
-  * at most 4 cast, 3 props, 24 beats
-  * "vocalize" makes the character speak (meow / bark / squeak) — use it 2-3 times
+  * "t" must be between 0 and durationMs, and durationMs at most 10000
+  * at most 5 cast, 4 props, 44 beats
+  * aim for 9000-9500ms and 12-20 beats: a real little scene, not one gag
+  * "vocalize" makes the character speak (meow / bark / squeak) — use it 3-5 times, spread out
   * Titles like "Ina & Freija in: The Great Mouse Hunt" are welcome but keep them short
 
-Write a scene with a beginning, a small surprise, and an ending.`
+Write a scene in three acts: a setup, a complication, and a resolution.
+Leave breathing room — a beat of stillness between actions reads better than constant motion.`
+
+// Option configures a Teller.
+type Option func(*teller)
+
+// WithMuse gives the storyteller something to riff on — normally the most
+// recently watched title.
+func WithMuse(m Muse) Option {
+	return func(t *teller) { t.muse = m }
+}
 
 // New builds a Teller. Pass an empty model name to run composer-only.
-func New(c models.Configurations, cacheDir string, cooldown time.Duration) Teller {
+func New(c models.Configurations, cacheDir string, cooldown time.Duration, opts ...Option) Teller {
 	t := &teller{
 		rnd:      rand.New(rand.NewSource(time.Now().UnixNano())),
 		path:     filepath.Join(cacheDir, "intro_story.json"),
@@ -94,18 +112,37 @@ func New(c models.Configurations, cacheDir string, cooldown time.Duration) Telle
 		c.SystemPrompt = systemPrompt
 		t.llm = text.NewFullResponseQuerier(c)
 	}
+	for _, o := range opts {
+		o(t)
+	}
 	t.loadFromDisk()
 	return t
 }
 
+// theme asks the muse what to riff on, tolerating a nil or panicking muse: a
+// splash story is never worth taking the server down for.
+func (t *teller) theme() (out string) {
+	if t.muse == nil {
+		return ""
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			ancli.Errf("storyteller: muse panicked: %v", r)
+			out = ""
+		}
+	}()
+	return strings.TrimSpace(t.muse.Theme())
+}
+
 // Next hands out the prepared story, or composes one on the spot.
 func (t *teller) Next() model.Story {
+	theme := t.theme()
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.current != nil {
 		return *t.current
 	}
-	s := Compose(t.rnd)
+	s := ComposeThemed(t.rnd, theme)
 	t.current = &s
 	return s
 }
@@ -133,10 +170,11 @@ func (t *teller) Prepare(ctx context.Context, reason string) bool {
 		t.mu.Unlock()
 	}()
 
-	story, err := t.generate(ctx)
+	theme := t.theme()
+	story, err := t.generate(ctx, theme)
 	if err != nil {
 		ancli.Errf("storyteller: llm failed, composing instead: %v", err)
-		story = Compose(t.rnd)
+		story = ComposeThemed(t.rnd, theme)
 	}
 
 	t.mu.Lock()
@@ -149,15 +187,15 @@ func (t *teller) Prepare(ctx context.Context, reason string) bool {
 
 // generate asks the LLM for a story and validates it. Any problem is an error,
 // which the caller answers with the composer.
-func (t *teller) generate(ctx context.Context) (model.Story, error) {
+func (t *teller) generate(ctx context.Context, theme string) (model.Story, error) {
 	if t.llm == nil {
-		return Compose(t.rnd), nil
+		return ComposeThemed(t.rnd, theme), nil
 	}
 
 	chat := models.Chat{
 		Messages: []models.Message{
 			{Role: "system", Content: systemPrompt},
-			{Role: "user", Content: "Write the next scene. Surprise me — do not repeat the most obvious idea."},
+			{Role: "user", Content: userPrompt(theme)},
 		},
 	}
 
@@ -186,10 +224,24 @@ func (t *teller) generate(ctx context.Context) (model.Story, error) {
 	// The LLM does not pick ids; we own them so they always validate.
 	s.ID = newID(t.rnd)
 	s.Origin = "llm"
+	s.Theme = theme
 	if err := s.Validate(); err != nil {
 		return model.Story{}, fmt.Errorf("llm story invalid: %w", err)
 	}
 	return s, nil
+}
+
+// userPrompt asks for the next scene, themed on whatever was last watched.
+func userPrompt(theme string) string {
+	if theme == "" {
+		return "Write the next scene. Surprise me — do not repeat the most obvious idea."
+	}
+	return "The household just finished watching: \"" + theme + "\".\n\n" +
+		"Write the next scene as a wordless animal homage to it — borrow its MOOD and " +
+		"SHAPE (a heist, a chase, a slow sad goodbye, a standoff), not its plot. The " +
+		"animals cannot speak or hold objects, so translate it into things a cat, a dog " +
+		"and a mouse could actually do on a bare stage. Pick the backdrop that suits it. " +
+		"The title may play on the original."
 }
 
 // extractJSON pulls the first balanced {...} out of a reply, tolerating code
@@ -241,6 +293,32 @@ func (t *teller) loadFromDisk() {
 		return
 	}
 	t.current = &s
+
+	// Carry the cooldown across restarts. lastGen lives in memory, so without
+	// this a restart resets it and the next visit triggers a fresh generation —
+	// a crash-loop or a few manual restarts would each cost an LLM call, which
+	// is exactly what the cooldown exists to prevent. The file's mtime is when
+	// we last generated, so it needs no extra state.
+	if fi, statErr := os.Stat(t.path); statErr == nil {
+		t.lastGen = fi.ModTime()
+	}
+}
+
+// Warm prepares a story at startup so the first visitor gets a real one.
+//
+// Without it the first ever visit is always composer-authored: Next() composes
+// synchronously rather than blocking the splash on an LLM call, and the LLM only
+// runs afterwards. Warming in the background fixes that without ever making the
+// splash wait. It is a no-op when a usable story is already cached, and it goes
+// through the same cooldown and single-flight as any other preparation.
+func (t *teller) Warm(ctx context.Context) {
+	t.mu.Lock()
+	have := t.current != nil
+	t.mu.Unlock()
+	if have {
+		return
+	}
+	go t.Prepare(ctx, "startup warm-up")
 }
 
 func (t *teller) saveToDisk(s model.Story) {

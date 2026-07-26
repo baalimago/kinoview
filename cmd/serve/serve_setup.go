@@ -182,10 +182,22 @@ func (c *command) Setup(ctx context.Context) error {
 			ConfigDir:     *c.configDir,
 			InternalTools: []models.ToolName{},
 		}, *c.cacheDir, *c.storytellerCooldown,
+		// The play takes its theme from whatever was watched most recently.
+		// Read lazily: preparation happens long after the request that triggered
+		// it, and by then the household may have moved on to something else.
+		storyteller.WithMuse(storyteller.MuseFunc(func() string {
+			if userContextMgr == nil {
+				return ""
+			}
+			return storyteller.LatestTheme(userContextMgr.AllClientContexts())
+		})),
 	)
 	if *c.storytellerModel == "" {
 		ancli.Noticef("storyteller running composer-only (no -storyteller model set)")
 	}
+	// Get a story ready before anyone shows up, so the first visit is not
+	// stuck with a composed one while the LLM sits idle.
+	bard.Warm(ctx)
 
 	////////////
 	// Indexer setup

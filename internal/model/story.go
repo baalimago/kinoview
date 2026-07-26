@@ -20,9 +20,38 @@ type Story struct {
 	DurationMs int `json:"durationMs"`
 	// Origin records who made it: "llm" or "composer". Diagnostics only.
 	Origin string `json:"origin,omitempty"`
-	Cast   []Cast `json:"cast"`
-	Props  []Prop `json:"props,omitempty"`
-	Beats  []Beat `json:"beats"`
+	// Theme is what the play riffs on — normally the last watched title.
+	Theme string `json:"theme,omitempty"`
+	// Scene is the set the play happens on.
+	Scene Scene  `json:"scene"`
+	Cast  []Cast `json:"cast"`
+	Props []Prop `json:"props,omitempty"`
+	Beats []Beat `json:"beats"`
+}
+
+// Scene is the set: a backdrop, plus a grid of cells holding set pieces.
+//
+// The cell grid is how the playwright dresses the stage. A cell is a slot at a
+// (row, col) address; a piece occupies it. Because cells are addressed by id,
+// a beat can swap what stands in one PART WAY THROUGH the play — the lamp goes
+// out, a tree becomes a moon — without disturbing the cast.
+type Scene struct {
+	// Backdrop selects the sky/ground treatment, e.g. "night", "livingroom".
+	Backdrop string `json:"backdrop"`
+	// Cells dress the set. Optional; a bare backdrop is a valid set.
+	Cells []Cell `json:"cells,omitempty"`
+}
+
+// Cell is one addressable slot on the set.
+type Cell struct {
+	// ID is referenced by "setCell" beats.
+	ID string `json:"id"`
+	// Row is the depth band: sky, far, mid or near.
+	Row string `json:"row"`
+	// Col is the horizontal slot, 0..CellCols-1.
+	Col int `json:"col"`
+	// Piece is what stands here. Empty means the cell is bare.
+	Piece string `json:"piece,omitempty"`
 }
 
 // Cast is one character on stage.
@@ -65,18 +94,23 @@ type Beat struct {
 	Ms int `json:"ms,omitempty"`
 	// From is the entry side for "enter"/"exit": "left" or "right".
 	From string `json:"from,omitempty"`
+	// Piece carries the new value for scene actions: the set piece for
+	// "setCell", or the backdrop name for "setBackdrop".
+	Piece string `json:"piece,omitempty"`
 }
 
 // Limits for a story. These bound both LLM creativity and the animation cost on
 // a weak TV.
 const (
-	MaxStoryDurationMs = 5000
+	MaxStoryDurationMs = 10000
 	MinStoryDurationMs = 1200
-	MaxCast            = 4
-	MaxProps           = 3
-	MaxBeats           = 24
+	MaxCast            = 5
+	MaxProps           = 4
+	MaxBeats           = 44
 	MaxTitleLen        = 64
 	MaxLanes           = 3
+	MaxCells           = 10
+	CellCols           = 6
 )
 
 // ValidCharacters are the characters the frontend player can draw.
@@ -84,6 +118,40 @@ var ValidCharacters = map[string]bool{
 	"cat":   true,
 	"dog":   true,
 	"mouse": true,
+}
+
+// ValidBackdrops are the sets the player can dress the stage with.
+var ValidBackdrops = map[string]bool{
+	"night":      true,
+	"livingroom": true,
+	"garden":     true,
+	"theatre":    true,
+	"sunset":     true,
+}
+
+// DefaultBackdrop is used whenever a story does not name a valid one.
+const DefaultBackdrop = "night"
+
+// ValidRows are the depth bands a cell can sit in, back to front.
+var ValidRows = map[string]bool{
+	"sky":  true,
+	"far":  true,
+	"mid":  true,
+	"near": true,
+}
+
+// ValidPieces are the set pieces the player can draw into a cell.
+var ValidPieces = map[string]bool{
+	"tree":   true,
+	"bush":   true,
+	"fence":  true,
+	"cloud":  true,
+	"moon":   true,
+	"sofa":   true,
+	"lamp":   true,
+	"plant":  true,
+	"window": true,
+	"rug":    true,
 }
 
 // ValidProps are the props the frontend player can draw.
@@ -108,6 +176,16 @@ var ValidActions = map[string]bool{
 	"stareoff": true,
 	"nap":      true,
 	"bat":      true,
+	// Scene actions — these dress the set instead of moving a character, and so
+	// carry no actor.
+	"setCell":     true,
+	"setBackdrop": true,
+}
+
+// sceneActions act on the set rather than on a character.
+var sceneActions = map[string]bool{
+	"setCell":     true,
+	"setBackdrop": true,
 }
 
 // actionNeedsTarget lists actions that are meaningless without a Target.
@@ -131,10 +209,42 @@ var idRe = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
 // story is better than no splash, but a malformed one must never reach the DOM.
 func (s *Story) Validate() error {
 	s.Title = sanitizeTitle(s.Title)
+	// The theme comes from a filename, so it gets the same treatment.
+	s.Theme = sanitizeTitle(s.Theme)
 
 	if !idRe.MatchString(s.ID) {
 		return fmt.Errorf("story ID %q does not match %v", s.ID, idRe)
 	}
+
+	// An unknown backdrop is a naming slip, not a reason to lose the play.
+	s.Scene.Backdrop = strings.ToLower(strings.TrimSpace(s.Scene.Backdrop))
+	if !ValidBackdrops[s.Scene.Backdrop] {
+		s.Scene.Backdrop = DefaultBackdrop
+	}
+
+	// Cells: same closed-vocabulary treatment as everything else. Cell ids share
+	// the namespace with cast and props so a beat target is never ambiguous.
+	cellIDs := map[string]bool{}
+	cells := make([]Cell, 0, len(s.Scene.Cells))
+	for _, c := range s.Scene.Cells {
+		if len(cells) >= MaxCells {
+			break
+		}
+		c.Row = strings.ToLower(strings.TrimSpace(c.Row))
+		c.Piece = strings.ToLower(strings.TrimSpace(c.Piece))
+		if !idRe.MatchString(c.ID) || cellIDs[c.ID] || !ValidRows[c.Row] {
+			continue
+		}
+		// An unknown piece empties the cell rather than dropping the slot: the
+		// address stays valid so a later setCell beat can still fill it.
+		if c.Piece != "" && !ValidPieces[c.Piece] {
+			c.Piece = ""
+		}
+		c.Col = clampInt(c.Col, 0, CellCols-1)
+		cellIDs[c.ID] = true
+		cells = append(cells, c)
+	}
+	s.Scene.Cells = cells
 
 	if s.DurationMs > MaxStoryDurationMs {
 		s.DurationMs = MaxStoryDurationMs
@@ -143,8 +253,12 @@ func (s *Story) Validate() error {
 		s.DurationMs = MinStoryDurationMs
 	}
 
-	// Cast: keep only known characters with unique, well formed ids.
+	// Cast: keep only known characters with unique, well formed ids. The id
+	// namespace is shared with props and cells so beat targets are unambiguous.
 	seen := map[string]bool{}
+	for id := range cellIDs {
+		seen[id] = true
+	}
 	cast := make([]Cast, 0, len(s.Cast))
 	for _, c := range s.Cast {
 		if len(cast) >= MaxCast {
@@ -193,10 +307,37 @@ func (s *Story) Validate() error {
 		if len(beats) >= MaxBeats {
 			break
 		}
-		if !ValidActions[b.Action] || !seen[b.Actor] {
+		if !ValidActions[b.Action] {
 			continue
 		}
-		// A beat's actor must be a character, not a prop.
+		b.Piece = strings.ToLower(strings.TrimSpace(b.Piece))
+
+		if sceneActions[b.Action] {
+			// Scene beats dress the set and have no actor.
+			switch b.Action {
+			case "setCell":
+				if !cellIDs[b.Target] {
+					continue
+				}
+				if b.Piece != "" && !ValidPieces[b.Piece] {
+					continue
+				}
+			case "setBackdrop":
+				if !ValidBackdrops[b.Piece] {
+					continue
+				}
+			}
+			b.Actor = ""
+			b.T = clampInt(b.T, 0, s.DurationMs)
+			b.Ms = clampInt(b.Ms, 0, s.DurationMs)
+			beats = append(beats, b)
+			continue
+		}
+
+		if !seen[b.Actor] {
+			continue
+		}
+		// A beat's actor must be a character, not a prop or a cell.
 		if !isCast(s.Cast, b.Actor) {
 			continue
 		}
@@ -206,6 +347,8 @@ func (s *Story) Validate() error {
 		if actionNeedsTarget[b.Action] && b.Target == "" {
 			continue
 		}
+		// A character action never carries a piece.
+		b.Piece = ""
 		b.T = clampInt(b.T, 0, s.DurationMs)
 		b.Ms = clampInt(b.Ms, 0, s.DurationMs)
 		b.X = clampFloat(b.X, 0.0, 1.0)

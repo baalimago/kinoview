@@ -200,3 +200,106 @@ func TestValidate_RejectsNoCast(t *testing.T) {
 		t.Fatal("expected rejection with no cast")
 	}
 }
+
+func TestValidate_CellsAndSceneBeats(t *testing.T) {
+	s := validStory()
+	s.Scene = Scene{
+		Backdrop: "livingroom",
+		Cells: []Cell{
+			{ID: "c1", Row: "mid", Col: 2, Piece: "lamp"},
+			{ID: "c2", Row: "far", Col: 9, Piece: "tree"},    // col clamped
+			{ID: "c3", Row: "orbit", Col: 1, Piece: "tree"},  // bad row → dropped
+			{ID: "c4", Row: "near", Col: 1, Piece: "dragon"}, // bad piece → emptied, slot kept
+			{ID: "bad id!", Row: "mid", Col: 0},              // bad id → dropped
+		},
+	}
+	s.Beats = append(s.Beats,
+		Beat{T: 3000, Action: "setCell", Target: "c1", Piece: "plant"},
+		Beat{T: 3200, Action: "setCell", Target: "nope", Piece: "plant"},  // unknown cell
+		Beat{T: 3400, Action: "setCell", Target: "c1", Piece: "warpcore"}, // unknown piece
+		Beat{T: 3600, Action: "setBackdrop", Piece: "night"},
+		Beat{T: 3800, Action: "setBackdrop", Piece: "mordor"}, // unknown backdrop
+	)
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(s.Scene.Cells) != 3 {
+		t.Fatalf("expected 3 surviving cells, got %d: %+v", len(s.Scene.Cells), s.Scene.Cells)
+	}
+	byID := map[string]Cell{}
+	for _, c := range s.Scene.Cells {
+		byID[c.ID] = c
+	}
+	if byID["c2"].Col != CellCols-1 {
+		t.Errorf("col not clamped: %+v", byID["c2"])
+	}
+	if byID["c4"].Piece != "" {
+		t.Errorf("unknown piece should empty the cell, not fill it: %+v", byID["c4"])
+	}
+
+	setCells, setBackdrops := 0, 0
+	for _, b := range s.Beats {
+		switch b.Action {
+		case "setCell":
+			setCells++
+			if b.Piece != "plant" {
+				t.Errorf("bad setCell survived: %+v", b)
+			}
+			if b.Actor != "" {
+				t.Errorf("scene beat should carry no actor: %+v", b)
+			}
+		case "setBackdrop":
+			setBackdrops++
+			if b.Piece != "night" {
+				t.Errorf("bad setBackdrop survived: %+v", b)
+			}
+		}
+	}
+	if setCells != 1 {
+		t.Errorf("expected 1 valid setCell, got %d", setCells)
+	}
+	if setBackdrops != 1 {
+		t.Errorf("expected 1 valid setBackdrop, got %d", setBackdrops)
+	}
+}
+
+// A character action must never smuggle a set piece through.
+func TestValidate_CharacterBeatsCarryNoPiece(t *testing.T) {
+	s := validStory()
+	s.Beats = append(s.Beats, Beat{T: 900, Actor: "ina", Action: "sit", Piece: "lamp"})
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, b := range s.Beats {
+		if b.Action == "sit" && b.Piece != "" {
+			t.Errorf("character beat kept a piece: %+v", b)
+		}
+	}
+}
+
+// Cell ids share the id namespace, so a cell cannot masquerade as an actor.
+func TestValidate_CellCannotAct(t *testing.T) {
+	s := validStory()
+	s.Scene = Scene{Backdrop: "night", Cells: []Cell{{ID: "c1", Row: "mid", Col: 1, Piece: "lamp"}}}
+	s.Beats = append(s.Beats, Beat{T: 900, Actor: "c1", Action: "vocalize"})
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	for _, b := range s.Beats {
+		if b.Actor == "c1" {
+			t.Error("a cell was allowed to act")
+		}
+	}
+}
+
+func TestValidate_BackdropDefaults(t *testing.T) {
+	s := validStory()
+	s.Scene.Backdrop = "Atlantis"
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.Scene.Backdrop != DefaultBackdrop {
+		t.Errorf("backdrop = %q, want %q", s.Scene.Backdrop, DefaultBackdrop)
+	}
+}
