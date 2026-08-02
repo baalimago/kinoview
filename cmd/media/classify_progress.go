@@ -3,7 +3,6 @@ package media
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -262,8 +261,15 @@ type progressWatchOptions struct {
 // watch's default quit detector: because reads never block and the fd is
 // closed when the watch ends, no lingering reader can steal input from the
 // table afterwards (the failure mode of a background ReadUserInput goroutine).
+//
+// The fd is a raw O_NONBLOCK descriptor opened with syscall.Open and read
+// with syscall.Read — deliberately not an os.File. os.File.Read funnels
+// through the runtime netpoller, which parks the goroutine on EAGAIN for
+// character devices, and os.File.Fd resets the descriptor to blocking mode;
+// either would make the "non-blocking" poll block forever on an idle tty,
+// so the watch could never observe ctx cancellation (or quit).
 type ttyQuit struct {
-	f       *os.File
+	fd      int
 	pending strings.Builder
 	dead    bool
 }
@@ -275,7 +281,7 @@ func openTTYQuit() *ttyQuit {
 	if ttyPath == "" {
 		ttyPath = "/dev/tty"
 	}
-	f, err := os.OpenFile(ttyPath, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	fd, err := syscall.Open(ttyPath, syscall.O_RDONLY|syscall.O_NONBLOCK, 0)
 	if err != nil {
 		return nil
 	}
@@ -284,7 +290,7 @@ func openTTYQuit() *ttyQuit {
 	// With SIGTTIN ignored the read fails with EIO instead and polling
 	// simply stops, leaving Ctrl+C as the escape hatch.
 	signal.Ignore(syscall.SIGTTIN)
-	return &ttyQuit{f: f}
+	return &ttyQuit{fd: fd}
 }
 
 // poll drains any complete lines available on the tty and reports whether the
@@ -295,18 +301,22 @@ func (q *ttyQuit) poll() bool {
 	}
 	buf := make([]byte, 64)
 	for {
-		n, err := q.f.Read(buf)
+		// Raw syscall.Read on the raw O_NONBLOCK fd: it returns EAGAIN
+		// immediately when the tty is idle, so the loop always gets back
+		// to its select (see the ttyQuit doc comment).
+		n, err := syscall.Read(q.fd, buf)
 		if n > 0 {
 			q.pending.Write(buf[:n])
 		}
 		if err != nil {
-			if errors.Is(err, syscall.EAGAIN) || errors.Is(err, syscall.EWOULDBLOCK) {
+			if err == syscall.EAGAIN || err == syscall.EWOULDBLOCK {
 				break
 			}
 			// EIO (background process group), EOF, or another fatal error:
 			// stop polling, Ctrl+C still works.
 			q.dead = true
-			q.f.Close()
+			syscall.Close(q.fd)
+			q.fd = -1
 			break
 		}
 		if n == 0 {
@@ -322,8 +332,9 @@ func (q *ttyQuit) poll() bool {
 }
 
 func (q *ttyQuit) close() {
-	if q != nil && q.f != nil {
-		q.f.Close()
+	if q != nil && q.fd >= 0 {
+		syscall.Close(q.fd)
+		q.fd = -1
 	}
 	signal.Reset(syscall.SIGTTIN)
 }

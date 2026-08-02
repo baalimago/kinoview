@@ -8,6 +8,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -295,60 +296,126 @@ func TestWatchClassificationProgress_ShowsNoProgressHint(t *testing.T) {
 	}
 }
 
+// newQuitTest builds a ttyQuit over a raw non-blocking pipe, mirroring how
+// openTTYQuit creates its fd. It returns the poller and the write end (a raw
+// fd) for feeding input.
+func newQuitTest(t *testing.T) (*ttyQuit, int) {
+	t.Helper()
+	fds := make([]int, 2)
+	if err := syscall.Pipe(fds); err != nil {
+		t.Fatal(err)
+	}
+	if err := syscall.SetNonblock(fds[0], true); err != nil {
+		syscall.Close(fds[0])
+		syscall.Close(fds[1])
+		t.Fatal(err)
+	}
+	return &ttyQuit{fd: fds[0]}, fds[1]
+}
+
 func TestTTYQuitPoll(t *testing.T) {
 	t.Run("q quits", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		if err != nil {
+		q, w := newQuitTest(t)
+		defer q.close()
+		if _, err := syscall.Write(w, []byte("q\n")); err != nil {
 			t.Fatal(err)
 		}
-		q := &ttyQuit{f: r}
-		defer q.close()
-		w.WriteString("q\n")
-		w.Close()
+		syscall.Close(w)
 		if !q.poll() {
 			t.Error("expected q to quit")
 		}
 	})
 	t.Run("quit quits", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		if err != nil {
+		q, w := newQuitTest(t)
+		defer q.close()
+		if _, err := syscall.Write(w, []byte("quit\n")); err != nil {
 			t.Fatal(err)
 		}
-		q := &ttyQuit{f: r}
-		defer q.close()
-		w.WriteString("quit\n")
-		w.Close()
+		syscall.Close(w)
 		if !q.poll() {
 			t.Error("expected quit to quit")
 		}
 	})
 	t.Run("non-quit input ignored", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		if err != nil {
+		q, w := newQuitTest(t)
+		defer q.close()
+		if _, err := syscall.Write(w, []byte("n\n")); err != nil {
 			t.Fatal(err)
 		}
-		q := &ttyQuit{f: r}
-		defer q.close()
-		w.WriteString("n\n")
-		w.Close()
+		syscall.Close(w)
 		if q.poll() {
 			t.Error("expected non-quit input not to quit")
 		}
 	})
+	t.Run("no input does not block", func(t *testing.T) {
+		q, w := newQuitTest(t)
+		defer q.close()
+		defer syscall.Close(w)
+
+		done := make(chan bool, 1)
+		go func() { done <- q.poll() }()
+		select {
+		case got := <-done:
+			if got {
+				t.Error("expected idle poll not to quit")
+			}
+		case <-time.After(time.Second):
+			t.Fatal("poll blocked on an idle non-blocking fd")
+		}
+	})
 	t.Run("multi-line pending evaluated", func(t *testing.T) {
-		r, w, err := os.Pipe()
-		if err != nil {
+		q, w := newQuitTest(t)
+		defer q.close()
+		if _, err := syscall.Write(w, []byte("qu")); err != nil {
 			t.Fatal(err)
 		}
-		q := &ttyQuit{f: r}
-		defer q.close()
-		w.WriteString("qu")
-		w.WriteString("it\n")
-		w.Close()
+		if _, err := syscall.Write(w, []byte("it\n")); err != nil {
+			t.Fatal(err)
+		}
+		syscall.Close(w)
 		if !q.poll() {
 			t.Error("expected accumulated quit to quit")
 		}
 	})
+}
+
+// TestWatchClassificationProgress_ContextCancelWithLivePoller is the regression
+// test for "reclassify does not exit on context cancel": the watch's default
+// tty quit poller blocked forever on its first idle read, so the loop never
+// returned to its select and never observed ctx.Done().
+func TestWatchClassificationProgress_ContextCancelWithLivePoller(t *testing.T) {
+	dir := t.TempDir()
+	item := model.Item{ID: "a", Name: "A.mkv", MIMEType: "video/mp4"}
+	writeItemFile(t, dir, item)
+
+	// A real idle, non-blocking fd stands in for /dev/tty: the poll must
+	// return EAGAIN immediately so the watch keeps iterating.
+	q, w := newQuitTest(t)
+	defer q.close()
+	defer syscall.Close(w)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	done := make(chan error, 1)
+	go func() {
+		done <- watchClassificationProgress(ctx, dir, "A.mkv", []model.Item{item}, 5, &bytes.Buffer{}, progressWatchOptions{
+			pollInterval: 10 * time.Millisecond,
+			quit:         q.poll,
+			termWidth:    120,
+		})
+	}()
+
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("watch error: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("watch did not exit after ctx cancel with a live quit poller")
+	}
 }
 
 func TestReadItemsFromDisk(t *testing.T) {
