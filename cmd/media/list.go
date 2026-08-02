@@ -63,10 +63,14 @@ func (c *listCmd) Help() string {
 	return `Usage: kinoview media list [flags] [macro-tokens...]
 
 Interactive mode (no extra args): Opens a paginated table of all media items.
+Video items in the same directory collapse into a single group row (a season,
+for example); selecting a group row drills into its members, where [R]eclassify
+all resets the whole group.
 Navigate with n/p, filter with /pattern, select by index number.
 After selection: [i]nspect JSON, [d]elete, [r]eclassify, [s]ubtitles, [b]ack to table.
 
 Macro mode: Each argument after "list" is processed sequentially.
+Group rows support: 0 r (reclassify the group), 0 i (group summary).
 Examples:
   kinoview media list n n 5          # page 2, select index 5, show info
   kinoview media list /office 0 i    # filter "office", select, inspect JSON
@@ -74,7 +78,8 @@ Examples:
   kinoview media list 0 s            # select and show subtitle info
   kinoview media list 0 sa /path/sub.srt  # select and associate subtitle file
   kinoview media list 0 sr 0         # select and remove subtitle at index 0
-  kinoview media list --force 0 d    # delete without confirmation`
+  kinoview media list --force 0 d    # delete without confirmation
+  kinoview media list /season 0 r    # reclassify the whole group (confirms unless --force)`
 }
 
 func (c *listCmd) Setup(ctx context.Context) error {
@@ -83,6 +88,15 @@ func (c *listCmd) Setup(ctx context.Context) error {
 	}
 	c.macroArgs = c.flagset.Args()
 	return nil
+}
+
+func (c *listCmd) Flagset() *flag.FlagSet {
+	fs := flag.NewFlagSet("list", flag.ContinueOnError)
+	fs.StringVar(&c.storePath, "store-path", c.storePath, "Path to kinoview store directory")
+	fs.BoolVar(&c.force, "force", false, "Skip confirmation prompts in macro mode")
+	fs.IntVar(&c.pageSize, "page-size", c.pageSize, "Items per page")
+	c.flagset = fs
+	return fs
 }
 
 func (c *listCmd) Run(ctx context.Context) error {
@@ -110,49 +124,293 @@ func (c *listCmd) Run(ctx context.Context) error {
 	})
 
 	lc := &listController{
-		store:    store,
-		items:    items,
-		pageSize: c.pageSize,
-		force:    c.force,
+		store:       store,
+		items:       items,
+		pageSize:    c.pageSize,
+		force:       c.force,
+		storePath:   c.storePath,
+		maxAttempts: store.ClassificationMaxAttempts(),
 	}
 
 	if len(c.macroArgs) == 0 {
-		return lc.runInteractive()
+		return lc.runInteractive(ctx)
 	}
 	return lc.runMacro(c.macroArgs)
 }
 
-func (c *listCmd) Flagset() *flag.FlagSet {
-	fs := flag.NewFlagSet("list", flag.ContinueOnError)
-	fs.StringVar(&c.storePath, "store-path", c.storePath, "Path to kinoview store directory")
-	fs.BoolVar(&c.force, "force", false, "Skip confirmation prompts in macro mode")
-	fs.IntVar(&c.pageSize, "page-size", c.pageSize, "Items per page")
-	c.flagset = fs
-	return fs
-}
-
 // listController holds the runtime state for a media list session.
 type listController struct {
-	store    mediaStore
-	items    []model.Item
-	pageSize int
-	force    bool
+	store       mediaStore
+	items       []model.Item
+	pageSize    int
+	force       bool
+	storePath   string
+	maxAttempts int
 }
 
-func (lc *listController) runInteractive() error {
-	items := lc.items
-	for {
-		selected, _, err := table.New(
-			table.SlicePaginator(items),
-			lc.rowFormatter,
-		).
-			WithHeader(mediaTableHeader()).
-			WithPageSize(lc.pageSize).
-			WithSingleSelect().
-			WithWriter(os.Stdout).
-			Run()
+// ── Location grouping ──
+
+// mediaRowKind distinguishes member rows from collapsed group rows.
+type mediaRowKind uint8
+
+const (
+	rowItem mediaRowKind = iota
+	rowGroup
+)
+
+// mediaRow is a single display row in the media list table. Item rows carry
+// one item; group rows carry every video item sharing a directory.
+type mediaRow struct {
+	kind     mediaRowKind
+	groupKey string       // parent directory; set for both kinds
+	item     model.Item   // rowItem only
+	members  []model.Item // rowGroup only
+}
+
+// groupKeyForItem is the location grouping key: the item's parent directory.
+// Episodes of a season share a directory, so they collapse into one row.
+func groupKeyForItem(it model.Item) string {
+	return path.Dir(it.Path)
+}
+
+// groupDisplayName is the short label shown for a group row: the directory's
+// base name (Season 1, S01, ...) with degenerate roots kept as-is.
+func groupDisplayName(dir string) string {
+	base := path.Base(dir)
+	if base == "." || base == "/" || base == "" {
+		return dir
+	}
+	return base
+}
+
+// deriveRows renders the current table view. With a non-empty groupKey the
+// view is the member rows of that group (drill-down); otherwise rows are
+// collapsed so every directory holding ≥2 video items becomes a single group
+// row. Images never participate in grouping — a movie folder with a poster
+// stays two plain rows.
+func deriveRows(items []model.Item, groupKey string) []mediaRow {
+	if groupKey != "" {
+		rows := make([]mediaRow, 0, len(items))
+		for _, it := range items {
+			if groupKeyForItem(it) == groupKey && strings.Contains(it.MIMEType, "video") {
+				rows = append(rows, mediaRow{kind: rowItem, groupKey: groupKey, item: it})
+			}
+		}
+		return rows
+	}
+
+	counts := make(map[string]int)
+	for _, it := range items {
+		if !strings.Contains(it.MIMEType, "video") {
+			continue
+		}
+		counts[groupKeyForItem(it)]++
+	}
+
+	emitted := make(map[string]bool)
+	rows := make([]mediaRow, 0, len(items))
+	for _, it := range items {
+		k := groupKeyForItem(it)
+		if strings.Contains(it.MIMEType, "video") && counts[k] >= 2 {
+			if !emitted[k] {
+				emitted[k] = true
+				rows = append(rows, mediaRow{
+					kind:     rowGroup,
+					groupKey: k,
+					members:  groupMembersOf(items, k),
+				})
+			}
+			continue
+		}
+		rows = append(rows, mediaRow{kind: rowItem, groupKey: k, item: it})
+	}
+	return rows
+}
+
+// groupMembersOf returns the video items in the given directory, in items order.
+func groupMembersOf(items []model.Item, dir string) []model.Item {
+	var out []model.Item
+	for _, it := range items {
+		if strings.Contains(it.MIMEType, "video") && groupKeyForItem(it) == dir {
+			out = append(out, it)
+		}
+	}
+	return out
+}
+
+// ── Table construction ──
+
+// maxIndexWidth returns the widest rendered index across all rows, so group
+// rows (0 [group:12]) align with plain rows.
+func maxIndexWidth(rows []mediaRow) int {
+	w := len("Index")
+	for i, r := range rows {
+		s := fmt.Sprintf("%d", i)
+		if r.kind == rowGroup {
+			s = fmt.Sprintf("%d [group:%d]", i, len(r.members))
+		}
+		if len(s) > w {
+			w = len(s)
+		}
+	}
+	return w
+}
+
+// mediaTableHeader renders the column header for the given index width.
+func mediaTableHeader(idxWidth int) string {
+	return fmt.Sprintf("%-*s %-55s %-8s %-8s %-4s %-5s %10s",
+		idxWidth, "Index", "Name", "Type", "Metadata", "Attr", "Subs", "Size")
+}
+
+// buildTable assembles a configured table for the given rows. prefix, when
+// non-empty, is prepended to the header (used for the group drill-down label).
+func (lc *listController) buildTable(rows []mediaRow, prefix, backLabel string, actions ...table.TableAction) *table.Table[mediaRow] {
+	idxWidth := maxIndexWidth(rows)
+	header := mediaTableHeader(idxWidth)
+	if prefix != "" {
+		header = prefix + " — " + header
+	}
+
+	tb := table.New(
+		table.SlicePaginator(rows),
+		func(idx int, row mediaRow) (string, error) {
+			return lc.formatRow(idxWidth, idx, row), nil
+		},
+	).
+		WithHeader(header).
+		WithPageSize(lc.pageSize).
+		WithSingleSelect().
+		WithWriter(os.Stdout)
+	if backLabel != "" {
+		tb = tb.WithBackLabel(backLabel)
+	}
+	if len(actions) > 0 {
+		tb = tb.WithActions(actions...)
+	}
+	return tb
+}
+
+// formatRow dispatches to the item or group row formatter.
+func (lc *listController) formatRow(idxWidth, idx int, row mediaRow) string {
+	if row.kind == rowGroup {
+		return lc.groupRowFormatter(idxWidth, idx, row)
+	}
+	return lc.itemRowFormatter(idxWidth, idx, row.item)
+}
+
+// itemRowFormatter formats a single item row with fixed-width columns.
+func (lc *listController) itemRowFormatter(idxWidth, idx int, item model.Item) string {
+	name := truncateTo(item.Name, 55)
+	mime := shortMIME(item.MIMEType)
+	metadata := "✗"
+	if item.Metadata != nil {
+		metadata = "✓"
+	}
+	attempts := strconv.Itoa(item.ClassificationAttempts)
+	subs := "✗"
+	if len(item.SubtitlePaths) > 0 {
+		subs = "✓"
+	}
+	size := fileSizeStr(item.Path)
+
+	return fmt.Sprintf(
+		"%-*d %-55s %-8s %-8s %-4s %-5s %10s",
+		idxWidth,
+		idx,
+		name,
+		mime,
+		metadata,
+		attempts,
+		subs,
+		size,
+	)
+}
+
+// groupRowFormatter formats a collapsed group row: index shows the member
+// count, metadata shows done/total, size is the sum over members.
+func (lc *listController) groupRowFormatter(idxWidth, idx int, row mediaRow) string {
+	done, subs := 0, 0
+	var totalSize int64
+	sizeOK := true
+	for _, m := range row.members {
+		if m.Metadata != nil {
+			done++
+		}
+		if len(m.SubtitlePaths) > 0 {
+			subs++
+		}
+		info, err := os.Stat(m.Path)
 		if err != nil {
-			if errors.Is(err, table.ErrUserInitiatedExit) || errors.Is(err, table.ErrBack) {
+			sizeOK = false
+		} else {
+			totalSize += info.Size()
+		}
+	}
+	sizeStr := "?"
+	if sizeOK {
+		sizeStr = humanSize(totalSize)
+	}
+	subsStr := "✗"
+	if subs > 0 {
+		subsStr = fmt.Sprintf("%d/%d", subs, len(row.members))
+	}
+
+	return fmt.Sprintf(
+		"%-*d [group:%d] %-55s %-8s %-8s %-4s %-5s %10s",
+		idxWidth,
+		idx,
+		len(row.members),
+		truncateTo(groupDisplayName(row.groupKey), 55),
+		"group",
+		fmt.Sprintf("%d/%d", done, len(row.members)),
+		"–",
+		subsStr,
+		sizeStr,
+	)
+}
+
+// errReclassifyGroup is the table-action sentinel signalling the interactive
+// loop to reclassify every member of the current group drill-down.
+var errReclassifyGroup = errors.New("reclassify group")
+
+// runInteractive opens the grouped table and handles drill-downs and
+// post-selection actions.
+func (lc *listController) runInteractive(ctx context.Context) error {
+	items := lc.items
+	groupKey := ""
+	for {
+		rows := deriveRows(items, groupKey)
+
+		actions := []table.TableAction{}
+		prefix := ""
+		backLabel := ""
+		if groupKey != "" {
+			prefix = fmt.Sprintf("%s (%d)", groupDisplayName(groupKey), len(rows))
+			backLabel = "[b]ack to list"
+			actions = append(actions, table.TableAction{
+				Format: "[R]eclassify all",
+				Short:  "R",
+				Long:   "reclassify-all",
+				Action: func() error { return errReclassifyGroup },
+			})
+		}
+
+		selected, _, err := lc.buildTable(rows, prefix, backLabel, actions...).Run()
+		if err != nil {
+			if errors.Is(err, errReclassifyGroup) {
+				lc.reclassifyGroupInteractive(ctx, groupKey)
+				items = lc.refreshItems()
+				groupKey = ""
+				continue
+			}
+			if errors.Is(err, table.ErrBack) {
+				if groupKey != "" {
+					groupKey = ""
+					continue
+				}
+				return nil
+			}
+			if errors.Is(err, table.ErrUserInitiatedExit) {
 				return nil
 			}
 			return fmt.Errorf("table error: %w", err)
@@ -162,10 +420,16 @@ func (lc *listController) runInteractive() error {
 			continue
 		}
 
-		item := items[selected[0]]
+		row := rows[selected[0]]
+		if row.kind == rowGroup {
+			groupKey = row.groupKey
+			continue
+		}
+
+		item := row.item
 		printItemSummary(item)
 
-		done, back, actErr := lc.interactivePostSelect(item)
+		done, back, actErr := lc.interactivePostSelect(ctx, item)
 		if actErr != nil {
 			ancli.Errf("action error: %v", actErr)
 		}
@@ -173,11 +437,7 @@ func (lc *listController) runInteractive() error {
 			return nil
 		}
 		if back {
-			// Refresh items in case of deletion
-			items = lc.store.Snapshot()
-			sort.Slice(items, func(i, j int) bool {
-				return items[i].Name < items[j].Name
-			})
+			items = lc.refreshItems()
 			continue
 		}
 		// Default: exit after action
@@ -185,7 +445,7 @@ func (lc *listController) runInteractive() error {
 	}
 }
 
-func (lc *listController) interactivePostSelect(item model.Item) (done bool, back bool, err error) {
+func (lc *listController) interactivePostSelect(ctx context.Context, item model.Item) (done bool, back bool, err error) {
 	fmt.Printf("\n(press [d]elete, [r]eclassify, [i]nspect JSON, [s]ubtitles, [b]ack to list, [q]uit): ")
 	input, inputErr := table.ReadUserInput()
 	if inputErr != nil {
@@ -217,7 +477,7 @@ func (lc *listController) interactivePostSelect(item model.Item) (done bool, bac
 		if _, err := lc.store.ResetClassification(item.ID); err != nil {
 			return false, false, fmt.Errorf("reclassify: %w", err)
 		}
-		ancli.Okf("Classification reset for %v — the server will reclassify it on its next pass.", item.Name)
+		lc.reclassifyAndWatch(ctx, []model.Item{item}, item.Name)
 		return true, false, nil
 	case "s":
 		return lc.interactiveSubtitleManager(item)
@@ -228,6 +488,96 @@ func (lc *listController) interactivePostSelect(item model.Item) (done bool, bac
 	default:
 		ancli.Warnf("Unknown action: %q", input)
 		return false, false, nil
+	}
+}
+
+// reclassifyGroupInteractive confirms and reclassifies every member of the
+// given group drill-down, then watches the classification progress.
+func (lc *listController) reclassifyGroupInteractive(ctx context.Context, groupKey string) {
+	members := groupMembersOf(lc.items, groupKey)
+	if len(members) == 0 {
+		ancli.Warnf("no members in group %q", groupKey)
+		return
+	}
+	if !readYesNo(fmt.Sprintf("Reclassify %d item(s) in '%s'? This clears their metadata so the server re-classifies them. (y/N): ", len(members), groupKey)) {
+		ancli.Noticef("Cancelled.")
+		return
+	}
+	lc.reclassifyAndWatch(ctx, members, groupDisplayName(groupKey))
+}
+
+// reclassifyAndWatch resets the given items and watches classification
+// progress until every item has been attempted (or the user quits).
+func (lc *listController) reclassifyAndWatch(ctx context.Context, items []model.Item, label string) {
+	reset, failures := resetItems(lc.store, items)
+	for _, f := range failures {
+		ancli.Errf("%v", f)
+	}
+	if reset == 0 {
+		return
+	}
+	ancli.Okf("Classification reset for %d item(s) — watching for reclassification (q to quit)...", reset)
+	if err := watchClassificationProgress(ctx, lc.storePath, label, items, lc.maxAttempts, os.Stdout, progressWatchOptions{}); err != nil {
+		ancli.Errf("classification progress watch: %v", err)
+	}
+}
+
+// resetItems clears classification on every item, keeping one unwritable item
+// from stranding the rest. Reports how many were reset and any failures.
+func resetItems(store mediaStore, items []model.Item) (int, []error) {
+	var failures []error
+	reset := 0
+	for _, it := range items {
+		if _, err := store.ResetClassification(it.ID); err != nil {
+			failures = append(failures, fmt.Errorf("reclassify %q: %w", it.Name, err))
+			continue
+		}
+		reset++
+	}
+	return reset, failures
+}
+
+// refreshItems reloads the item list from disk — the server may have written
+// fresh metadata while the CLI was watching — and sorts it by name.
+func (lc *listController) refreshItems() []model.Item {
+	items := readItemsFromDisk(lc.storePath)
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
+	return items
+}
+
+// readItemsFromDisk loads every item JSON from the store directory, mirroring
+// the store's own load but without the stale in-memory cache.
+func readItemsFromDisk(storePath string) []model.Item {
+	entries, err := os.ReadDir(storePath)
+	if err != nil {
+		return nil
+	}
+	var items []model.Item
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		it, ok := readItemFromDisk(storePath, e.Name())
+		if !ok || it.ID == "" {
+			continue
+		}
+		items = append(items, it)
+	}
+	return items
+}
+
+// printGroupSummary prints the members of a group row.
+func printGroupSummary(row mediaRow) {
+	fmt.Printf("\nGroup: %v\n", row.groupKey)
+	fmt.Printf("Items: %d\n", len(row.members))
+	for i, m := range row.members {
+		meta := "✗"
+		if m.Metadata != nil {
+			meta = "✓"
+		}
+		fmt.Printf("  [%d] %-55s metadata=%v attempts=%d\n", i, truncateTo(m.Name, 55), meta, m.ClassificationAttempts)
 	}
 }
 
@@ -398,10 +748,12 @@ func addSubtitlePath(item *model.Item, filePath string) error {
 // numeric selection: everything before (navigation, filters) goes to the table,
 // the first numeric is the selection, and everything after is post-selection
 // dispatch. The "b" (back) post-selection action re-enters the table with
-// remaining tokens.
+// remaining tokens. Selecting a group row dispatches group-level actions
+// (r = reclassify the group, i = group summary); deleting a group is refused.
 func (lc *listController) runMacro(tokens []string) error {
 	items := lc.items
 	for len(tokens) > 0 {
+		rows := deriveRows(items, "")
 		tableTokens, remaining := splitAtSelection(tokens)
 		if len(tableTokens) == 0 {
 			return fmt.Errorf("no selectable token found in: %v", tokens)
@@ -409,14 +761,7 @@ func (lc *listController) runMacro(tokens []string) error {
 
 		input := strings.NewReader(strings.Join(tableTokens, "\n") + "\n")
 
-		selected, _, err := table.New(
-			table.SlicePaginator(items),
-			lc.rowFormatter,
-		).
-			WithHeader(mediaTableHeader()).
-			WithPageSize(lc.pageSize).
-			WithSingleSelect().
-			WithWriter(os.Stdout).
+		selected, _, err := lc.buildTable(rows, "", "").
 			WithInput(input).
 			Run()
 		if err != nil {
@@ -430,10 +775,46 @@ func (lc *listController) runMacro(tokens []string) error {
 			return fmt.Errorf("no item selected from tokens: %v", tableTokens)
 		}
 
-		item := items[selected[0]]
+		row := rows[selected[0]]
+		tokens = remaining
+
+		if row.kind == rowGroup {
+			if len(tokens) == 0 {
+				printGroupSummary(row)
+				return nil
+			}
+			action := tokens[0]
+			tokens = tokens[1:]
+			switch strings.ToLower(action) {
+			case "i":
+				printGroupSummary(row)
+				return nil
+			case "r":
+				if !lc.force && !readYesNo(fmt.Sprintf("Reclassify %d item(s) in '%s'? This clears their metadata so the server re-classifies them. (y/N): ", len(row.members), row.groupKey)) {
+					ancli.Noticef("Cancelled.")
+					return nil
+				}
+				reset, failures := resetItems(lc.store, row.members)
+				for _, f := range failures {
+					ancli.Errf("%v", f)
+				}
+				ancli.Okf("Classification reset for %d item(s) — the server will reclassify them on its next pass.", reset)
+				return nil
+			case "d":
+				return fmt.Errorf("cannot delete a group row (%q, %d items); drill in interactively to delete members", row.groupKey, len(row.members))
+			case "b":
+				items = lc.refreshItems()
+				continue
+			case "q":
+				return nil
+			default:
+				return fmt.Errorf("unknown group action: %q (valid: i, r, d, b, q)", action)
+			}
+		}
+
+		item := row.item
 		printItemSummary(item)
 
-		tokens = remaining
 		if len(tokens) == 0 {
 			return nil
 		}
@@ -501,10 +882,7 @@ func (lc *listController) runMacro(tokens []string) error {
 			return nil
 		case "b":
 			// Re-enter table loop with remaining tokens.
-			items = lc.store.Snapshot()
-			sort.Slice(items, func(i, j int) bool {
-				return items[i].Name < items[j].Name
-			})
+			items = lc.refreshItems()
 			continue
 		case "q":
 			return nil
@@ -583,38 +961,6 @@ func isAllDigits(s string) bool {
 		}
 	}
 	return true
-}
-
-// rowFormatter formats a single item as a table row with fixed-width columns.
-func (lc *listController) rowFormatter(idx int, item model.Item) (string, error) {
-	name := truncateTo(item.Name, 55)
-	mime := shortMIME(item.MIMEType)
-	metadata := "✗"
-	if item.Metadata != nil {
-		metadata = "✓"
-	}
-	attempts := strconv.Itoa(item.ClassificationAttempts)
-	subs := "✗"
-	if len(item.SubtitlePaths) > 0 {
-		subs = "✓"
-	}
-	size := fileSizeStr(item.Path)
-
-	return fmt.Sprintf(
-		"%-6d %-55s %-8s %-8s %-4s %-5s %10s",
-		idx,
-		name,
-		mime,
-		metadata,
-		attempts,
-		subs,
-		size,
-	), nil
-}
-
-func mediaTableHeader() string {
-	return fmt.Sprintf("%-6s %-55s %-8s %-8s %-4s %-5s %10s",
-		"Index", "Name", "Type", "Metadata", "Attr", "Subs", "Size")
 }
 
 func printItemSummary(item model.Item) {

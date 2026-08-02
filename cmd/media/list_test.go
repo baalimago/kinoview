@@ -216,10 +216,7 @@ func TestRowFormatter(t *testing.T) {
 		MIMEType: "video/x-matroska",
 		Path:     "/dev/null",
 	}
-	got, err := lc.rowFormatter(0, item)
-	if err != nil {
-		t.Fatalf("rowFormatter error: %v", err)
-	}
+	got := lc.itemRowFormatter(6, 0, item)
 	// Verify basic format: index, name, type, metadata, attempts, size
 	if len(got) == 0 {
 		t.Error("expected non-empty row")
@@ -228,40 +225,181 @@ func TestRowFormatter(t *testing.T) {
 	// With metadata.
 	raw := json.RawMessage(`{"title":"Test"}`)
 	item.Metadata = &raw
-	got, err = lc.rowFormatter(0, item)
-	if err != nil {
-		t.Fatalf("rowFormatter error: %v", err)
-	}
+	got = lc.itemRowFormatter(6, 0, item)
 	if len(got) == 0 {
 		t.Error("expected non-empty row with metadata")
 	}
 
 	// With subtitle paths — verify subs column shows ✓
 	item.SubtitlePaths = []string{"/some/sub.srt"}
-	got, err = lc.rowFormatter(0, item)
-	if err != nil {
-		t.Fatalf("rowFormatter error: %v", err)
-	}
+	got = lc.itemRowFormatter(6, 0, item)
 	if !strings.Contains(got, "✓") {
 		t.Error("expected ✓ for subs column when subtitles are associated")
 	}
 
 	// Without subtitle paths — verify subs column shows ✗
 	item.SubtitlePaths = nil
-	got, err = lc.rowFormatter(0, item)
-	if err != nil {
-		t.Fatalf("rowFormatter error: %v", err)
-	}
+	got = lc.itemRowFormatter(6, 0, item)
 	if !strings.Contains(got, "✗") {
 		t.Error("expected ✗ for subs column when no subtitles associated")
 	}
 }
 
 func TestMediaTableHeader(t *testing.T) {
-	h := mediaTableHeader()
+	h := mediaTableHeader(6)
 	if len(h) == 0 {
 		t.Error("expected non-empty header")
 	}
+	if !strings.Contains(h, "Index") || !strings.Contains(h, "Name") {
+		t.Error("expected column names in header")
+	}
+}
+
+func TestMaxIndexWidth(t *testing.T) {
+	rows := []mediaRow{
+		{kind: rowItem},
+		{kind: rowGroup, members: []model.Item{{}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}, {}}}, // [group:12]
+	}
+	got := maxIndexWidth(rows)
+	// "1 [group:12]" is 12 runes
+	if got < 12 {
+		t.Errorf("maxIndexWidth = %d, want >= 12", got)
+	}
+}
+
+func TestGroupRowFormatter(t *testing.T) {
+	raw := json.RawMessage(`{"title":"Ep"}`)
+	members := []model.Item{
+		{Name: "Show.S01E01.mkv", MIMEType: "video/mp4", Path: "/media/Show/Season 1/Show.S01E01.mkv"},
+		{Name: "Show.S01E02.mkv", MIMEType: "video/mp4", Path: "/media/Show/Season 1/Show.S01E02.mkv", Metadata: &raw},
+	}
+	lc := &listController{}
+	row := mediaRow{kind: rowGroup, groupKey: "/media/Show/Season 1", members: members}
+	got := lc.groupRowFormatter(12, 0, row)
+	if !strings.Contains(got, "[group:2]") {
+		t.Errorf("expected [group:2] in row, got: %q", got)
+	}
+	if !strings.Contains(got, "Season 1") {
+		t.Errorf("expected directory base name in row, got: %q", got)
+	}
+	if !strings.Contains(got, "1/2") {
+		t.Errorf("expected done/total metadata in row, got: %q", got)
+	}
+}
+
+func TestGroupKeyForItem(t *testing.T) {
+	it := model.Item{Path: "/media/Show/Season 1/Show.S01E01.mkv"}
+	if got := groupKeyForItem(it); got != "/media/Show/Season 1" {
+		t.Errorf("groupKeyForItem = %q, want %q", got, "/media/Show/Season 1")
+	}
+	if got := groupDisplayName("/media/Show/Season 1"); got != "Season 1" {
+		t.Errorf("groupDisplayName = %q, want %q", got, "Season 1")
+	}
+	if got := groupDisplayName("/"); got != "/" {
+		t.Errorf("groupDisplayName(/) = %q, want /", got)
+	}
+}
+
+func TestDeriveRows(t *testing.T) {
+	seasonDir := "/media/TV/Show/Season 1"
+	movieDir := "/media/Movies/A Movie (2020)"
+	items := []model.Item{
+		{Name: "Show.S01E01.mkv", Path: seasonDir + "/Show.S01E01.mkv", MIMEType: "video/mp4"},
+		{Name: "Show.S01E02.mkv", Path: seasonDir + "/Show.S01E02.mkv", MIMEType: "video/mp4"},
+		{Name: "poster.jpg", Path: movieDir + "/poster.jpg", MIMEType: "image/jpeg"},
+		{Name: "A.Movie.mkv", Path: movieDir + "/A.Movie.mkv", MIMEType: "video/mp4"},
+	}
+
+	rows := deriveRows(items, "")
+	if len(rows) != 3 {
+		t.Fatalf("deriveRows returned %d rows, want 3", len(rows))
+	}
+	// Season groups into one row; the movie folder stays two plain rows
+	// (the image never joins the video grouping).
+	if rows[0].kind != rowGroup || len(rows[0].members) != 2 {
+		t.Errorf("expected group row with 2 members, got %+v", rows[0])
+	}
+	if rows[0].groupKey != seasonDir {
+		t.Errorf("group key = %q, want %q", rows[0].groupKey, seasonDir)
+	}
+	if rows[1].kind != rowItem || rows[2].kind != rowItem {
+		t.Errorf("expected two item rows for the movie folder, got %+v %+v", rows[1], rows[2])
+	}
+
+	// Drill-down view filters to the group's members only.
+	memberRows := deriveRows(items, seasonDir)
+	if len(memberRows) != 2 {
+		t.Fatalf("drill-down returned %d rows, want 2", len(memberRows))
+	}
+	for _, r := range memberRows {
+		if r.kind != rowItem || r.groupKey != seasonDir {
+			t.Errorf("unexpected member row: %+v", r)
+		}
+	}
+
+	// A directory with a single video stays ungrouped.
+	single := []model.Item{
+		{Name: "Lone.mkv", Path: "/media/Solo/Lone.mkv", MIMEType: "video/mp4"},
+	}
+	rows = deriveRows(single, "")
+	if len(rows) != 1 || rows[0].kind != rowItem {
+		t.Errorf("expected single ungrouped item row, got %+v", rows)
+	}
+}
+
+func TestResetItems(t *testing.T) {
+	store := &fakeMediaStore{resetCalls: []string{}}
+	items := []model.Item{
+		{ID: "a", Name: "One.mkv"},
+		{ID: "b", Name: "Two.mkv"},
+	}
+	reset, failures := resetItems(store, items)
+	if reset != 2 {
+		t.Errorf("reset = %d, want 2", reset)
+	}
+	if len(failures) != 0 {
+		t.Errorf("unexpected failures: %v", failures)
+	}
+	if len(store.resetCalls) != 2 {
+		t.Errorf("expected 2 ResetClassification calls, got %d", len(store.resetCalls))
+	}
+}
+
+func TestResetItemsKeepsGoingOnError(t *testing.T) {
+	store := &fakeMediaStore{
+		resetCalls: []string{},
+		failIDs:    map[string]bool{"a": true},
+	}
+	items := []model.Item{
+		{ID: "a", Name: "One.mkv"},
+		{ID: "b", Name: "Two.mkv"},
+	}
+	reset, failures := resetItems(store, items)
+	if reset != 1 {
+		t.Errorf("reset = %d, want 1", reset)
+	}
+	if len(failures) != 1 {
+		t.Errorf("expected 1 failure, got %d: %v", len(failures), failures)
+	}
+}
+
+// fakeMediaStore implements mediaStore for controller-level tests.
+type fakeMediaStore struct {
+	resetCalls []string
+	failIDs    map[string]bool
+}
+
+func (f *fakeMediaStore) Snapshot() []model.Item                           { return nil }
+func (f *fakeMediaStore) UpdateItem(model.Item) error                      { return nil }
+func (f *fakeMediaStore) DeleteItem(id string) error                       { return nil }
+func (f *fakeMediaStore) ClearClassificationStopLoss(string) (bool, error) { return false, nil }
+func (f *fakeMediaStore) ClassificationMaxAttempts() int                   { return 5 }
+func (f *fakeMediaStore) ResetClassification(id string) (bool, error) {
+	f.resetCalls = append(f.resetCalls, id)
+	if f.failIDs != nil && f.failIDs[id] {
+		return false, fmt.Errorf("boom")
+	}
+	return true, nil
 }
 
 func TestFormatMetadata(t *testing.T) {
