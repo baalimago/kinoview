@@ -147,7 +147,7 @@ func (c *classifier) Classify(ctx context.Context, i model.Item) (model.Item, er
 	if err != nil {
 		return model.Item{}, fmt.Errorf("failed to query llm: %v", err)
 	}
-	lastMsg, err := extractSystemMessage(respChat)
+	lastMsg, err := extractLastMessage(respChat)
 	if err != nil {
 		return model.Item{}, err
 	}
@@ -180,8 +180,11 @@ func buildChat(i model.Item, t0 time.Time) models.Chat {
 	}
 }
 
-func extractSystemMessage(respChat models.Chat) (models.Message, error) {
-	lastMsg, _, err := respChat.LastOfRole("system")
+func extractLastMessage(respChat models.Chat) (models.Message, error) {
+	// clai >= v1.10.16 appends the model reply with role "assistant"; older
+	// versions used "system". Grabbing "system" now returns the prompt itself,
+	// whose annotated format example is not valid json (parens after values).
+	lastMsg, _, err := respChat.LastOfRole("assistant")
 	if err != nil {
 		return models.Message{}, fmt.Errorf("failed to get last message of role: %w", err)
 	}

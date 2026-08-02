@@ -31,7 +31,7 @@ func TestRecommend_OK(t *testing.T) {
 		resp: models.Chat{
 			Messages: []models.Message{
 				{
-					Role:    "system",
+					Role:    "assistant",
 					Content: `{"mediaId":"2"}`,
 				},
 			},
@@ -83,7 +83,7 @@ func TestRecommend_ParseError(t *testing.T) {
 	f := &fakeLLM{
 		resp: models.Chat{
 			Messages: []models.Message{
-				{Role: "system", Content: "no json here"},
+				{Role: "assistant", Content: "no json here"},
 			},
 		},
 	}
@@ -98,7 +98,7 @@ func TestRecommend_IDNotFound(t *testing.T) {
 	f := &fakeLLM{
 		resp: models.Chat{
 			Messages: []models.Message{
-				{Role: "system", Content: `{"mediaId":"404"}`},
+				{Role: "assistant", Content: `{"mediaId":"404"}`},
 			},
 		},
 	}

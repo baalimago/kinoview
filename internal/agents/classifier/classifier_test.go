@@ -176,7 +176,7 @@ func TestClassify(t *testing.T) {
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
 					Messages: []models.Message{
-						{Role: "system", Content: expectedJSON},
+						{Role: "assistant", Content: expectedJSON},
 					},
 				}, nil
 			},
@@ -218,12 +218,12 @@ func TestClassify(t *testing.T) {
 		}
 	})
 
-	t.Run("no system message", func(t *testing.T) {
+	t.Run("no assistant message", func(t *testing.T) {
 		mockLLM := &mockLLM{
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
 					Messages: []models.Message{
-						{Role: "user", Content: "not system"},
+						{Role: "user", Content: "not assistant"},
 					},
 				}, nil
 			},
@@ -243,7 +243,7 @@ func TestClassify(t *testing.T) {
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
 					Messages: []models.Message{
-						{Role: "system", Content: "no braces here"},
+						{Role: "assistant", Content: "no braces here"},
 					},
 				}, nil
 			},
@@ -263,7 +263,7 @@ func TestClassify(t *testing.T) {
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
 					Messages: []models.Message{
-						{Role: "system", Content: "{{missing close"},
+						{Role: "assistant", Content: "{{missing close"},
 					},
 				}, nil
 			},
@@ -284,7 +284,7 @@ func TestClassify(t *testing.T) {
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
 					Messages: []models.Message{
-						{Role: "system", Content: "{invalid: json,}"},
+						{Role: "assistant", Content: "{invalid: json,}"},
 					},
 				}, nil
 			},
@@ -305,7 +305,7 @@ func TestClassify(t *testing.T) {
 			queryFunc: func(ctx context.Context, c models.Chat) (models.Chat, error) {
 				return models.Chat{
 					Messages: []models.Message{
-						{Role: "system", Content: content},
+						{Role: "assistant", Content: content},
 					},
 				}, nil
 			},

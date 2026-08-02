@@ -98,7 +98,7 @@ func (r *recommender) Recommend(
 			err,
 		)
 	}
-	lastMsg, _, err := resp.LastOfRole("system")
+	lastMsg, _, err := resp.LastOfRole("assistant")
 	if err != nil {
 		return model.Item{}, fmt.Errorf(
 			"failed to get last message: %v",
