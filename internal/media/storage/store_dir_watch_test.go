@@ -334,3 +334,73 @@ func Test_watchStoreDir_ignoresServerWrites(t *testing.T) {
 	default:
 	}
 }
+
+// A cooldown drop must not silently strand the item: it is marked for the
+// requeue loop to retry once the cooldown expires.
+func Test_AddToClassificationQueue_cooldownDropMarkedForRequeue(t *testing.T) {
+	s := NewStore(WithStorePath(t.TempDir()), WithClassificationStartupCooldown(time.Hour))
+	s.classificationStationStartTime = time.Now()
+	s.started.Store(true)
+	s.rateLimiter = newRateLimiter(100, 100)
+
+	s.AddToClassificationQueue(model.Item{ID: "a", Name: "a.mkv"})
+
+	s.pendingRequeueMu.Lock()
+	_, pending := s.pendingRequeue["a"]
+	s.pendingRequeueMu.Unlock()
+	if !pending {
+		t.Error("cooldown-dropped item was not marked for requeue")
+	}
+}
+
+// A rate-limit drop must be marked for the requeue loop as well.
+func Test_AddToClassificationQueue_rateDropMarkedForRequeue(t *testing.T) {
+	s := NewStore(WithStorePath(t.TempDir()), WithClassificationStartupCooldown(0))
+	s.started.Store(true)
+	// Never earns a token: every attempt is dropped.
+	s.rateLimiter = &rateLimiter{interval: time.Hour, burst: 0, tokens: 0, last: time.Now()}
+
+	s.AddToClassificationQueue(model.Item{ID: "a", Name: "a.mkv"})
+
+	s.pendingRequeueMu.Lock()
+	_, pending := s.pendingRequeue["a"]
+	s.pendingRequeueMu.Unlock()
+	if !pending {
+		t.Error("rate-dropped item was not marked for requeue")
+	}
+}
+
+// End-to-end: an item dropped by the startup cooldown is re-presented by the
+// requeue loop once the cooldown expires, and gets enqueued.
+func Test_requeueLoop_recoversCooldownDroppedItem(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(50*time.Millisecond))
+	s.classificationStationStartTime = time.Now()
+	seedItem(t, s, model.Item{ID: "a", Name: "a.mkv", Path: "/media/a.mkv", MIMEType: "video/mp4"})
+	s.started.Store(true)
+	s.rateLimiter = newRateLimiter(100, 100)
+
+	got := make(chan model.Item, 1)
+	go func() {
+		select {
+		case c := <-s.classificationRequest:
+			got <- c.item
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go s.requeueLoop(ctx, 10*time.Millisecond)
+
+	// Presented during the cooldown window → dropped and marked.
+	s.AddToClassificationQueue(model.Item{ID: "a", Name: "a.mkv", Path: "/media/a.mkv", MIMEType: "video/mp4"})
+
+	select {
+	case item := <-got:
+		if item.ID != "a" {
+			t.Errorf("enqueued %q, want a", item.ID)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("cooldown-dropped item was never re-presented")
+	}
+}

@@ -98,6 +98,8 @@ func (r *rateLimiter) peek() bool {
 // AddToClassificationQueue by pushing the item to the back of the queue.
 // Items may be dropped if: already in flight, startup cooldown is active,
 // rate limit is exceeded, or the downstream work queue is at capacity.
+// Items dropped by cooldown, rate limit, a full queue, or memory pressure are
+// marked for retry by the requeue loop, so "deferring" actually defers.
 func (s *store) AddToClassificationQueue(i model.Item) {
 	// classificationRequest is unbuffered and only drained by the classification
 	// station, which Start spawns. Anything using the store WITHOUT starting it —
@@ -118,12 +120,14 @@ func (s *store) AddToClassificationQueue(i model.Item) {
 				s.classificationStartupCooldown-time.Since(s.classificationStationStartTime),
 				i.Name)
 			s.inFlight.Delete(i.ID)
+			s.markPendingRequeue(i.ID)
 			return
 		}
 	}
 	if s.rateLimiter != nil && !s.rateLimiter.allow() {
 		ancli.Warnf("classification rate limit reached, dropping: %v", i.Name)
 		s.inFlight.Delete(i.ID)
+		s.markPendingRequeue(i.ID)
 		return
 	}
 	s.classificationRequest <- classificationCandidate{
@@ -225,6 +229,7 @@ func (s *store) StartClassificationStation(ctx context.Context) error {
 				if s.memoryHigh() {
 					s.inFlight.Delete(c.item.ID)
 					ancli.Warnf("[%v] memory pressure high, dropping: %v", c.correlationID, c.item.Name)
+					s.markPendingRequeue(c.item.ID)
 					continue
 				}
 				select {
@@ -234,6 +239,7 @@ func (s *store) StartClassificationStation(ctx context.Context) error {
 				default:
 					s.inFlight.Delete(c.item.ID)
 					ancli.Warnf("[%v] classification queue full, dropping: %v", c.correlationID, c.item.Name)
+					s.markPendingRequeue(c.item.ID)
 				}
 			case r := <-resChan:
 				amToClassify--

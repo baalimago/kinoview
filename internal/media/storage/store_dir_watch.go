@@ -136,6 +136,9 @@ func (s *store) tryRequeue(id string) {
 	if s.classificationStartupCooldown > 0 && time.Since(s.classificationStationStartTime) < s.classificationStartupCooldown {
 		return // cooldown still active; retry on a later tick
 	}
+	if s.memoryHigh() {
+		return // memory pressure; retry on a later tick
+	}
 	if s.rateLimiter != nil && !s.rateLimiter.peek() {
 		return // no token yet; retry on a later tick
 	}
