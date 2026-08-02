@@ -263,12 +263,13 @@ func mediaTableHeader(idxWidth int) string {
 }
 
 // buildTable assembles a configured table for the given rows. prefix, when
-// non-empty, is prepended to the header (used for the group drill-down label).
+// non-empty, is printed as its own line above the header (used for the group
+// drill-down label), so the header columns stay aligned with the data rows.
 func (lc *listController) buildTable(rows []mediaRow, prefix, backLabel string, actions ...table.TableAction) *table.Table[mediaRow] {
 	idxWidth := maxIndexWidth(rows)
 	header := mediaTableHeader(idxWidth)
 	if prefix != "" {
-		header = prefix + " — " + header
+		header = prefix + "\n" + header
 	}
 
 	tb := table.New(
