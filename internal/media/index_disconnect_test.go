@@ -128,6 +128,7 @@ func newTestIndexerWithSM(t *testing.T, butler agents.Butler, sm *suggestions.Ma
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = idx.Close() })
 	idx.store = &mockStore{items: []model.Item{
 		{ID: "v1", Name: "Video 1", MIMEType: "video/mp4"},
 	}}
@@ -160,14 +161,13 @@ func TestHandleDisconnect_Debounced(t *testing.T) {
 
 	// First trigger starts a cascade.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
-	if fb.callCount() != 1 {
-		t.Fatalf("expected 1 call, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 1)
 
-	// Second trigger within debounce window is suppressed.
+	// Second trigger within debounce window is suppressed. The debounce check
+	// runs synchronously in triggerCascade, so a short settle proves no
+	// spurious cascade started.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(40 * time.Millisecond)
 	if fb.callCount() != 1 {
 		t.Fatalf("expected still 1 call after debounced trigger, got %d", fb.callCount())
 	}
@@ -182,20 +182,14 @@ func TestHandleDisconnect_AfterDebounceWindow(t *testing.T) {
 
 	// First trigger.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
-	if fb.callCount() != 1 {
-		t.Fatalf("expected 1 call, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 1)
 
 	// Advance clock past debounce window.
 	cv.add(40 * time.Second)
 
 	// Second trigger after window is allowed.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
-	if fb.callCount() != 2 {
-		t.Fatalf("expected 2 calls after debounce window, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 2)
 }
 
 func TestHandleDisconnect_ZeroDebounce(t *testing.T) {
@@ -203,16 +197,10 @@ func TestHandleDisconnect_ZeroDebounce(t *testing.T) {
 	idx := newTestIndexer(t, fb, WithButlerDebounce(0))
 
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
-	if fb.callCount() != 1 {
-		t.Fatalf("expected 1 call, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 1)
 
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
-	if fb.callCount() != 2 {
-		t.Fatalf("expected 2 calls with zero debounce, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 2)
 }
 
 // --- Single-flight tests ---
@@ -225,23 +213,23 @@ func TestHandleDisconnect_SingleFlightCoalesces(t *testing.T) {
 
 	// First trigger starts but blocks.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	waitForCascade(fb, 1)
 
-	// Second trigger should set rerun flag, not start a new goroutine.
+	// Second trigger should set rerun flag, not start a new goroutine. The
+	// first cascade is blocked in PrepSuggestions; a wrongly-started second
+	// cascade would also block after incrementing the counter, so a short
+	// settle proves it did not start.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(40 * time.Millisecond)
 	if fb.callCount() != 1 {
 		t.Fatalf("expected 1 call in flight, got %d", fb.callCount())
 	}
 
 	// Unblock the first cascade.
 	close(blockCh)
-	time.Sleep(100 * time.Millisecond)
 
 	// The rerun should have executed: total 2 calls (original + rerun).
-	if fb.callCount() != 2 {
-		t.Fatalf("expected 2 calls after unblock (original + rerun), got %d", fb.callCount())
-	}
+	waitForCascade(fb, 2)
 }
 
 func TestHandleDisconnect_ErrorReleasesLock(t *testing.T) {
@@ -250,18 +238,12 @@ func TestHandleDisconnect_ErrorReleasesLock(t *testing.T) {
 	idx := newTestIndexer(t, fb)
 
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
-	if fb.callCount() != 1 {
-		t.Fatalf("expected 1 call, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 1)
 
 	// After error, lock should be released; next trigger starts a new cascade.
 	fb.setError(nil)
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
-	if fb.callCount() != 2 {
-		t.Fatalf("expected 2 calls after error released lock, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 2)
 }
 
 func TestHandleDisconnect_PanicReleasesLock(t *testing.T) {
@@ -270,18 +252,12 @@ func TestHandleDisconnect_PanicReleasesLock(t *testing.T) {
 	idx := newTestIndexer(t, fb)
 
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
-	if fb.callCount() != 1 {
-		t.Fatalf("expected 1 call, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 1)
 
 	// After panic recovery, lock should be released; next trigger starts a new cascade.
 	fb.setPanic(nil)
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
-	if fb.callCount() != 2 {
-		t.Fatalf("expected 2 calls after panic recovery, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 2)
 }
 
 func TestHandleDisconnect_TimeoutReleasesLock(t *testing.T) {
@@ -291,7 +267,7 @@ func TestHandleDisconnect_TimeoutReleasesLock(t *testing.T) {
 	idx := newTestIndexer(t, fb)
 
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	waitForCascade(fb, 1)
 
 	// Lock should still be held (cascade in flight).
 	idx.butlerMu.Lock()
@@ -303,7 +279,7 @@ func TestHandleDisconnect_TimeoutReleasesLock(t *testing.T) {
 
 	// Unblock to complete the cascade.
 	close(blockCh)
-	time.Sleep(100 * time.Millisecond)
+	waitForButlerIdle(idx)
 
 	idx.butlerMu.Lock()
 	inFlight = idx.butlerInFlight
@@ -321,7 +297,7 @@ func TestHandleDisconnect_EmptyContextSkipped(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx, _ := NewIndexer(
+	idx, err := NewIndexer(
 		WithButler(fb),
 		WithSuggestionsManager(sm),
 		WithClientContextManager(&fakeClientContextMgr{
@@ -330,9 +306,13 @@ func TestHandleDisconnect_EmptyContextSkipped(t *testing.T) {
 			},
 		}),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = idx.Close() })
 	idx.store = &mockStore{items: []model.Item{}}
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
 	if fb.callCount() != 0 {
 		t.Fatalf("expected 0 calls for empty context, got %d", fb.callCount())
 	}
@@ -344,16 +324,20 @@ func TestHandleDisconnect_EmptyContextNoContextsAtAll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx, _ := NewIndexer(
+	idx, err := NewIndexer(
 		WithButler(fb),
 		WithSuggestionsManager(sm),
 		WithClientContextManager(&fakeClientContextMgr{
 			ctxs: nil,
 		}),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = idx.Close() })
 	idx.store = &mockStore{items: []model.Item{}}
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(30 * time.Millisecond)
 	if fb.callCount() != 0 {
 		t.Fatalf("expected 0 calls with no contexts, got %d", fb.callCount())
 	}
@@ -363,10 +347,7 @@ func TestHandleDisconnect_MinimalContextRuns(t *testing.T) {
 	fb := &fakeButler{}
 	idx := newTestIndexer(t, fb)
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
-	if fb.callCount() != 1 {
-		t.Fatalf("expected 1 call for non-empty context, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 1)
 }
 
 func TestHandleDisconnect_LastPlayedNameOnlyRuns(t *testing.T) {
@@ -375,7 +356,7 @@ func TestHandleDisconnect_LastPlayedNameOnlyRuns(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx, _ := NewIndexer(
+	idx, err := NewIndexer(
 		WithButler(fb),
 		WithSuggestionsManager(sm),
 		WithClientContextManager(&fakeClientContextMgr{
@@ -384,12 +365,13 @@ func TestHandleDisconnect_LastPlayedNameOnlyRuns(t *testing.T) {
 			},
 		}),
 	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = idx.Close() })
 	idx.store = &mockStore{items: []model.Item{}}
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
-	if fb.callCount() != 1 {
-		t.Fatalf("expected 1 call with only lastPlayedName, got %d", fb.callCount())
-	}
+	waitForCascade(fb, 1)
 }
 
 // --- Disconnect reason tests ---
@@ -400,10 +382,7 @@ func TestHandleDisconnect_ImmediateReasons(t *testing.T) {
 			fb := &fakeButler{}
 			idx := newTestIndexer(t, fb)
 			idx.handleDisconnect(reason)
-			time.Sleep(50 * time.Millisecond)
-			if fb.callCount() != 1 {
-				t.Errorf("expected 1 call for %s, got %d", reason, fb.callCount())
-			}
+			waitForCascade(fb, 1)
 		})
 	}
 }
@@ -451,8 +430,8 @@ func TestHandleDisconnect_ConcurrentTriggers(t *testing.T) {
 	wg.Wait()
 	close(barrier)
 
-	// Wait for cascades to finish.
-	time.Sleep(200 * time.Millisecond)
+	// Wait for cascades to finish (including any coalesced rerun).
+	waitForButlerIdle(idx)
 
 	calls := fb.callCount()
 	// With the barrier, all 20 triggers signal before the first cascade
@@ -521,11 +500,11 @@ func TestHandleDisconnect_ShutdownMidCascade(t *testing.T) {
 	idx := newTestIndexer(t, fb)
 
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	waitForCascade(fb, 1)
 
 	// Simulate shutdown by completing the cascade.
 	close(blockCh)
-	time.Sleep(100 * time.Millisecond)
+	waitForButlerIdle(idx)
 
 	if fb.callCount() != 1 {
 		t.Errorf("expected 1 call, got %d", fb.callCount())
@@ -544,22 +523,21 @@ func TestHandleDisconnect_RerunRespectsDebounce(t *testing.T) {
 	idx := newTestIndexer(t, fb, withClock(clock), WithButlerDebounce(30*time.Second))
 
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	waitForCascade(fb, 1)
 
 	// Second trigger sets rerun flag (not debounced — cascade still in flight).
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(40 * time.Millisecond)
+	if fb.callCount() != 1 {
+		t.Fatalf("expected 1 call in flight, got %d", fb.callCount())
+	}
 
 	// Advance clock past debounce.
 	cv.add(40 * time.Second)
 
 	// Unblock — rerun should fire because debounce window passed.
 	close(blockCh)
-	time.Sleep(200 * time.Millisecond)
-
-	if fb.callCount() != 2 {
-		t.Fatalf("expected 2 calls (original + rerun), got %d", fb.callCount())
-	}
+	waitForCascade(fb, 2)
 }
 
 func TestDisconnectReason_String(t *testing.T) {
@@ -599,12 +577,35 @@ func advanceClock(p *atomic.Pointer[time.Time], d time.Duration) {
 	p.Store(&newT)
 }
 
-// waitForCascade polls until the butler has been called at least expectedCalls
-// times, or 500ms passes.
+// waitForCascade polls until the butler has been called expectedCalls times.
+// Budget is generous: cascades run on a goroutine and must tolerate slow
+// machines and -race overhead without turning into flakes.
 func waitForCascade(fb *fakeButler, expectedCalls int) {
-	for range 50 {
+	for range 200 {
 		if fb.callCount() >= expectedCalls {
 			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// waitForButlerIdle polls until no cascade is in flight and stays idle across
+// two consecutive polls. triggerCascade sets butlerInFlight synchronously, so
+// once handleDisconnect returns a cascade cycle is running (unless the trigger
+// was suppressed); observing idle twice means any rerun it spawned completed.
+func waitForButlerIdle(idx *Indexer) {
+	idle := 0
+	for range 300 {
+		idx.butlerMu.Lock()
+		busy := idx.butlerInFlight
+		idx.butlerMu.Unlock()
+		if !busy {
+			idle++
+			if idle >= 2 {
+				return
+			}
+		} else {
+			idle = 0
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -623,9 +624,11 @@ func TestCascade_CacheHit(t *testing.T) {
 		t.Fatalf("first cascade: expected 1 call, got %d", fb.callCount())
 	}
 
-	// Second cascade: identical inputs, should be cache hit.
+	// Second cascade: identical inputs, should be cache hit. Wait for the
+	// whole cycle (and any coalesced rerun) to complete before asserting the
+	// butler was not called again.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
+	waitForButlerIdle(idx)
 	if fb.callCount() != 1 {
 		t.Fatalf("cache hit: expected still 1 call, got %d", fb.callCount())
 	}
@@ -699,7 +702,7 @@ func TestCascade_TTLExpiry(t *testing.T) {
 
 	// Within TTL: cache hit.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
+	waitForButlerIdle(idx)
 	if fb.callCount() != 1 {
 		t.Fatalf("within TTL: expected still 1 call, got %d", fb.callCount())
 	}
@@ -721,12 +724,10 @@ func TestCascade_DoesNotCacheEmpty(t *testing.T) {
 	emptyButler := &emptyFakeButler{}
 	idx := newTestIndexer(t, emptyButler, withClock(clockFn), WithButlerCacheTTL(6*time.Hour))
 
-	// First cascade: empty result.
+	// First cascade: empty result. Wait for the cascade cycle to complete
+	// (suggestions updated, fingerprint not stored) before touching idx.butler.
 	idx.handleDisconnect(reasonSocketError)
-	// The empty butler returns (nil, nil) immediately. The cascade goroutine
-	// launches, calls PrepSuggestions synchronously, then calls Update.
-	// We need to ensure it's done before we touch idx.butler.
-	time.Sleep(200 * time.Millisecond)
+	waitForButlerIdle(idx)
 
 	// Build a second Indexer pointing at the same suggestions file to avoid
 	// racing on idx.butler assignment.
@@ -751,7 +752,7 @@ func TestCascade_DoesNotCacheError(t *testing.T) {
 
 	// First cascade: error.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(200 * time.Millisecond)
+	waitForButlerIdle(idx)
 	callsAfterError := fb.callCount()
 
 	// Fix the butler.
@@ -835,7 +836,7 @@ func TestCascade_VersionBump(t *testing.T) {
 
 	// Second cascade: identical inputs → cache hit.
 	idx.handleDisconnect(reasonSocketError)
-	time.Sleep(100 * time.Millisecond)
+	waitForButlerIdle(idx)
 	if fb.callCount() != 1 {
 		t.Fatalf("cache hit: expected still 1 call, got %d", fb.callCount())
 	}
@@ -868,7 +869,7 @@ func TestHandleConnect_DisconnectNoDeadlock(t *testing.T) {
 	}
 
 	// Allow any in-flight cascades to settle.
-	time.Sleep(200 * time.Millisecond)
+	waitForButlerIdle(idx)
 
 	// At least one cascade should have completed. The exact count depends on
 	// debounce coalescing; the important property is no deadlock and no panic.

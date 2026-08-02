@@ -73,7 +73,7 @@ func cleanTitle(s string) string {
 		"repack": true, "extended": true, "unrated": true,
 	}
 	var keep []string
-	for _, f := range strings.Fields(s) {
+	for f := range strings.FieldsSeq(s) {
 		if noise[strings.ToLower(f)] {
 			// Everything after the first noise token is almost always more of
 			// the same, so stop rather than filter word by word.

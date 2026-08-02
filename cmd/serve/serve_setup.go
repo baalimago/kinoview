@@ -81,6 +81,9 @@ func (c *command) Setup(ctx context.Context) error {
 		storage.WithClassificationStartupCooldown(*c.classificationStartupCooldown),
 		storage.WithStartupWriteDelay(*c.startupWriteDelay),
 	)
+	// Give shutdown a wait point: cancelling the context stops the store's
+	// goroutines, and Wait guarantees deferred writes flush before exit.
+	c.storeWait = store.Wait
 
 	////////////
 	// Classifier setup

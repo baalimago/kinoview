@@ -29,6 +29,7 @@ type store struct {
 	subtitleManager agents.StreamManager
 
 	classifier               agents.Classifier
+	classifierMu             sync.RWMutex
 	classificationLogsOutdir string
 	classificationWorkers    int
 	classifierErrors         chan error
@@ -45,6 +46,11 @@ type store struct {
 	memoryThreshold                float64
 	classificationMaxAttempts      int
 
+	// totalMemory returns the machine's total RAM in bytes. Defaults to
+	// totalSystemMemory; tests override it per store so the memory guard is
+	// deterministic without mutating package-global state.
+	totalMemory func() uint64
+
 	inFlight sync.Map
 
 	startupWriteWindow      time.Duration
@@ -58,6 +64,10 @@ type store struct {
 	pendingRequeue   map[string]struct{}
 
 	readyChan chan struct{}
+
+	// wg tracks every background goroutine Start spawns so Wait can block
+	// until they have all exited.
+	wg sync.WaitGroup
 
 	debug bool
 }
@@ -78,7 +88,9 @@ func WithClassifier(classifier agents.Classifier) StoreOption {
 
 // SetClassifier allows updating the classifier after store creation.
 func (s *store) SetClassifier(c agents.Classifier) {
+	s.classifierMu.Lock()
 	s.classifier = c
+	s.classifierMu.Unlock()
 }
 
 func WithStorePath(storePath string) StoreOption {
@@ -178,6 +190,7 @@ func NewStore(opts ...StoreOption) *store {
 		startupWriteWindow:            30 * time.Second,
 		dirty:                         make(map[string]struct{}),
 		pendingRequeue:                make(map[string]struct{}),
+		totalMemory:                   totalSystemMemory,
 
 		// Buffered chanel to not cause regression since it's currently only used in classify
 		// Large enough buffre to ever cause congestion due to waiting for it to be ready
@@ -282,9 +295,12 @@ func (s *store) Setup(ctx context.Context) (<-chan error, error) {
 		return nil, fmt.Errorf("jsonStore Setup failed to load persisted items: %w", err)
 	}
 
-	if s.classifier != nil {
+	s.classifierMu.RLock()
+	cl := s.classifier
+	s.classifierMu.RUnlock()
+	if cl != nil {
 		ancli.Noticef("setting up classifier")
-		err = s.classifier.Setup(ctx)
+		err = cl.Setup(ctx)
 		if err != nil {
 			ancli.Errf("failed to setup classifier, classifications wont be possible. Err: %v", err)
 		}
@@ -304,19 +320,32 @@ func (s *store) Start(ctx context.Context) {
 	s.started.Store(true)
 	s.rateLimiter = newRateLimiter(s.classificationRate, s.classificationBurst)
 	s.startupWriteWindowStart.Store(time.Now().UnixNano())
-	go func() {
+	s.wg.Go(func() {
 		err := s.StartClassificationStation(ctx)
 		if err != nil {
 			s.classifierErrors <- fmt.Errorf("failed to start classification station: %w", err)
 		}
-	}()
+	})
 	if s.startupWriteWindow > 0 {
-		go s.flushAfterWindow(ctx)
+		s.wg.Go(func() {
+			s.flushAfterWindow(ctx)
+		})
 	}
 	// Pick up classification resets the CLI writes straight to the store
 	// directory, and keep retrying them until the station accepts them.
-	go s.watchStoreDir(ctx)
-	go s.requeueLoop(ctx, requeueRetryInterval)
+	s.wg.Go(func() {
+		s.watchStoreDir(ctx)
+	})
+	s.wg.Go(func() {
+		s.requeueLoop(ctx, requeueRetryInterval)
+	})
+}
+
+// Wait blocks until all background goroutines spawned by Start and
+// StartClassificationStation have exited. Call it after cancelling the store's
+// context so deferred writes land on disk before shutdown proceeds.
+func (s *store) Wait() {
+	s.wg.Wait()
 }
 
 // generateID by creating a hash using sha256 on the contents of item.Path

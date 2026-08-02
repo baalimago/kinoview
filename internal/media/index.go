@@ -49,6 +49,10 @@ type watcher interface {
 	// Watch the path, error on catastrophic failure to start
 	// Will propagate errors via error cannel from Setup
 	Watch(ctx context.Context, path string) error
+
+	// Close releases any OS resources (e.g. inotify instances) held by the
+	// watcher. Idempotent.
+	Close() error
 }
 
 // errorListener is slightly overengineered. But we don't care about that
@@ -423,6 +427,16 @@ func (i *Indexer) Start(ctx context.Context) error {
 			return nil
 		}
 	}
+}
+
+// Close releases the filesystem watcher created by NewIndexer. Safe to call
+// after Start has returned: Watch closes the underlying watcher on return, and
+// recursiveWatcher.Close is idempotent.
+func (i *Indexer) Close() error {
+	if i.watcher == nil {
+		return nil
+	}
+	return i.watcher.Close()
 }
 
 // runConciergeLoop is the background goroutine that schedules and executes

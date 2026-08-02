@@ -205,7 +205,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 					break
 				}
 			}
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(30 * time.Millisecond)
 			atomic.AddInt32(&active, -1)
 			meta := json.RawMessage(`{"ok":true}`)
 			i.Metadata = &meta
@@ -235,6 +235,8 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 	})
 	dur := time.Since(start)
 
+	// The maxConc check below is the real concurrency proof; the duration
+	// check only catches pathologically slow scheduling, so keep it loose.
 	if dur >= 300*time.Millisecond {
 		t.Fatalf("took too long: %v", dur)
 	}
@@ -322,7 +324,7 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 		s.AddToClassificationQueue(it)
 	}
 
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)
 	cancel()
 
 	// ensure no further changes after cancel window
@@ -330,7 +332,7 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 	before := len(s.cache)
 	s.cacheMu.RUnlock()
 
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	s.cacheMu.RLock()
 	after := len(s.cache)
@@ -541,8 +543,8 @@ func Test_rateLimiter_allow_burst(t *testing.T) {
 }
 
 func Test_rateLimiter_allow_refill(t *testing.T) {
-	// rate=10/s, burst=2: each token takes 100ms to refill
-	rl := newRateLimiter(10, 2)
+	// rate=100/s, burst=2: each token takes 10ms to refill
+	rl := newRateLimiter(100, 2)
 	if rl == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -558,14 +560,14 @@ func Test_rateLimiter_allow_refill(t *testing.T) {
 		t.Fatal("third should be denied")
 	}
 	// Wait for refill
-	time.Sleep(110 * time.Millisecond)
+	time.Sleep(15 * time.Millisecond)
 	if !rl.allow() {
-		t.Fatal("should have refilled one token after 110ms")
+		t.Fatal("should have refilled one token after 15ms")
 	}
 }
 
 func Test_rateLimiter_allow_refill_caps_at_burst(t *testing.T) {
-	rl := newRateLimiter(100, 1) // 10ms per token, burst 1
+	rl := newRateLimiter(1000, 1) // 1ms per token, burst 1
 	if rl == nil {
 		t.Fatal("expected non-nil")
 	}
@@ -574,7 +576,7 @@ func Test_rateLimiter_allow_refill_caps_at_burst(t *testing.T) {
 		t.Fatal("first should be allowed")
 	}
 	// Wait enough for multiple tokens to refill
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(15 * time.Millisecond)
 	// Should get at most 1 (burst cap)
 	if !rl.allow() {
 		t.Fatal("should get one refilled token")
@@ -614,7 +616,7 @@ func Test_AddToClassificationQueue_cooldown(t *testing.T) {
 		WithStorePath(dir),
 		WithClassificationWorkers(1),
 		WithClassificationRate(0),
-		WithClassificationStartupCooldown(500*time.Millisecond),
+		WithClassificationStartupCooldown(100*time.Millisecond),
 	)
 	s.classificationRequest = make(chan classificationCandidate, 10)
 	s.classifierErrors = make(chan error, 10)
@@ -645,7 +647,7 @@ func Test_AddToClassificationQueue_cooldown(t *testing.T) {
 	s.cacheMu.RUnlock()
 
 	// Wait for cooldown to expire
-	time.Sleep(600 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Now items flow through
 	it2 := model.Item{ID: "cool-2", Name: "cool-2", MIMEType: "video/mp4"}
@@ -755,7 +757,7 @@ func Test_AddToClassificationQueue_queueCap(t *testing.T) {
 	}()
 
 	// Give delegator time to fill workChan (cap=2) and start dropping
-	time.Sleep(200 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// Unblock worker
 	close(workerBlock)
@@ -774,6 +776,12 @@ func Test_AddToClassificationQueue_queueCap(t *testing.T) {
 	if final == 0 {
 		t.Fatal("expected at least 1 item processed")
 	}
+
+	// Stop the station and drain its goroutines before the temp-dir cleanup
+	// runs: the delegator may still be writing a result to disk, and a write
+	// racing the RemoveAll fails the test in the cleanup phase.
+	cancel()
+	s.Wait()
 }
 
 func Test_AddToClassificationQueue_nilRateLimiter(t *testing.T) {
@@ -837,7 +845,7 @@ func Test_AddToClassificationQueue_dedup_sameItem(t *testing.T) {
 		SetupFunc: func(ctx context.Context) error { return nil },
 		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
 			stored.Add(1)
-			time.Sleep(50 * time.Millisecond) // give the second queuer time to try
+			time.Sleep(20 * time.Millisecond) // give the second queuer time to try
 			meta := json.RawMessage(`{}`)
 			i.Metadata = &meta
 			return i, nil
@@ -1087,7 +1095,7 @@ func Test_AddToClassificationQueue_dedup_cooldownCleanup(t *testing.T) {
 		WithStorePath(dir),
 		WithClassificationWorkers(1),
 		WithClassificationRate(0),
-		WithClassificationStartupCooldown(500*time.Millisecond),
+		WithClassificationStartupCooldown(100*time.Millisecond),
 	)
 	s.classificationRequest = make(chan classificationCandidate, 10)
 	s.classifierErrors = make(chan error, 10)
@@ -1112,7 +1120,7 @@ func Test_AddToClassificationQueue_dedup_cooldownCleanup(t *testing.T) {
 	s.AddToClassificationQueue(it)
 
 	// Wait for cooldown to expire
-	time.Sleep(600 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Same item should be queueable after cooldown (since in-flight was cleaned)
 	s.AddToClassificationQueue(it)
@@ -1228,7 +1236,7 @@ func Test_StartClassificationStation_cooldownDefault(t *testing.T) {
 		WithStorePath(dir),
 		WithClassificationWorkers(1),
 		WithClassificationRate(0),
-		WithClassificationStartupCooldown(100*time.Millisecond),
+		WithClassificationStartupCooldown(50*time.Millisecond),
 	)
 	s.classificationRequest = make(chan classificationCandidate, 10)
 	s.classifierErrors = make(chan error, 10)
@@ -1250,7 +1258,7 @@ func Test_StartClassificationStation_cooldownDefault(t *testing.T) {
 	it := model.Item{ID: "cd-1", Name: "cd-1", MIMEType: "video/mp4"}
 	s.AddToClassificationQueue(it)
 
-	time.Sleep(150 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 
 	// After cooldown: flows through
 	it2 := model.Item{ID: "cd-2", Name: "cd-2", MIMEType: "video/mp4"}
@@ -1415,7 +1423,11 @@ func Test_memoryHigh_disabled(t *testing.T) {
 	})
 
 	t.Run("default threshold 0.8: passes under normal conditions", func(t *testing.T) {
+		// Pin total RAM at 1 TiB so the assertion is deterministic: the test
+		// binary's footprint can never reach 80% of a terabyte, regardless of
+		// how much the suite allocated earlier in the process.
 		s := NewStore()
+		s.totalMemory = func() uint64 { return 1 << 40 }
 		// Default is 0.8 (80%). In test conditions, Alloc is tiny vs Sys.
 		if s.memoryHigh() {
 			t.Fatal("memoryHigh should return false in normal test conditions")
@@ -1425,7 +1437,10 @@ func Test_memoryHigh_disabled(t *testing.T) {
 
 func Test_memoryHigh_enabled(t *testing.T) {
 	t.Run("threshold 0.01 triggers with any allocation", func(t *testing.T) {
+		// Pin total RAM at 1 MiB. Any running Go process has a footprint well
+		// above 10 KiB (1% of 1 MiB), so the assertion is deterministic.
 		s := NewStore(WithMemoryThreshold(0.01))
+		s.totalMemory = func() uint64 { return 1 << 20 }
 		// Alloc should be > 1% of Sys in any running Go process.
 		if !s.memoryHigh() {
 			t.Fatal("memoryHigh should return true when threshold is 1%")
@@ -1445,6 +1460,9 @@ func Test_startClassificationStation_memoryGuard(t *testing.T) {
 		WithClassificationStartupCooldown(0),
 		WithMemoryThreshold(0.01),
 	)
+	// Pin total RAM at 1 MiB: every enqueue trips the memory guard and is
+	// dropped, independent of how much memory earlier tests allocated.
+	s.totalMemory = func() uint64 { return 1 << 20 }
 
 	s.classificationRequest = make(chan classificationCandidate, 100)
 	s.classifierErrors = make(chan error, 100)
@@ -1474,8 +1492,13 @@ func Test_startClassificationStation_memoryGuard(t *testing.T) {
 		s.AddToClassificationQueue(it)
 	}
 
-	// Give the delegator time to process (it should drop everything)
-	time.Sleep(200 * time.Millisecond)
+	// Give the delegator time to process (it should drop everything). The
+	// delegator cleans up the in-flight entry when it drops, so poll for that
+	// instead of sleeping a fixed window.
+	waitUntil(t, 2*time.Second, func() bool {
+		_, loaded := s.inFlight.Load("mem-0")
+		return !loaded
+	})
 
 	if n := atomic.LoadInt32(&classified); n != 0 {
 		t.Fatalf("expected 0 classified items with memory guard active, got %d", n)

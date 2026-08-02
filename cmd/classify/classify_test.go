@@ -1233,7 +1233,11 @@ func TestCommand_Run_with_mock_input_approve(t *testing.T) {
 		userInput: strings.NewReader("y"),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond*10)
+	// This path ends in errorMonitor, which blocks until the context fires, so
+	// the deadline doubles as the test duration. Keep it an order of magnitude
+	// above the mock's startup sleep (10ms) so it cannot race scheduling, but
+	// small enough that the test stays fast.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	t.Cleanup(cancel)
 
 	err := cmd.Run(ctx)
@@ -1263,7 +1267,10 @@ func TestCommand_Run_user_abort(t *testing.T) {
 		userInput: strings.NewReader("n"),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), mock.classificationStationStartup*2)
+	// The context deadline must be comfortably larger than the mock startup
+	// sleep: these tests assert Run's logic, not timing, and a tight deadline
+	// races goroutine scheduling under parallel `go test ./...` load.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 
 	err := cmd.Run(ctx)
@@ -1295,7 +1302,10 @@ func TestCommand_Run_no_items_found(t *testing.T) {
 		userInput: strings.NewReader("y"),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), mock.classificationStationStartup*2)
+	// See TestCommand_Run_user_abort. This path ends in errorMonitor, which
+	// blocks until the context fires, so the deadline doubles as the test
+	// duration: 100ms is an order of magnitude above the 10ms startup sleep.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	t.Cleanup(cancel)
 
 	err := cmd.Run(ctx)
@@ -1323,7 +1333,9 @@ func TestCommand_Run_classification_station_error(t *testing.T) {
 		userInput: strings.NewReader("y\n"),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), mock.classificationStationStartup*2)
+	// See TestCommand_Run_user_abort: generous deadline so the mock's 10ms
+	// startup sleep cannot race the context under parallel load.
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	t.Cleanup(cancel)
 
 	err := cmd.Run(ctx)
@@ -1373,7 +1385,10 @@ func TestCommand_Run_with_filtered_items(t *testing.T) {
 		userInput: strings.NewReader("y\n"),
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), mock.classificationStationStartup*2)
+	// See TestCommand_Run_user_abort. This path ends in errorMonitor, which
+	// blocks until the context fires, so the deadline doubles as the test
+	// duration: 100ms is an order of magnitude above the 10ms startup sleep.
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	t.Cleanup(cancel)
 
 	err := cmd.Run(ctx)

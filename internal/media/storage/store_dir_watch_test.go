@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path"
@@ -79,10 +78,8 @@ func watchReadyStore(t *testing.T, s *store) chan model.Item {
 	s.rateLimiter = newRateLimiter(100, 100)
 	got := make(chan model.Item, 1)
 	go func() {
-		select {
-		case c := <-s.classificationRequest:
-			got <- c.item
-		}
+		c := <-s.classificationRequest
+		got <- c.item
 	}()
 	return got
 }
@@ -227,14 +224,11 @@ func Test_requeueLoop_eventuallyEnqueues(t *testing.T) {
 	s.rateLimiter = &rateLimiter{interval: 5 * time.Millisecond, burst: 1, tokens: 0, last: time.Now()}
 	got := make(chan model.Item, 1)
 	go func() {
-		select {
-		case c := <-s.classificationRequest:
-			got <- c.item
-		}
+		c := <-s.classificationRequest
+		got <- c.item
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go s.requeueLoop(ctx, 10*time.Millisecond)
 
 	writeStoreItem(t, dir, "id1", model.Item{ID: "id1", Name: "done.mkv", Path: "/media/done.mkv", MIMEType: "video/x-matroska"})
@@ -271,8 +265,7 @@ func Test_watchStoreDir_picksUpExternalReset(t *testing.T) {
 	})
 	got := watchReadyStore(t, s)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go s.watchStoreDir(ctx)
 	// Give fsnotify time to register the directory before the CLI writes.
 	time.Sleep(50 * time.Millisecond)
@@ -312,8 +305,7 @@ func Test_watchStoreDir_ignoresServerWrites(t *testing.T) {
 	})
 	got := watchReadyStore(t, s)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go s.watchStoreDir(ctx)
 
 	// A server-side metadata update rewrites the file; the watcher must ignore
@@ -382,14 +374,11 @@ func Test_requeueLoop_recoversCooldownDroppedItem(t *testing.T) {
 
 	got := make(chan model.Item, 1)
 	go func() {
-		select {
-		case c := <-s.classificationRequest:
-			got <- c.item
-		}
+		c := <-s.classificationRequest
+		got <- c.item
 	}()
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 	go s.requeueLoop(ctx, 10*time.Millisecond)
 
 	// Presented during the cooldown window → dropped and marked.

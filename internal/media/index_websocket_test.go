@@ -92,7 +92,11 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	idx, _ := NewIndexer(WithButler(butler), WithClientContextManager(ucm), WithSuggestionsManager(sugMgr))
+	idx, err := NewIndexer(WithButler(butler), WithClientContextManager(ucm), WithSuggestionsManager(sugMgr))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = idx.Close() })
 	// Need to initialize store to avoid nil pointer in Snapshot called by disconnect
 	idx.store = &mockStore{
 		items: []model.Item{},

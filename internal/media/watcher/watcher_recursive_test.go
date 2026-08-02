@@ -32,12 +32,23 @@ func Test_recursiveWatcher_Setup(t *testing.T) {
 	})
 }
 
+// newTestRecursiveWatcher creates a watcher and registers cleanup so the
+// inotify instance is released when the test ends. Without it, every watcher
+// created outside Watch leaks one instance and exhausts the per-user inotify
+// budget under repeated -count runs.
+func newTestRecursiveWatcher(t *testing.T) *recursiveWatcher {
+	t.Helper()
+	rw, err := NewRecursiveWatcher()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = rw.Close() })
+	return rw
+}
+
 func Test_recursiveWatcher_checkFile(t *testing.T) {
 	t.Run("error if file not exists", func(t *testing.T) {
-		rw, error := NewRecursiveWatcher()
-		if error != nil {
-			t.Fatal(error)
-		}
+		rw := newTestRecursiveWatcher(t)
 		filePath := "/non/existing/file"
 		got := rw.checkFile(filePath)
 		if got == nil {
@@ -49,10 +60,7 @@ func Test_recursiveWatcher_checkFile(t *testing.T) {
 
 	t.Run("error if file can't be opened", func(t *testing.T) {
 		fname := "/root/denied-file"
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 		got := rw.checkFile(fname)
 		if got == nil {
 			t.Fatalf("wanted error, got nil")
@@ -64,10 +72,7 @@ func Test_recursiveWatcher_checkFile(t *testing.T) {
 		tmpfile := testboil.CreateTestFile(t, "somefile")
 		tmpfile.Write([]byte("Some content"))
 		defer tmpfile.Close()
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 		got := rw.checkFile(tmpfile.Name())
 		if got != nil {
 			t.Errorf("wanted nil, got error: %v", got)
@@ -83,10 +88,7 @@ func Test_recursiveWatcher_checkFile(t *testing.T) {
 		defer video.Close()
 		defer image.Close()
 		updateChan := make(chan model.Item, 2)
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 		rw.updates = updateChan
 		if got := rw.checkFile(video.Name()); got != nil {
 			t.Fatalf("unexpected error: %v", got)
@@ -105,14 +107,11 @@ func Test_recursiveWatcher_checkFile(t *testing.T) {
 
 func Test_recursiveWatcher_Watch(t *testing.T) {
 	t.Run("it should error on non-existent path", func(t *testing.T) {
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 
 		ctx := t.Context()
 
-		err = rw.Watch(ctx, "/i/dont/exist")
+		err := rw.Watch(ctx, "/i/dont/exist")
 		if err == nil {
 			t.Errorf("expected error, got nil")
 		}
@@ -121,11 +120,8 @@ func Test_recursiveWatcher_Watch(t *testing.T) {
 	t.Run("break on context cancel", func(t *testing.T) {
 		testboil.ReturnsOnContextCancel(t, func(ctx context.Context) {
 			tmpDir := t.TempDir()
-			rw, err := NewRecursiveWatcher()
-			if err != nil {
-				t.Fatal(err)
-			}
-			err = rw.Watch(ctx, tmpDir)
+			rw := newTestRecursiveWatcher(t)
+			err := rw.Watch(ctx, tmpDir)
 			if err != nil {
 				t.Errorf("un expected error: %v", err)
 			}
@@ -133,18 +129,10 @@ func Test_recursiveWatcher_Watch(t *testing.T) {
 	})
 
 	t.Run("fails with non-existent path", func(t *testing.T) {
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatalf("newRecursiveWatcher() failed: %v", err)
-		}
-		t.Cleanup(func() {
-			if rw != nil && rw.watcher != nil {
-				rw.watcher.Close()
-			}
-		})
+		rw := newTestRecursiveWatcher(t)
 
 		nonExistentPath := filepath.Join(os.TempDir(), fmt.Sprintf("non_existent_dir_for_test_%d", time.Now().UnixNano()))
-		err = rw.Watch(context.Background(), nonExistentPath)
+		err := rw.Watch(context.Background(), nonExistentPath)
 		if err == nil {
 			t.Errorf("expected an error for non-existent path, but got none")
 		}
@@ -159,15 +147,7 @@ func Test_recursiveWatcher_Watch(t *testing.T) {
 	})
 
 	t.Run("fails when path is a regular file, not a directory", func(t *testing.T) {
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatalf("newRecursiveWatcher() failed: %v", err)
-		}
-		t.Cleanup(func() {
-			if rw != nil && rw.watcher != nil {
-				rw.watcher.Close()
-			}
-		})
+		rw := newTestRecursiveWatcher(t)
 
 		tempFile, err := os.CreateTemp("", "regular_file_for_test_*.txt")
 		if err != nil {
@@ -194,22 +174,16 @@ func Test_recursiveWatcher_Watch(t *testing.T) {
 
 func Test_walkDo(t *testing.T) {
 	t.Run("return error if passed is not nil", func(t *testing.T) {
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 		want := errors.New("pingpong")
 		got := rw.walkDo("", nil, want)
 		testboil.FailTestIfDiff(t, got, want)
 	})
 	t.Run("it should add to watcher if dir", func(t *testing.T) {
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 		tmpDirPath := t.TempDir()
 
-		err = os.Mkdir(path.Join(tmpDirPath, "someDir"), 0x755)
+		err := os.Mkdir(path.Join(tmpDirPath, "someDir"), 0x755)
 		if err != nil {
 			t.Fatal(fmt.Errorf("failed to create test tmp dir: %w", err))
 		}
@@ -230,13 +204,10 @@ func Test_walkDo(t *testing.T) {
 	})
 
 	t.Run("it should add files when added after start", func(t *testing.T) {
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 		tmpDirPath := t.TempDir()
 
-		err = os.Mkdir(path.Join(tmpDirPath, "someDir"), 0x755)
+		err := os.Mkdir(path.Join(tmpDirPath, "someDir"), 0x755)
 		if err != nil {
 			t.Fatal(fmt.Errorf("failed to create test tmp dir: %w", err))
 		}
@@ -303,14 +274,11 @@ func Test_walkDo(t *testing.T) {
 	})
 
 	t.Run("it should error if file doesnt exist", func(t *testing.T) {
-		rw, err := NewRecursiveWatcher()
-		if err != nil {
-			t.Fatal(err)
-		}
+		rw := newTestRecursiveWatcher(t)
 		tmpDir := t.TempDir()
 		tmpFilePath := path.Join(tmpDir, "somefile")
 
-		err = os.WriteFile(tmpFilePath, []byte("doesntmatter"), 0x755)
+		err := os.WriteFile(tmpFilePath, []byte("doesntmatter"), 0x755)
 		if err != nil {
 			t.Fatal(fmt.Errorf("failed to create test tmp dir: %w", err))
 		}
@@ -533,11 +501,7 @@ func Test_recursiveWatcher_checkPath(t *testing.T) {
 
 func Test_Watch_Event_Write_NonExistent_ErrorChan(t *testing.T) {
 	dir := t.TempDir()
-	rw, err := NewRecursiveWatcher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rw.watcher.Close()
+	rw := newTestRecursiveWatcher(t)
 
 	// use buffered errChan to avoid blocking
 	rw.errChan = make(chan error, 1)
@@ -573,11 +537,7 @@ func Test_Watch_Event_Write_NonExistent_ErrorChan(t *testing.T) {
 
 func Test_Watch_ErrorsChannel_Forward(t *testing.T) {
 	dir := t.TempDir()
-	rw, err := NewRecursiveWatcher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rw.watcher.Close()
+	rw := newTestRecursiveWatcher(t)
 	rw.errChan = make(chan error, 1)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -610,11 +570,7 @@ func Test_Watch_ErrorsChannel_Forward(t *testing.T) {
 
 func Test_Watch_HandleError_ChannelFull_Warns(t *testing.T) {
 	dir := t.TempDir()
-	rw, err := NewRecursiveWatcher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rw.watcher.Close()
+	rw := newTestRecursiveWatcher(t)
 	rw.errChan = make(chan error, 1)
 
 	mock := &mockWarnlog{}
@@ -656,11 +612,7 @@ func Test_Watch_HandleError_ChannelFull_Warns(t *testing.T) {
 
 func Test_Watch_CreateDirectory_AddsToWatcherAndIndexesFiles(t *testing.T) {
 	dir := t.TempDir()
-	rw, err := NewRecursiveWatcher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rw.watcher.Close()
+	rw := newTestRecursiveWatcher(t)
 
 	// make updates buffered so we don't block
 	rw.updates = make(chan model.Item, 2)
@@ -713,11 +665,7 @@ func Test_Watch_CreateDirectory_AddsToWatcherAndIndexesFiles(t *testing.T) {
 
 func Test_Watch_CreateNestedDirectories_AreWatchedAndIndexed(t *testing.T) {
 	dir := t.TempDir()
-	rw, err := NewRecursiveWatcher()
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer rw.watcher.Close()
+	rw := newTestRecursiveWatcher(t)
 
 	// buffered so we don't block producer
 	rw.updates = make(chan model.Item, 4)

@@ -163,10 +163,9 @@ func (t *fetchSubtitlesTool) saveSubtitle(item kinomodel.Item, filename string, 
 		ext = ".srt"
 	}
 
-	outPath := filepath.Join(dir, filename)
 	// Ensure extension is .srt or .vtt
 	base := strings.TrimSuffix(filename, filepath.Ext(filename))
-	outPath = filepath.Join(dir, base+ext)
+	outPath := filepath.Join(dir, base+ext)
 
 	if err := os.WriteFile(outPath, content, 0o644); err != nil {
 		return fmt.Errorf("failed to write subtitle file: %w", err)

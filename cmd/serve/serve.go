@@ -26,6 +26,9 @@ type Indexer interface {
 
 type command struct {
 	indexer Indexer
+	// storeWait blocks until the store's background goroutines (deferred-write
+	// flush included) have exited. Set during Setup; nil if Setup did not run.
+	storeWait func()
 
 	binPath   string
 	watchPath string
@@ -177,8 +180,10 @@ func (c *command) Run(ctx context.Context) error {
 		}
 	}()
 	var retErr error
+	normalShutdown := false
 	select {
 	case <-ctx.Done():
+		normalShutdown = true
 	case serveErr := <-serverErrChan:
 		retErr = serveErr
 		break
@@ -190,6 +195,12 @@ func (c *command) Run(ctx context.Context) error {
 	err = serverShutdown(ctx)
 	if err != nil {
 		ancli.Errf("failed to shutdown error: %v", err)
+	}
+	// On a normal shutdown the context is cancelled, which stops the store's
+	// goroutines. Wait for them so deferred writes flush before we exit. The
+	// error paths leave the context alive, so waiting there would hang.
+	if normalShutdown && c.storeWait != nil {
+		c.storeWait()
 	}
 	ancli.Okf("shutdown complete")
 	return retErr

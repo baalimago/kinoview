@@ -239,7 +239,7 @@ func Test_streamMkvToMp4(t *testing.T) {
 		}
 
 		// Prepare test file path
-		mkvPath := "mock/Jellyfish_1080_10s_1MB.mkv"
+		mkvPath := "mock/Jellyfish_1080_3s.mkv"
 		if _, err := os.Stat(mkvPath); err != nil {
 			t.Fatalf("test mkv file missing: %v", err)
 		}
@@ -279,7 +279,7 @@ func Test_streamMkvToMp4(t *testing.T) {
 		})
 		req := mockHTTPRequest("GET", "/test", nil)
 		rec := newMockResponseWriter()
-		streamMkvToMp4(rec, req, "mock/Jellyfish_1080_10s_1MB.mkv")
+		streamMkvToMp4(rec, req, "mock/Jellyfish_1080_3s.mkv")
 		if rec.statusCode != 500 {
 			t.Errorf("expected 500 when ffmpeg is missing")
 		}
@@ -298,7 +298,7 @@ func Test_streamMkvToMp4(t *testing.T) {
 	})
 
 	t.Run("context cancel simulates disconnect", func(t *testing.T) {
-		mkvPath := "mock/Jellyfish_1080_10s_1MB.mkv"
+		mkvPath := "mock/Jellyfish_1080_3s.mkv"
 		req := mockHTTPRequest("GET", "/test", nil)
 		ctx, cancel := context.WithCancel(req.Context())
 		req = req.WithContext(ctx)
@@ -344,7 +344,7 @@ func Test_streamMkvToMp4_withSeek(t *testing.T) {
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg binary not found")
 	}
-	mkvPath := "mock/Jellyfish_1080_10s_1MB.mkv"
+	mkvPath := "mock/Jellyfish_1080_3s.mkv"
 	if _, err := os.Stat(mkvPath); err != nil {
 		t.Fatalf("test mkv file missing: %v", err)
 	}
@@ -521,6 +521,7 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 			},
 		}
 		testCtx, testCtxCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		t.Cleanup(s.Wait) // registered before the cancel so it runs after it
 		t.Cleanup(testCtxCancel)
 		storeErrors, err := s.Setup(testCtx)
 		s.Start(testCtx)
@@ -569,6 +570,7 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 			},
 		}
 		ctx, ctxCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		t.Cleanup(s.Wait) // registered before the cancel so it runs after it
 		t.Cleanup(ctxCancel)
 		_, err := s.Setup(ctx)
 		s.Start(ctx)
@@ -589,14 +591,14 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 			t.Fatalf("expected original to have metadata: %v", original)
 		}
 		originalMeta := string(*original.Metadata)
-		s.classifier = &mockClassifier{
+		s.SetClassifier(&mockClassifier{
 			SetupFunc: func(ctx context.Context) error { return nil },
 			ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
 				r := json.RawMessage(`{"new":"metadata"}`)
 				i.Metadata = &r
 				return i, nil
 			},
-		}
+		})
 		err = s.Store(context.Background(), item)
 		if err != nil {
 			t.Fatalf("Store failed on second call: %v", err)
@@ -1018,12 +1020,13 @@ func Test_loadPersistedItems(t *testing.T) {
 func Test_startupWriteBatching(t *testing.T) {
 	t.Run("defers writes during startup window", func(t *testing.T) {
 		dir := t.TempDir()
-		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(500*time.Millisecond))
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(100*time.Millisecond))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
 		t.Cleanup(cancel)
 		s.Start(ctx)
 
@@ -1050,7 +1053,7 @@ func Test_startupWriteBatching(t *testing.T) {
 		}
 
 		// After window expires, flush should write to disk
-		time.Sleep(600 * time.Millisecond)
+		time.Sleep(200 * time.Millisecond)
 		// Poll for the file to appear
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
@@ -1074,12 +1077,13 @@ func Test_startupWriteBatching(t *testing.T) {
 
 	t.Run("multiple updates during window result in single write", func(t *testing.T) {
 		dir := t.TempDir()
-		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(200*time.Millisecond))
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(50*time.Millisecond))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
 		t.Cleanup(cancel)
 		s.Start(ctx)
 
@@ -1091,7 +1095,7 @@ func Test_startupWriteBatching(t *testing.T) {
 		}
 
 		// Wait for flush
-		time.Sleep(300 * time.Millisecond)
+		time.Sleep(120 * time.Millisecond)
 		deadline := time.Now().Add(2 * time.Second)
 		p := path.Join(dir, "dup")
 		for time.Now().Before(deadline) {
@@ -1123,6 +1127,7 @@ func Test_startupWriteBatching(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
 		t.Cleanup(cancel)
 		s.Start(ctx)
 
@@ -1157,6 +1162,7 @@ func Test_startupWriteBatching(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
 		t.Cleanup(cancel)
 		s.Start(ctx)
 
@@ -1180,6 +1186,8 @@ func Test_startupWriteBatching(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
+		t.Cleanup(cancel)
 		s.Start(ctx)
 
 		item := model.Item{ID: "ctxflush", Name: "cancelled"}
@@ -1214,12 +1222,13 @@ func Test_startupWriteBatching(t *testing.T) {
 
 	t.Run("dirty set cleared after flush", func(t *testing.T) {
 		dir := t.TempDir()
-		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(100*time.Millisecond))
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(40*time.Millisecond))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
 		t.Cleanup(cancel)
 		s.Start(ctx)
 
@@ -1228,7 +1237,7 @@ func Test_startupWriteBatching(t *testing.T) {
 		}
 
 		// Wait for flush
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 		deadline := time.Now().Add(2 * time.Second)
 		for time.Now().Before(deadline) {
 			s.dirtyMu.Lock()
@@ -1250,17 +1259,18 @@ func Test_startupWriteBatching(t *testing.T) {
 
 	t.Run("post-window stores write immediately", func(t *testing.T) {
 		dir := t.TempDir()
-		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(100*time.Millisecond))
+		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(40*time.Millisecond))
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			t.Fatalf("mkdir: %v", err)
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
 		t.Cleanup(cancel)
 		s.Start(ctx)
 
 		// Wait for window to expire
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond)
 
 		item := model.Item{ID: "post", Name: "after"}
 		if err := s.store(item); err != nil {
@@ -1283,6 +1293,7 @@ func Test_startupWriteBatching(t *testing.T) {
 		}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(s.Wait) // flush and exit goroutines before the temp dir is removed
 		t.Cleanup(cancel)
 		s.Start(ctx)
 

@@ -43,6 +43,12 @@ func (rw *recursiveWatcher) Setup(ctx context.Context) (<-chan model.Item, <-cha
 	return rw.updates, rw.errChan, nil
 }
 
+// Close releases the underlying inotify instance. Idempotent: fsnotify's
+// Close is safe to call more than once, and Watch also closes on return.
+func (rw *recursiveWatcher) Close() error {
+	return rw.watcher.Close()
+}
+
 // checkFile and emit model.Item on updates channel if file is
 // is video-like or image-like
 func (rw *recursiveWatcher) checkFile(p string) error {

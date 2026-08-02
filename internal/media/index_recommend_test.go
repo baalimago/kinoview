@@ -38,7 +38,7 @@ func (m *mockRec) Recommend(
 }
 
 func TestRecommendHandler_MethodNotAllowed(t *testing.T) {
-	i, _ := NewIndexer()
+	i := newRecommendIndexer(t)
 	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
@@ -58,7 +58,7 @@ func TestRecommendHandler_MethodNotAllowed(t *testing.T) {
 }
 
 func TestRecommendHandler_BadJSON(t *testing.T) {
-	i, _ := NewIndexer()
+	i := newRecommendIndexer(t)
 	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
@@ -76,7 +76,7 @@ func TestRecommendHandler_BadJSON(t *testing.T) {
 }
 
 func TestRecommendHandler_UnknownFields(t *testing.T) {
-	i, _ := NewIndexer()
+	i := newRecommendIndexer(t)
 	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
@@ -96,7 +96,7 @@ func TestRecommendHandler_UnknownFields(t *testing.T) {
 }
 
 func TestRecommendHandler_EmptyRequest(t *testing.T) {
-	i, _ := NewIndexer()
+	i := newRecommendIndexer(t)
 	i.store = &mockStore{}
 	i.recommender = &mockRec{}
 
@@ -120,7 +120,7 @@ func TestRecommendHandler_Success(t *testing.T) {
 		{ID: "1", Name: "A", MIMEType: "video/mp4"},
 		{ID: "2", Name: "B", MIMEType: "video/mp4"},
 	}
-	i, _ := NewIndexer()
+	i := newRecommendIndexer(t)
 	i.store = &mockStore{items: items}
 	rec := &mockRec{
 		recommend: func(
@@ -160,4 +160,16 @@ func TestRecommendHandler_Success(t *testing.T) {
 	if strings.TrimSpace(rec.lastReq) != wantReq {
 		t.Fatalf("\ngot:  %q\nwant: %q", rec.lastReq, wantReq)
 	}
+}
+
+// newRecommendIndexer builds an Indexer for recommend-handler tests and
+// registers cleanup so the watcher's inotify instance is released.
+func newRecommendIndexer(t *testing.T) *Indexer {
+	t.Helper()
+	i, err := NewIndexer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = i.Close() })
+	return i
 }

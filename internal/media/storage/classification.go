@@ -7,6 +7,8 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -136,20 +138,52 @@ func (s *store) AddToClassificationQueue(i model.Item) {
 	}
 }
 
-// memoryHigh returns true if the Go runtime heap allocation exceeds
-// the configured threshold fraction of total OS memory obtained.
+// totalSystemMemory returns the machine's total RAM in bytes, or 0 if it
+// cannot be determined. Kept as a variable so tests can stub it.
+var totalSystemMemory = func() uint64 {
+	data, err := os.ReadFile("/proc/meminfo")
+	if err != nil {
+		return 0
+	}
+	for line := range strings.SplitSeq(string(data), "\n") {
+		if !strings.HasPrefix(line, "MemTotal:") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			return 0
+		}
+		kb, err := strconv.ParseUint(fields[1], 10, 64)
+		if err != nil {
+			return 0
+		}
+		return kb * 1024
+	}
+	return 0
+}
+
+// memoryHigh returns true if the Go runtime's total memory footprint exceeds
+// the configured threshold fraction of the machine's total RAM. Comparing
+// against total system memory (rather than runtime.MemStats.Sys, which only
+// grows and never shrinks) is what actually predicts OOM pressure.
 // A threshold <= 0 or >= 1 disables the check (always returns false).
 func (s *store) memoryHigh() bool {
 	if s.memoryThreshold <= 0 || s.memoryThreshold >= 1 {
 		return false
 	}
+	total := s.totalMemory()
+	if total == 0 {
+		return false
+	}
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	return float64(m.Alloc) > s.memoryThreshold*float64(m.Sys)
+	return float64(m.Sys) > s.memoryThreshold*float64(total)
 }
 
 func (s *store) startClassificationRoutine(ctx context.Context, workerID int, workChan <-chan classificationCandidate, resChan chan<- classificationResult) {
+	s.classifierMu.RLock()
 	workerClassifier := s.classifier.Clone()
+	s.classifierMu.RUnlock()
 
 	outSetter, ok := workerClassifier.(agents.OutputSetter)
 	if ok {
@@ -189,7 +223,10 @@ func (s *store) startClassificationRoutine(ctx context.Context, workerID int, wo
 // chan error if the routine successfully started. Closing of chan error indicates
 // shutdown of routine
 func (s *store) StartClassificationStation(ctx context.Context) error {
-	if s.classifier == nil {
+	s.classifierMu.RLock()
+	nilClassifier := s.classifier == nil
+	s.classifierMu.RUnlock()
+	if nilClassifier {
 		return errors.New("classifier is nil, nothing to start")
 	}
 	// Only initialize if not already set by Start() to avoid races.
@@ -213,9 +250,11 @@ func (s *store) StartClassificationStation(ctx context.Context) error {
 	resChan := make(chan classificationResult, queueCap)
 	workChan := make(chan classificationCandidate, queueCap)
 	for i := range s.classificationWorkers {
-		go s.startClassificationRoutine(ctx, i, workChan, resChan)
+		s.wg.Go(func() {
+			s.startClassificationRoutine(ctx, i, workChan, resChan)
+		})
 	}
-	go func() {
+	s.wg.Go(func() {
 		// Once the delegator stops there is no consumer, so enqueuing must go
 		// back to being a no-op rather than a deadlock.
 		defer s.started.Store(false)
@@ -257,7 +296,7 @@ func (s *store) StartClassificationStation(ctx context.Context) error {
 				}
 			}
 		}
-	}()
+	})
 	return nil
 }
 

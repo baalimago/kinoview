@@ -426,11 +426,11 @@ func Test_store_VideoHandlerFunc(t *testing.T) {
 		js.cache = map[string]model.Item{
 			"without_video_mime": {
 				MIMEType: "something/else",
-				Path:     "mock/Jellyfish_1080_10s_1MB.mkv",
+				Path:     "mock/Jellyfish_1080_3s.mkv",
 			},
 			"with_video_mime": {
 				MIMEType: "video/webm",
-				Path:     "mock/Jellyfish_1080_10s_1MB.mkv",
+				Path:     "mock/Jellyfish_1080_3s.mkv",
 			},
 		}
 		req := httptest.NewRequest(http.MethodGet, "/video/with_video_mime", nil)

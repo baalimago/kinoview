@@ -1,7 +1,6 @@
 package storage
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -32,8 +31,7 @@ func TestAddToClassificationQueue_DoesNotBlockWhenNotStarted(t *testing.T) {
 // The same call must still enqueue normally once the station is up.
 func TestAddToClassificationQueue_EnqueuesWhenStarted(t *testing.T) {
 	s := NewStore(WithStorePath(t.TempDir()), WithClassificationStartupCooldown(0))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// Stand in for the station: mark started and drain the queue ourselves.
 	s.started.Store(true)

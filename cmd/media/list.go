@@ -854,7 +854,6 @@ func (lc *listController) runMacro(tokens []string) error {
 				return fmt.Errorf("sa requires a path argument: sa <path-to-subtitle>")
 			}
 			subPath := tokens[0]
-			tokens = tokens[1:]
 			if err := addSubtitlePath(&item, subPath); err != nil {
 				return fmt.Errorf("add subtitle: %w", err)
 			}
@@ -868,7 +867,6 @@ func (lc *listController) runMacro(tokens []string) error {
 				return fmt.Errorf("sr requires an index argument: sr <index>")
 			}
 			idxArg := tokens[0]
-			tokens = tokens[1:]
 			idx, parseErr := strconv.Atoi(idxArg)
 			if parseErr != nil || idx < 0 || idx >= len(item.SubtitlePaths) {
 				return fmt.Errorf("invalid subtitle index: %q (valid: 0-%d)", idxArg, len(item.SubtitlePaths)-1)
@@ -918,10 +916,7 @@ func isTableAction(tok string) bool {
 	case "n", "next", "p", "prev", "b", "back", "q", "quit":
 		return true
 	}
-	if strings.HasPrefix(tok, "/") {
-		return true
-	}
-	return false
+	return strings.HasPrefix(tok, "/")
 }
 
 func isNumericSelection(tok string) bool {
