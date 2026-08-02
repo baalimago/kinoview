@@ -356,10 +356,9 @@ func (lc *listController) groupRowFormatter(idxWidth, idx int, row mediaRow) str
 	}
 
 	return fmt.Sprintf(
-		"%-*d [group:%d] %-55s %-8s %-8s %-4s %-5s %10s",
+		"%-*s %-55s %-8s %-8s %-4s %-5s %10s",
 		idxWidth,
-		idx,
-		len(row.members),
+		fmt.Sprintf("%d [group:%d]", idx, len(row.members)),
 		truncateTo(groupDisplayName(row.groupKey), 55),
 		"group",
 		fmt.Sprintf("%d/%d", done, len(row.members)),

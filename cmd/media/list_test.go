@@ -287,6 +287,48 @@ func TestGroupRowFormatter(t *testing.T) {
 	}
 }
 
+// TestGroupRowAlignsWithItemRow verifies the group tag lives inside the padded
+// index cell, so the Name column (and every column after it) starts at the same
+// rune offset in group and item rows. Before this was fixed, the tag was emitted
+// after the padded index, pushing group names ~10 runes right of item names.
+func TestGroupRowAlignsWithItemRow(t *testing.T) {
+	lc := &listController{}
+	idxWidth := 11 // widest index cell: "0 [group:2]"
+	item := model.Item{Name: "AlignMe", MIMEType: "video/mp4", Path: "/media/x/AlignMe.mkv"}
+	group := mediaRow{
+		kind:     rowGroup,
+		groupKey: "/media/Show/Season 1",
+		members: []model.Item{
+			{Name: "A.mkv", MIMEType: "video/mp4", Path: "/media/Show/Season 1/A.mkv"},
+			{Name: "B.mkv", MIMEType: "video/mp4", Path: "/media/Show/Season 1/B.mkv"},
+		},
+	}
+
+	itemRow := lc.itemRowFormatter(idxWidth, 1, item)
+	groupRow := lc.groupRowFormatter(idxWidth, 0, group)
+
+	// The Name column starts at the index cell (padded to idxWidth) plus one
+	// separator space in both rows.
+	wantOffset := idxWidth + 1
+	if got := strings.Index(itemRow, "AlignMe"); got != wantOffset {
+		t.Errorf("item row name offset = %d, want %d (row %q)", got, wantOffset, itemRow)
+	}
+	if got := strings.Index(groupRow, "Season 1"); got != wantOffset {
+		t.Errorf("group row name offset = %d, want %d (row %q)", got, wantOffset, groupRow)
+	}
+
+	// The header's Name column agrees with both rows.
+	hdr := mediaTableHeader(idxWidth)
+	if got := strings.Index(hdr, "Name"); got != wantOffset {
+		t.Errorf("header Name offset = %d, want %d (header %q)", got, wantOffset, hdr)
+	}
+
+	// The tag reads as one index cell, not a name-column orphan.
+	if !strings.HasPrefix(groupRow, "0 [group:2]") {
+		t.Errorf("group row should start with the tagged index cell, got %q", groupRow)
+	}
+}
+
 func TestGroupKeyForItem(t *testing.T) {
 	it := model.Item{Path: "/media/Show/Season 1/Show.S01E01.mkv"}
 	if got := groupKeyForItem(it); got != "/media/Show/Season 1" {
