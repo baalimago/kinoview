@@ -52,6 +52,11 @@ type store struct {
 	dirtyMu                 sync.Mutex
 	dirty                   map[string]struct{}
 
+	// pendingRequeue holds externally reset items waiting to be re-enqueued
+	// by the requeue loop (see store_dir_watch.go).
+	pendingRequeueMu sync.Mutex
+	pendingRequeue   map[string]struct{}
+
 	readyChan chan struct{}
 
 	debug bool
@@ -172,6 +177,7 @@ func NewStore(opts ...StoreOption) *store {
 		classificationMaxAttempts:     5,
 		startupWriteWindow:            30 * time.Second,
 		dirty:                         make(map[string]struct{}),
+		pendingRequeue:                make(map[string]struct{}),
 
 		// Buffered chanel to not cause regression since it's currently only used in classify
 		// Large enough buffre to ever cause congestion due to waiting for it to be ready
@@ -307,6 +313,10 @@ func (s *store) Start(ctx context.Context) {
 	if s.startupWriteWindow > 0 {
 		go s.flushAfterWindow(ctx)
 	}
+	// Pick up classification resets the CLI writes straight to the store
+	// directory, and keep retrying them until the station accepts them.
+	go s.watchStoreDir(ctx)
+	go s.requeueLoop(ctx, requeueRetryInterval)
 }
 
 // generateID by creating a hash using sha256 on the contents of item.Path

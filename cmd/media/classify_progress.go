@@ -456,7 +456,7 @@ func watchClassificationProgress(
 
 		hint := ""
 		if !moved && time.Since(lastMove) >= opts.noProgressHintAfter && !hintShown && hasQueued(states) {
-			hint = "no progress — is the server running? restart kinoview to re-queue"
+			hint = "no progress — is the server running?"
 			hintShown = true
 		}
 		writeLiveLine(out, renderProgressLine(label, states, time.Since(start), hint, opts.termWidth))

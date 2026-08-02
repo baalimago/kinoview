@@ -53,16 +53,14 @@ func (s *store) handleImageItem(i *model.Item) error {
 }
 
 func (s *store) handleVideoItem(i *model.Item) error {
-	if i.ClassificationAttempts >= s.classificationMaxAttempts {
+	if s.atMaxAttempts(*i) {
 		ancli.Warnf("classification permanently skipped for %v: max attempts (%v) reached", i.Name, s.classificationMaxAttempts)
 		return nil
 	}
-	if i.ClassificationAttempts > 0 {
+	if s.inBackoff(*i) {
 		backoff := classificationBackoff(i.ClassificationAttempts)
-		if elapsed := time.Since(i.ClassificationLastTry); elapsed < backoff {
-			ancli.Noticef("classification backoff for %v: %v remaining", i.Name, (backoff - elapsed).Round(time.Second))
-			return nil
-		}
+		ancli.Noticef("classification backoff for %v: %v remaining", i.Name, (backoff - time.Since(i.ClassificationLastTry)).Round(time.Second))
+		return nil
 	}
 	i.ClassificationAttempts++
 	i.ClassificationLastTry = time.Now()

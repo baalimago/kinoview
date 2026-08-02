@@ -83,6 +83,18 @@ func (r *rateLimiter) allow() bool {
 	return false
 }
 
+// peek reports whether a token would be available right now without
+// consuming one. The requeue loop uses it to skip items the rate limiter
+// would drop anyway, avoiding attempt burns and per-tick log spam.
+func (r *rateLimiter) peek() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	now := time.Now()
+	elapsed := now.Sub(r.last)
+	earned := int(elapsed / r.interval)
+	return r.tokens+earned > 0
+}
+
 // AddToClassificationQueue by pushing the item to the back of the queue.
 // Items may be dropped if: already in flight, startup cooldown is active,
 // rate limit is exceeded, or the downstream work queue is at capacity.
@@ -267,4 +279,18 @@ func classificationBackoff(attempts int) time.Duration {
 		d = maxBackoff
 	}
 	return d
+}
+
+// atMaxAttempts reports whether the item has hit the stop-loss ceiling.
+func (s *store) atMaxAttempts(i model.Item) bool {
+	return i.ClassificationAttempts >= s.classificationMaxAttempts
+}
+
+// inBackoff reports whether the item is still inside its retry backoff.
+func (s *store) inBackoff(i model.Item) bool {
+	if i.ClassificationAttempts <= 0 {
+		return false
+	}
+	backoff := classificationBackoff(i.ClassificationAttempts)
+	return time.Since(i.ClassificationLastTry) < backoff
 }
