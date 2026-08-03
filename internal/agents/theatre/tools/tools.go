@@ -94,7 +94,11 @@ func (t *readBoardTool) Specification() models.Specification {
 	return models.Specification{
 		Name:        "read_board",
 		Description: "Read the production board's most recent entries, oldest first. Consult it before posting so you do not repeat what is already known.",
-		Inputs:      &models.InputSchema{Type: "object"},
+		Inputs: &models.InputSchema{
+			Type:       "object",
+			Required:   []string{},
+			Properties: map[string]models.ParameterObject{},
+		},
 	}
 }
 

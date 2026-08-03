@@ -58,6 +58,7 @@ func (t *dramaturgBriefTool) Specification() models.Specification {
 			Properties: map[string]models.ParameterObject{
 				"notes": {Type: "string", Description: "Your direction for the dramaturg, or empty"},
 			},
+			Required: []string{},
 		},
 	}
 }
@@ -94,6 +95,7 @@ func (t *draftStoryTool) Specification() models.Specification {
 			Properties: map[string]models.ParameterObject{
 				"notes": {Type: "string", Description: "Your direction for the playwright: the brief summary and any notes, or empty"},
 			},
+			Required: []string{},
 		},
 	}
 }
@@ -130,6 +132,7 @@ func (t *dressSetTool) Specification() models.Specification {
 			Properties: map[string]models.ParameterObject{
 				"notes": {Type: "string", Description: "Your direction for the scenographer: the desired mood and backdrop, or empty"},
 			},
+			Required: []string{},
 		},
 	}
 }
@@ -170,6 +173,7 @@ func (t *readStoryTool) Specification() models.Specification {
 					Enum:        &parts,
 				},
 			},
+			Required: []string{},
 		},
 	}
 }
@@ -196,7 +200,11 @@ func (t *validateStoryTool) Specification() models.Specification {
 	return models.Specification{
 		Name:        "validate_story",
 		Description: "Run the playability gate on the working draft: returns the normalized story, or the exact errors when it cannot be staged. An invalid draft must never reach submit_story.",
-		Inputs:      &models.InputSchema{Type: "object"},
+		Inputs: &models.InputSchema{
+			Type:       "object",
+			Required:   []string{},
+			Properties: map[string]models.ParameterObject{},
+		},
 	}
 }
 
@@ -222,7 +230,11 @@ func (t *pinIdentityTool) Specification() models.Specification {
 	return models.Specification{
 		Name:        "pin_identity",
 		Description: "Pin the canonical coat and character per cast id in the registry, so a character's look never drifts between generations. Deterministic — run it after the draft is validated.",
-		Inputs:      &models.InputSchema{Type: "object"},
+		Inputs: &models.InputSchema{
+			Type:       "object",
+			Required:   []string{},
+			Properties: map[string]models.ParameterObject{},
+		},
 	}
 }
 
@@ -271,6 +283,7 @@ func (t *submitStoryTool) Specification() models.Specification {
 					Description: "Optional JSON array of newly approved characters to canonize in the registry, e.g. [{\"id\":\"mouse2\",\"species\":\"mouse\",\"coat\":\"white\"}] — only characters in the draft may be canonized",
 				},
 			},
+			Required: []string{},
 		},
 	}
 }

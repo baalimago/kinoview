@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"testing"
@@ -310,6 +311,47 @@ func TestTools_CallbackErrorIsMessage(t *testing.T) {
 			}
 			if !strings.Contains(out, "boom") {
 				t.Errorf("out = %q, want the callback error surfaced", out)
+			}
+		})
+	}
+}
+
+// Every tool's input schema must marshal to a wire shape the model vendors
+// accept. The openai vendor sends spec.Inputs straight into the request body,
+// and clai's models.InputSchema marshals 'required' and 'properties'
+// unconditionally — nil slices/maps become JSON null, which the DeepSeek /
+// OpenRouter schema validator rejects with
+// "Invalid schema for function 'X': null is not of type \"array\""
+// (observed in prod, generation stry_r6697buw, director tool dramaturg_brief).
+// required must be a JSON array and properties a JSON object on the wire,
+// never null.
+func TestTools_SpecWireShape(t *testing.T) {
+	for name, tool := range allTools(t) {
+		t.Run(name, func(t *testing.T) {
+			spec := tool.Specification()
+			if spec.Inputs == nil {
+				t.Fatal("spec inputs are nil")
+			}
+			raw, err := json.Marshal(spec.Inputs)
+			if err != nil {
+				t.Fatalf("marshal inputs: %v", err)
+			}
+			var wire struct {
+				Required   json.RawMessage `json:"required"`
+				Properties json.RawMessage `json:"properties"`
+			}
+			if err := json.Unmarshal(raw, &wire); err != nil {
+				t.Fatalf("unmarshal wire: %v", err)
+			}
+			if len(wire.Required) == 0 || string(wire.Required) == "null" {
+				t.Errorf("required is %s, want a JSON array", wire.Required)
+			} else if err := json.Unmarshal(wire.Required, &[]string{}); err != nil {
+				t.Errorf("required %s is not a JSON array: %v", wire.Required, err)
+			}
+			if len(wire.Properties) == 0 || string(wire.Properties) == "null" {
+				t.Errorf("properties is %s, want a JSON object", wire.Properties)
+			} else if err := json.Unmarshal(wire.Properties, &map[string]json.RawMessage{}); err != nil {
+				t.Errorf("properties %s is not a JSON object: %v", wire.Properties, err)
 			}
 		})
 	}

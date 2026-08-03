@@ -81,7 +81,7 @@ func Command() *command {
 		classificationBurst:           new(int),
 		classificationStartupCooldown: &defaultCooldown,
 	}
-	*ret.classificationWorkers = 2
+	*ret.classificationWorkers = 10
 	*ret.classificationRate = 0.2
 	*ret.classificationBurst = 3
 	*ret.conciergeStartupDelay = 60 * time.Second
