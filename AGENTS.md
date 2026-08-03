@@ -8,7 +8,7 @@ through a single-page web frontend. Optional LLM-driven agents enrich the librar
 with metadata, recommendations, curated suggestions, and an intro splash story.
 
 The core loop: **fsnotify watcher → media index → storage → HTTP handlers**. Agentic
-components (classifier, butler, recommender, concierge, storyteller) are opt-in via
+components (classifier, butler, recommender, concierge, theatre) are opt-in via
 CLI flags and plug into the indexer via interface contracts defined in
 `internal/agents/interfaces.go`.
 
@@ -23,16 +23,16 @@ cmd/
 │   ├── serve_test.go
 │   └── frontend/        # //go:embed vanilla JS SPA (gallery, minigallery, events, SSE client)
 ├── classify/            # Standalone CLI for ad-hoc item classification (debugging)
-├── debug/               # Standalone CLI for store inspection and debugging
+├── debug/               # Standalone CLI for store inspection and debugging (debug production <genID> renders a theatre dialog)
 ├── media/               # Standalone CLI for media listing
 ├── llm/                 # LLM usage analytics CLI
 └── (main.go)            # Root command dispatcher: flags → cmd.Run with shutdown.MonitorV2
 
 internal/
 ├── agents/              # Agent contracts + implementations (LLM-driven, all opt-in)
-│   ├── interfaces.go    # Classifier, Recommender, Butler, Concierge, ItemGetter, ItemLister,
-│   │                    #   MetadataManager, SuggestionManager, StreamManager, SubtitleSelector,
-│   │                    #   ClientContextManager, OutputSetter
+│   ├── interfaces.go    # Classifier, Recommender, Butler, Concierge, Teller, ItemGetter,
+│   │                    #   ItemLister, MetadataManager, SuggestionManager, StreamManager,
+│   │                    #   SubtitleSelector, ClientContextManager, OutputSetter
 │   ├── item_updater.go  # Shared helper: updates item metadata with retry + rate-limit awareness
 │   ├── classifier/      # LLM classifier: inspects media files, writes title/genre/year/plot tags
 │   ├── recommender/     # LLM recommender: semantic media discovery from user query
@@ -46,9 +46,28 @@ internal/
 │   │   ├── concierge.go # clai-based agent loop, runs on fixed interval
 │   │   ├── cmd.go       # Tool command registration and routing
 │   │   └── docs.go      # System prompt and tool documentation strings
-│   ├── storyteller/     # Storyteller: generates intro splash story from library stats
-│   │   ├── storyteller.go   # LLM-backed story generation with cooldown
-│   │   └── composer.go      # Deterministic fallback composer (no LLM required)
+│   ├── theatre/          # Theatre company: director superagent + subagents over a production board
+│   │   ├── company.go    # Company paperwork: board, working file, ledger, transcript (atomic writes)
+│   │   ├── context.go    # Working-context standard: AssembleContext for every agent call
+│   │   ├── stage.go      # Stage manager: single-writer transcript, ledger telemetry, SSE log sink
+│   │   ├── feed.go       # Stdout feed goroutine: one ancli line per event, [theatre <gen>] prefix
+│   │   ├── dialog.go     # RenderDialog: debug production script from transcript + ledger
+│   │   ├── runner.go     # Mini-agent runner: bounded clai loops, session logs, budget/deadline gates
+│   │   ├── broker.go     # Consultation broker: hop cap, repeat-consult table, budget ledger
+│   │   ├── collab.go     # Deliverable envelope + collaboration resolution (D4)
+│   │   ├── roles.go      # Role prompts (decide/ask/stop scope), per-role tool sets, writer wrappers
+│   │   ├── artifacts.go  # Role artifact schemas (brief, draft-report, scene-report) + validation
+│   │   ├── fallback.go   # Per-role deterministic floors: composer draft, registry advice, in-place answers
+│   │   ├── floor.go      # The deterministic composer: scene templates, DressDraft, SceneNames (the floor)
+│   │   ├── staging.go    # Stage layouts: marks, entry sides, lanes (stage/solo/plan)
+│   │   ├── muse.go       # LatestTheme: most-recently-watched title across sessions
+│   │   ├── registry.go   # Costumer registry: canonical coat/species pins, director-approved canonize, registry.json (D7)
+│   │   ├── docs.go       # Company library: six durable docs (premises, repertoire, sets, registry, director, bulletin), caps + validation
+│   │   ├── distill.go    # Submit-time distillation: board + artifacts → library docs (deterministic, no LLM)
+│   │   ├── director.go   # Director superagent: production-flow prompt, 9-tool set, submit gate
+│   │   ├── theatre.go    # Teller facade: Next/Prepare/Warm, cooldown, single-flight, RunProduction
+│   │   ├── tools/        # Mini-agent + director tools: post_to_board, consult, writers, gates
+│   │   └── (board/working/ledger/transcript/docs files, floor/staging/muse, role/kinds vocab, atomic write helper)
 │   └── tools/           # Concierge tool implementations (all satisfy clai's LLMTool interface)
 │       ├── add_suggestion.go / remove_suggestion.go / check_suggestions.go
 │       ├── client_context_getter.go / concierge_context_*.go
@@ -123,7 +142,7 @@ internal/
 
 All agentic components are **opt-in** — each has its own `-model` flag. When unset,
 that agent is nil and the indexer skips the corresponding feature path. The
-storyteller is the exception: it always constructs (with a deterministic composer
+theatre is the exception: it always constructs (with a deterministic composer
 fallback) so the intro splash works offline and without an API key.
 
 **Key insights:**
@@ -144,6 +163,69 @@ fallback) so the intro splash works offline and without an API key.
   a clai agent with registered tools, and can add/remove suggestions, update
   metadata, fetch subtitles, and inspect client context — all without user
   interaction.
+- **The theatre's library is self-developing.** At submit, one deterministic
+  pass distills the generation's board and artifacts into six durable company
+  docs (premises, repertoire, sets, registry, director lessons, bulletin);
+  each doc is injected back into the relevant role's context next generation,
+  so the company remembers across generations without the LLM ever writing
+  the docs directly. Identity never drifts: the registry pins canonical coats
+  per id, and a new character enters only by explicit director approval at
+  submit (the registry is the only place identities are born). Docs are
+  atomic-written, validated on load (corrupt degrades to empty, never a
+  crash) and trimmed to caps, oldest first. The distill's board-sourced
+  inputs are carried out of band: the brief and the scenographer's dressed
+  marker ride in the working file (R3-02), so a board overflow past
+  BoardMaxEntries can never silently lose a generation's premise. The
+  registry's load gate runs the same species-palette check as `Canonize`,
+  so a hand-edited registry.json can never surface a coat the player cannot
+  draw (R3-04).
+- **The theatre's observability is single-writer.** Agents never write stdout:
+  the stage manager owns the transcript, one feed goroutine prints ancli lines
+  (`[theatre <gen>]`), and the ledger keeps the telemetry. A generation is
+  debuggable via `kinoview debug production <genID>`.
+- **The theatre's subagents are stateless, bounded mini-agents.** The runner
+  assembles the working-context standard into every prompt and gates every
+  spawn on the generation's budgets; the consultation broker caps hop depth
+  and dedupes repeats; the LLM seam (`runLLM`) lets the whole machinery run
+  without a model configured. Roles never consult the director — the
+  collaborations flow (D4) resolves cross-agent questions through the broker.
+- **The theatre's director is a bounded superagent over the same runner.** It
+  runs one clai loop with the generation's budgets (`-theatreMaxCalls`,
+  `-theatreGlobalCalls`, `-theatreWallClock`), orchestrates the
+  subagents through its nine tools, and the working file is the resolution
+  point: a submitted story ships, a validated draft ships on exhaustion, and
+  with neither the composer floor answers. “Validated” is an explicit
+  `Working.Validated` flag set only by `validate_story` and cleared by every
+  writer that rewrites the draft — the exhaustion gate ships exactly the
+  content that passed the playability gate, never a playable-but-unblessed
+  file (R7-01). Submission is a persistence boundary: `submit_story` marks
+  `working.json` submitted and distills the library only after the story is
+  durably on disk — `saveStory` returns its atomic-write error and the
+  submit aborts on failure, so paperwork never claims a success the disk did
+  not record (R7-02). The `Theatre` facade implements
+  the `agents.Teller` contract (cooldown, single-flight, `Warm`, `Next`), so
+  the composer-only mode is unchanged. The facade's random source is
+  internally synchronized: every draw — the compose paths and the
+  production's generation-id draw — is serialized through one mutex, so
+  concurrent `Next` + `Prepare` is safe (R1-01, R2-01). The theatre's own
+  gates are the budget authority: it bounds every generation itself (wall
+  clock + single-flight + call budgets), so callers of `agents.Teller`
+  never wrap `Prepare` in a smaller timeout — a caller-side cap would
+  silently disable `-theatreWallClock` on that trigger path (R3-01). The
+  call budgets cap tool executions; an invocation's final answer is not a
+  budgeted call, so telemetry never shows an actor over its cap (R3-03).
+- **The theatre's roles are scoped artifacts with deterministic floors.** Each
+  role prompt declares its scope in three sections (decides / asks / stops),
+  each deliverable is an artifact schema validated at the writer boundary
+  (brief, draft-report, scene-report — unknown values dropped, ids
+  pattern-checked, lengths capped), and every role answers with its own
+  deterministic floor when the LLM fails: the dramaturg posts a registry-
+  grounded brief, the playwright composes a draft into the working file, the
+  scenographer dresses via the composer's staging rules, the wardrobe answers
+  from the costumer registry. A consulted role answers in place — a consult
+  never rewrites the director's draft. Canon facts round-trip through the
+  working file (soft continuity, D6); the playwright's draft report carries
+  the author's act structure, which supersedes the derived count.
 - **The frontend uses SSE for live updates.** The `index_handlers_eventStream.go`
   broadcasts item changes, suggestions, and logs to connected browsers.
 

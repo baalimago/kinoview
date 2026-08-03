@@ -17,8 +17,9 @@ import (
 	"github.com/baalimago/kinoview/internal/agents/classifier"
 	"github.com/baalimago/kinoview/internal/agents/concierge"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
-	"github.com/baalimago/kinoview/internal/agents/storyteller"
+	"github.com/baalimago/kinoview/internal/agents/theatre"
 	"github.com/baalimago/kinoview/internal/agents/tools"
+	"github.com/baalimago/kinoview/internal/loghandler"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
 	"github.com/baalimago/kinoview/internal/media/storage"
@@ -175,28 +176,36 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 
 	////////////
-	// Storyteller setup
+	// Theatre setup — the theatre runs the company (decision D13)
 	////////////
 	// Always constructed: with no model configured it runs composer-only, which
 	// is what keeps the intro splash working offline and without an API key.
-	bard := storyteller.New(
+	// Phase 9 renamed the intro-story flags to -theatre*; the cache path and
+	// cooldown semantics are unchanged, so a pre-migration cache still loads.
+	bard := theatre.New(
 		models.Configurations{
-			Model:         *c.storytellerModel,
+			Model:         *c.theatreModel,
 			ConfigDir:     *c.configDir,
 			InternalTools: []models.ToolName{},
-		}, *c.cacheDir, *c.storytellerCooldown,
+		}, *c.cacheDir, *c.theatreCooldown,
 		// The play takes its theme from whatever was watched most recently.
 		// Read lazily: preparation happens long after the request that triggered
 		// it, and by then the household may have moved on to something else.
-		storyteller.WithMuse(storyteller.MuseFunc(func() string {
+		theatre.WithMuse(theatre.MuseFunc(func() string {
 			if userContextMgr == nil {
 				return ""
 			}
-			return storyteller.LatestTheme(userContextMgr.AllClientContexts())
+			return theatre.LatestTheme(userContextMgr.AllClientContexts())
 		})),
+		// Budgets are flags, tuned later from telemetry (decision D8).
+		theatre.WithCallBudgets(*c.theatreMaxCalls, *c.theatreGlobalCalls),
+		theatre.WithWallClock(*c.theatreWallClock),
+		// Mini-agent sessions stream through the house loghandler format
+		// (phase 2's serve-side hookup).
+		theatre.WithSessionSink(loghandler.Print),
 	)
-	if *c.storytellerModel == "" {
-		ancli.Noticef("storyteller running composer-only (no -storyteller model set)")
+	if *c.theatreModel == "" {
+		ancli.Noticef("theatre running composer-only (no -theatre model set)")
 	}
 	// Get a story ready before anyone shows up, so the first visit is not
 	// stuck with a composed one while the LLM sits idle.
@@ -215,7 +224,7 @@ func (c *command) Setup(ctx context.Context) error {
 		media.WithConcierge(conkidonk),
 		media.WithConciergeStartupDelay(*c.conciergeStartupDelay),
 		media.WithClientContextManager(userContextMgr),
-		media.WithStoryteller(bard),
+		media.WithTheatre(bard),
 		media.WithButlerDebounce(*c.butlerDebounce),
 		media.WithButlerCacheTTL(*c.butlerCacheTTL),
 		media.WithPongGrace(*c.pongGrace),

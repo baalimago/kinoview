@@ -9,10 +9,35 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-// Func will log the messages using ancli depending on the log level
+// Print renders one log message the house way — the format the /log endpoint
+// gives a posted client or agent line: "[<logger>]: <message>" through ancli
+// with the level's severity. Server-side producers (the theatre's session
+// sink) reuse it so the web-visible agent feed and the stdout feed share the
+// same formatting.
+func Print(lm model.LogMessage) {
+	loggerName := lm.Logger
+	if loggerName == "" {
+		loggerName = "client"
+	}
+
+	msg := fmt.Sprintf("[%v]: %v", loggerName, lm.Message)
+
+	switch lm.Level {
+	case model.DEBUG:
+		ancli.Noticef("%v", msg)
+	case model.INFO:
+		ancli.Okf("%v", msg)
+	case model.WARNING:
+		ancli.Warnf("%v", msg)
+	case model.ERROR:
+		ancli.Errf("%v", msg)
+	}
+}
+
+// Func is the /log endpoint: it decodes a posted LogMessage and prints it the
+// house way.
 func Func() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		// Decode the request body into a LogMessage
 		var logMessage model.LogMessage
 		err := json.NewDecoder(r.Body).Decode(&logMessage)
 		if err != nil {
@@ -20,24 +45,7 @@ func Func() http.HandlerFunc {
 			return
 		}
 
-		loggerName := logMessage.Logger
-		if loggerName == "" {
-			loggerName = "client"
-		}
-
-		msg := fmt.Sprintf("[%v]: %v", loggerName, logMessage.Message)
-
-		// Log the message based on the log level
-		switch logMessage.Level {
-		case model.DEBUG:
-			ancli.Noticef("%v", msg)
-		case model.INFO:
-			ancli.Okf("%v", msg)
-		case model.WARNING:
-			ancli.Warnf("%v", msg)
-		case model.ERROR:
-			ancli.Errf("%v", msg)
-		}
+		Print(logMessage)
 
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Log message received"))

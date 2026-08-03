@@ -1,4 +1,4 @@
-package storyteller
+package theatre
 
 import (
 	"math/rand"
@@ -56,26 +56,12 @@ func TestCleanTitle(t *testing.T) {
 	}
 }
 
-// The theme must reach the marquee even with no LLM configured.
-func TestComposeThemed_BillsTheTheme(t *testing.T) {
-	s := ComposeThemed(newRand(1), "The Godfather 1972")
-	if s.Theme != "The Godfather 1972" {
-		t.Errorf("theme not recorded: %q", s.Theme)
-	}
-	if s.Title == "" {
-		t.Fatal("empty title")
-	}
-	if err := s.Validate(); err != nil {
-		t.Fatalf("themed story invalid: %v", err)
-	}
-}
-
 // A hostile or broken muse must never take the splash (or the server) down.
 func TestTheme_SurvivesPanickingMuse(t *testing.T) {
 	dir := t.TempDir()
 	tl := New(cfgNone(), dir, time.Hour, WithMuse(MuseFunc(func() string {
 		panic("muse exploded")
-	}))).(*teller)
+	})))
 
 	if got := tl.theme(); got != "" {
 		t.Errorf("expected empty theme after panic, got %q", got)

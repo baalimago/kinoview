@@ -16,7 +16,6 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
-	"github.com/baalimago/kinoview/internal/agents/storyteller"
 	"github.com/baalimago/kinoview/internal/loghandler"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
 	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
@@ -98,7 +97,8 @@ type Indexer struct {
 	conciergeStartupDelay time.Duration
 	conciergeInterval     time.Duration
 	conciergeCacheDir     string
-	storyteller           storyteller.Teller
+	// theatre prepares the intro splash story (the agents.Teller contract).
+	theatre agents.Teller
 
 	// Agent support managers
 	clientContextMgr agents.ClientContextManager
@@ -169,10 +169,10 @@ func WithConcierge(c agents.Concierge) IndexerOption {
 	}
 }
 
-// WithStoryteller sets the agent which prepares the intro splash story.
-func WithStoryteller(t storyteller.Teller) IndexerOption {
+// WithTheatre sets the agent which prepares the intro splash story.
+func WithTheatre(t agents.Teller) IndexerOption {
 	return func(i *Indexer) {
-		i.storyteller = t
+		i.theatre = t
 	}
 }
 

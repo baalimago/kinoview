@@ -1,7 +1,7 @@
 // ── Intro splash: a short story, acted out ────────────────────────────────
 //
-// The story is DATA (see internal/model/story.go). The server's storyteller
-// agent prepares it ahead of time; this file is only a player for it. If the
+// The story is DATA (see internal/model/story.go). The server's theatre
+// company prepares it ahead of time; this file is only a player for it. If the
 // fetch fails we compose a minimal one locally, so the splash never depends on
 // the network.
 //
@@ -43,7 +43,7 @@
 
   function lowPerf() { return document.body.classList.contains('low-perf'); }
 
-  var BACKDROPS = { night: 1, livingroom: 1, garden: 1, theatre: 1, sunset: 1 };
+  var BACKDROPS = { night: 1, livingroom: 1, garden: 1, theatre: 1, sunset: 1, kitchen: 1, forest: 1, rain: 1 };
 
   /* ══════════════════════════════════════════════════════════════════════
      VOICES
@@ -83,6 +83,21 @@
       mouth: [900, 6000, 4200, 1200], pitch: [0.95, 1.26, 0.90],
       vib: [10, 14, 0.03], noise: 0.01, pure: 0.55, decay: 0.55,
       bursts: [1, 3], gap: [0.05, 0.11]
+    },
+    // The bird: the smallest body gets the highest voice — above the mouse
+    // for contrast — and the shortest, quickest bursts. A chirp is three
+    // notes with a rising middle (cheep-CHEEP-cheep), which burstPitch
+    // shapes: later bursts drop for everyone else, but the bird's middle
+    // note climbs and the last one drops below the first.
+    bird: {
+      dur: [0.05, 0.09], f0: [2000, 2800], amp: [0.18, 0.30],
+      kf: [0.00, 0.20, 0.55, 1.00],
+      tracks: [[1200, 1900, 1700, 1300], [3200, 4300, 3900, 3200], [6000, 6800, 6400, 5900]],
+      gains: [1.0, 0.28, 0.07], q: [10, 13, 14],
+      mouth: [1100, 7000, 5000, 1400], pitch: [0.97, 1.30, 0.88],
+      vib: [12, 16, 0.025], noise: 0.01, pure: 0.50, decay: 0.50,
+      bursts: [2, 3], gap: [0.04, 0.08],
+      burstPitch: [1, 1.42, 0.94]
     }
   };
 
@@ -95,8 +110,11 @@
     var end = t0;
     for (var i = 0; i < n; i++) {
       var d = rand(voice.dur[0], voice.dur[1]);
-      // Later bursts drop slightly in pitch and level, like a real repeat.
-      var f = f0 * (1 - i * 0.05);
+      // Later bursts drop slightly in pitch and level, like a real repeat. A
+      // voice may override the per-burst curve (burstPitch) — the bird's
+      // chirp rises in the middle instead of dropping.
+      var bp = (voice.burstPitch && voice.burstPitch[i]) || (1 - i * 0.05);
+      var f = f0 * bp;
       var a = amp * (i === 0 ? 1 : 0.82);
       end = renderVoice(ctx, end, d, f, a, voice);
       if (i < n - 1) end += rand(voice.gap[0], voice.gap[1]);
@@ -275,6 +293,21 @@
         white: { fur: '#e8e4de', furDark: '#c4bfb8', belly: '#f7f5f2', tailTip: '#e0bfbb', innerEar: '#e2acb1', nose: '#d99aa1', eye: '#7a2020' }
       },
       build: buildMouse
+    },
+    // The bird: smaller than the mouse and perched above the ground line, so
+    // it never shares a body silhouette with anything. `perch` is a species
+    // trait (art, not choreography): the actor's bottom sits that many
+    // percent higher, which reads as a branch. The bird never leg-walks —
+    // every move is a glide with a hop bob (startWalking).
+    bird: {
+      cls: 'bird', w: 64, h: 48, base: 0.30, perch: 26, voice: VOICES.bird,
+      coats: {
+        chaffinch: { fur: '#b5a07e', furDark: '#8a7353', belly: '#d9c9a8', tailTip: '#6b5a3e', innerEar: '#c98c93', nose: '#d99aa1', eye: '#241f1c' },
+        bluetit:   { fur: '#6f9ec2', furDark: '#4f7a9c', belly: '#f2e8c9', tailTip: '#4f6b8a', innerEar: '#e2acb1', nose: '#3d3a38', eye: '#1f1c18' },
+        robin:     { fur: '#b5704a', furDark: '#8f5333', belly: '#e8d2ae', tailTip: '#7a4a30', innerEar: '#c96a72', nose: '#c98c93', eye: '#241f1c' },
+        sparrow:   { fur: '#9c8d7a', furDark: '#7a6b58', belly: '#d8cdba', tailTip: '#6b5a48', innerEar: '#c98c93', nose: '#c98c93', eye: '#241f1c' }
+      },
+      build: buildBird
     }
   };
 
@@ -356,6 +389,25 @@
     return m;
   }
 
+  // The bird perches: short legs, tail hanging down, wing folded on the
+  // body. Drawn facing right like the cat and the dog; the face layer flips
+  // it the same way. The beak is a border triangle — no inner SVG.
+  function buildBird(coat) {
+    var b = el('div', 'bird');
+    b.appendChild(el('div', 'bird-tail'));
+    b.appendChild(el('div', 'bird-body'));
+    b.appendChild(el('div', 'bird-belly'));
+    b.appendChild(el('div', 'bird-wing'));
+    b.appendChild(el('div', 'bird-leg bird-leg-b'));
+    b.appendChild(el('div', 'bird-leg bird-leg-f'));
+    var head = el('div', 'bird-head');
+    head.appendChild(el('div', 'bird-eye'));
+    b.appendChild(head);
+    b.appendChild(el('div', 'bird-beak'));
+    applyCoat(b, coat);
+    return b;
+  }
+
   var PROPS = {
     yarn: { cls: 'prop-yarn', w: 34, h: 34, build: function() {
       var p = el('div', 'prop prop-yarn');
@@ -367,6 +419,31 @@
       var p = el('div', 'prop prop-box');
       p.appendChild(el('div', 'box-back'));
       p.appendChild(el('div', 'box-front'));
+      return p;
+    } },
+    ball: { cls: 'prop-ball', w: 30, h: 30, build: function() {
+      var p = el('div', 'prop prop-ball');
+      p.appendChild(el('div', 'ball-sphere'));
+      p.appendChild(el('div', 'ball-seam'));
+      return p;
+    } },
+    bone: { cls: 'prop-bone', w: 52, h: 22, build: function() {
+      var p = el('div', 'prop prop-bone');
+      p.appendChild(el('div', 'bone-knob k1'));
+      p.appendChild(el('div', 'bone-bar'));
+      p.appendChild(el('div', 'bone-knob k2'));
+      return p;
+    } },
+    cushion: { cls: 'prop-cushion', w: 54, h: 30, build: function() {
+      var p = el('div', 'prop prop-cushion');
+      p.appendChild(el('div', 'cushion-base'));
+      p.appendChild(el('div', 'cushion-seam'));
+      return p;
+    } },
+    bowl: { cls: 'prop-bowl', w: 44, h: 26, build: function() {
+      var p = el('div', 'prop prop-bowl');
+      p.appendChild(el('div', 'bowl-body'));
+      p.appendChild(el('div', 'bowl-rim'));
       return p;
     } }
   };
@@ -388,7 +465,11 @@
     lamp:   function() { return layered('piece piece-lamp',   ['lamp-pole', 'lamp-shade', 'lamp-glow']); },
     plant:  function() { return layered('piece piece-plant',  ['plant-pot', 'plant-leaf l1', 'plant-leaf l2', 'plant-leaf l3']); },
     window: function() { return layered('piece piece-window', ['win-frame', 'win-pane', 'win-bar-v', 'win-bar-h', 'win-sill']); },
-    rug:    function() { return layered('piece piece-rug',    ['rug-base', 'rug-inner']); }
+    rug:    function() { return layered('piece piece-rug',    ['rug-base', 'rug-inner']); },
+    fireplace: function() { return layered('piece piece-fireplace', ['fireplace-hearth', 'fireplace-fire', 'fireplace-mantel', 'fireplace-chimney', 'fireplace-glow']); },
+    bookshelf: function() { return layered('piece piece-bookshelf', ['bookshelf-frame', 'bookshelf-board b1', 'bookshelf-book c1', 'bookshelf-book c2', 'bookshelf-board b2', 'bookshelf-book c3', 'bookshelf-board b3']); },
+    door:   function() { return layered('piece piece-door',   ['door-frame', 'door-panel', 'door-knob', 'door-hinge']); },
+    log:    function() { return layered('piece piece-log',    ['log-trunk', 'log-end', 'log-knot']); }
   };
 
   function layered(rootCls, parts) {
@@ -498,7 +579,11 @@
     a.el.style.height = def.h + 'px';
 
     var lane = spec.lane || 0;
-    a.el.style.bottom = (11 + lane * 8) + '%';
+    // A species may perch: `perch` raises the actor above the ground line,
+    // so a bird reads on a branch rather than sharing the floor with the
+    // walkers. The guard is the || 0 — a perch-less backdrop or a missing
+    // perch simply lands the actor on the lane ground.
+    a.el.style.bottom = (11 + lane * 8 + (a.def.perch || 0)) + '%';
     // `base` is the species' intrinsic size; the story's own scale only nudges
     // it. Without this the mouse rendered at half a cat's length — the art is
     // 84px against the cat's 160px, but both were getting the same multiplier,
@@ -553,10 +638,19 @@
 
   function startWalking(a, ms, distancePx) {
     if (lowPerf()) return;
+    a.el.classList.remove('resting');
     // Step rate follows speed, so fast moves get quick little legs.
     var speed = distancePx / Math.max(1, ms);        // px per ms
     var stepMs = Math.max(140, Math.min(420, 150 / Math.max(0.08, speed)));
-    a.el.classList.remove('resting');
+    // The bird never leg-walks: its moves are a glide with a hop bob, so the
+    // walk cycle becomes a hop cycle. No bird-leg walking CSS exists — the
+    // hopping class is the whole gait.
+    if (a.def.cls === 'bird') {
+      a.el.classList.add('hopping');
+      setAnim(a.inner, 'animationDuration', Math.round(stepMs) + 'ms');
+      at(ms, function() { stopWalking(a); });
+      return;
+    }
     a.el.classList.add('walking');
     var legs = a.root.getElementsByClassName(a.def.cls + '-leg');
     for (var i = 0; i < legs.length; i++) {
@@ -576,6 +670,7 @@
 
   function stopWalking(a) {
     a.el.classList.remove('walking');
+    a.el.classList.remove('hopping');
     a.el.classList.add('resting');
   }
 
@@ -618,8 +713,8 @@
 
     // Face a target and freeze — a beat of tension.
     stareoff: function(a, b, sc) {
-      var t = sc.actors[b.Target];
-      if (t) setFacing(a, t.px > a.px ? 1 : -1);
+      var t = targetPx(b.Target, sc);
+      if (typeof t === 'number') setFacing(a, t > a.px ? 1 : -1);
       pulse(a, 'staring', b.Ms || 900);
     },
 
@@ -676,6 +771,43 @@
           p.el.classList.add('jostled');
         });
       }
+    },
+
+    // A long, mouth-driven yawn — the idle gesture of a settled scene.
+    yawn: function(a, b) { pulse(a, 'yawning', b.Ms || 1100); },
+
+    // Head-down investigation; faces the prop or piece it is given.
+    sniff: function(a, b, sc) {
+      var t = targetPx(b.Target, sc);
+      if (typeof t === 'number') setFacing(a, t > a.px ? 1 : -1);
+      pulse(a, 'sniffing', b.Ms || 800);
+    },
+
+    // Vertical hop onto the spot beside the target — no walking glide. The
+    // horizontal move rides the hop's arc (one ease-out transition on the
+    // walk layer) while the body leaves the ground, and the landing is
+    // clamped to the stage. On weak hardware it degrades to a static pose
+    // with no movement.
+    jump: function(a, b, sc) {
+      var t = targetPx(b.Target, sc);
+      if (typeof t === 'number') setFacing(a, t > a.px ? 1 : -1);
+      if (lowPerf()) return;   // static pose: never move the jumper
+      var ms = b.Ms || 620;
+      var land = a.px;
+      if (typeof t === 'number') land = clampStage(a, t + (t > a.px ? -44 : 44) * a.depth);
+      var dx = land - a.px;
+      a.px = land;
+      a.el.style.left = Math.round(land) + 'px';
+      if (Math.abs(dx) > 1) {
+        setAnim(a.walk, 'transitionDuration', '0ms');
+        setTransform(a.walk, 'translate3d(' + Math.round(dx) + 'px,0,0)');
+        void a.walk.offsetWidth;   // commit the start pose before transitioning
+        setAnim(a.walk, 'transitionProperty', 'transform');
+        setAnim(a.walk, 'transitionTimingFunction', 'ease-out');
+        setAnim(a.walk, 'transitionDuration', ms + 'ms');
+        setTransform(a.walk, 'translate3d(0,0,0)');
+      }
+      pulse(a, 'jumping', ms);
     }
   };
 
@@ -705,8 +837,28 @@
     var w = stageWidth();
     var x = (typeof xFrac === 'number' && xFrac > 0) ? xFrac : 0.5;
     // Keep the body on screen at its scaled size.
+    return clampStage(a, x * w - (a.def.w * a.depth) / 2);
+  }
+
+  // Clamp a stage position so the body stays on screen at its scaled size.
+  // The shared clamp behind markPx and jump: a landing near a wing must
+  // never throw the jumper off-stage.
+  function clampStage(a, px) {
+    var w = stageWidth();
     var half = (a.def.w * a.depth) / 2;
-    return Math.max(half * 0.2, Math.min(w - half * 1.2, x * w - half));
+    return Math.max(half * 0.2, Math.min(w - half * 1.2, px));
+  }
+
+  // Resolve a beat target to its stage position in px. Targets may be cast
+  // members, props or cells (a piece in the grid); an unknown target
+  // resolves to null and the action proceeds in place.
+  function targetPx(id, sc) {
+    var t = sc.actors[id] || sc.props[id];
+    if (t) return t.px;
+    var cell = sc.cells[id];
+    if (!cell) return null;
+    var pct = parseFloat(cell.style.left);
+    return (isNaN(pct) ? 0 : pct / 100) * stageWidth();
   }
 
   function hold(a, cls, ms) {

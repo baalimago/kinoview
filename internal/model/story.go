@@ -8,7 +8,7 @@ import (
 )
 
 // Story is a short character-driven scene played by the intro splash. It is
-// produced ahead of time (by an LLM storyteller, or by the deterministic
+// produced ahead of time (by the LLM theatre company, or by the deterministic
 // composer) and consumed by the frontend player.
 //
 // A Story is untrusted data: it may be LLM authored, and it drives animation and
@@ -58,7 +58,7 @@ type Cell struct {
 type Cast struct {
 	// ID is referenced by Beat.Actor, e.g. "ina".
 	ID string `json:"id"`
-	// Character selects the art and voice: "cat", "dog" or "mouse".
+	// Character selects the art and voice: "cat", "dog", "mouse" or "bird".
 	Character string `json:"character"`
 	// Coat names a palette within that character. Empty picks at random.
 	Coat string `json:"coat,omitempty"`
@@ -118,6 +118,7 @@ var ValidCharacters = map[string]bool{
 	"cat":   true,
 	"dog":   true,
 	"mouse": true,
+	"bird":  true,
 }
 
 // ValidBackdrops are the sets the player can dress the stage with.
@@ -127,6 +128,9 @@ var ValidBackdrops = map[string]bool{
 	"garden":     true,
 	"theatre":    true,
 	"sunset":     true,
+	"kitchen":    true,
+	"forest":     true,
+	"rain":       true,
 }
 
 // DefaultBackdrop is used whenever a story does not name a valid one.
@@ -142,22 +146,30 @@ var ValidRows = map[string]bool{
 
 // ValidPieces are the set pieces the player can draw into a cell.
 var ValidPieces = map[string]bool{
-	"tree":   true,
-	"bush":   true,
-	"fence":  true,
-	"cloud":  true,
-	"moon":   true,
-	"sofa":   true,
-	"lamp":   true,
-	"plant":  true,
-	"window": true,
-	"rug":    true,
+	"tree":      true,
+	"bush":      true,
+	"fence":     true,
+	"cloud":     true,
+	"moon":      true,
+	"sofa":      true,
+	"lamp":      true,
+	"plant":     true,
+	"window":    true,
+	"rug":       true,
+	"fireplace": true,
+	"bookshelf": true,
+	"door":      true,
+	"log":       true,
 }
 
 // ValidProps are the props the frontend player can draw.
 var ValidProps = map[string]bool{
-	"yarn": true,
-	"box":  true,
+	"yarn":    true,
+	"box":     true,
+	"ball":    true,
+	"bone":    true,
+	"cushion": true,
+	"bowl":    true,
 }
 
 // ValidActions is the closed action vocabulary the player implements. Anything
@@ -176,6 +188,9 @@ var ValidActions = map[string]bool{
 	"stareoff": true,
 	"nap":      true,
 	"bat":      true,
+	"yawn":     true,
+	"sniff":    true,
+	"jump":     true,
 	// Scene actions — these dress the set instead of moving a character, and so
 	// carry no actor.
 	"setCell":     true,
@@ -189,12 +204,14 @@ var sceneActions = map[string]bool{
 }
 
 // actionNeedsTarget lists actions that are meaningless without a Target.
+// jump lands beside its target like pounce, so it needs one too.
 var actionNeedsTarget = map[string]bool{
 	"pounce":   true,
 	"chase":    true,
 	"greet":    true,
 	"stareoff": true,
 	"bat":      true,
+	"jump":     true,
 }
 
 var idRe = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)

@@ -303,3 +303,105 @@ func TestValidate_BackdropDefaults(t *testing.T) {
 		t.Errorf("backdrop = %q, want %q", s.Scene.Backdrop, DefaultBackdrop)
 	}
 }
+
+// The phase-7 vocabulary — new pieces, props, backdrops and actions — must
+// validate end to end: a story using every addition survives the gate with
+// nothing dropped.
+func TestValidate_Phase7Vocabulary(t *testing.T) {
+	s := validStory()
+	s.Scene = Scene{
+		Backdrop: "kitchen",
+		Cells: []Cell{
+			{ID: "c1", Row: "far", Col: 0, Piece: "fireplace"},
+			{ID: "c2", Row: "far", Col: 1, Piece: "bookshelf"},
+			{ID: "c3", Row: "mid", Col: 2, Piece: "door"},
+			{ID: "c4", Row: "near", Col: 3, Piece: "log"},
+		},
+	}
+	s.Props = []Prop{
+		{ID: "p1", Prop: "ball", X: 0.3},
+		{ID: "p2", Prop: "bone", X: 0.4},
+		{ID: "p3", Prop: "cushion", X: 0.6},
+		{ID: "p4", Prop: "bowl", X: 0.7},
+	}
+	s.Beats = append(s.Beats,
+		Beat{T: 800, Actor: "ina", Action: "yawn", Ms: 1000},
+		Beat{T: 1900, Actor: "ina", Action: "sniff", Target: "p4", Ms: 800},
+		Beat{T: 2800, Actor: "ina", Action: "jump", Target: "c4", Ms: 700},
+	)
+	for _, bd := range []string{"kitchen", "forest", "rain"} {
+		s.Scene.Backdrop = bd
+		if err := s.Validate(); err != nil {
+			t.Fatalf("backdrop %q rejected: %v", bd, err)
+		}
+	}
+	if len(s.Scene.Cells) != 4 {
+		t.Errorf("cells dropped: %+v", s.Scene.Cells)
+	}
+	if len(s.Props) != 4 {
+		t.Errorf("props dropped: %+v", s.Props)
+	}
+	for _, want := range []string{"yawn", "sniff", "jump"} {
+		found := false
+		for _, b := range s.Beats {
+			if b.Action == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("phase-7 action %q was dropped", want)
+		}
+	}
+}
+
+// jump lands beside its target like pounce: a targetless jump is dropped, not
+// played in place.
+func TestValidate_JumpNeedsTarget(t *testing.T) {
+	s := validStory()
+	s.Beats = append(s.Beats,
+		Beat{T: 2000, Actor: "ina", Action: "jump"},
+		Beat{T: 2100, Actor: "ina", Action: "jump", Target: "freija"},
+	)
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	jumps := 0
+	for _, b := range s.Beats {
+		if b.Action == "jump" {
+			jumps++
+		}
+	}
+	if jumps != 1 {
+		t.Errorf("expected 1 jump with a target, got %d", jumps)
+	}
+}
+
+// The phase-8 bird: "bird" is a valid character, a story casting it survives
+// the gate with its coat intact, and it can use the movement vocabulary a bird
+// scene needs (enter, vocalize, a jump at a target).
+func TestValidate_BirdCast(t *testing.T) {
+	s := validStory()
+	s.Cast = []Cast{
+		{ID: "pip", Character: "bird", Coat: "chaffinch", Lane: 0, X: 0.4, Scale: 1},
+		{ID: "ina", Character: "cat", Lane: 0, X: 0.7, Scale: 1},
+	}
+	s.Beats = []Beat{
+		{T: 0, Actor: "pip", Action: "enter", From: "left", Ms: 1100},
+		{T: 900, Actor: "pip", Action: "vocalize"},
+		{T: 1500, Actor: "pip", Action: "jump", Target: "ina"},
+	}
+	if err := s.Validate(); err != nil {
+		t.Fatalf("bird story rejected: %v", err)
+	}
+	if len(s.Cast) != 2 {
+		t.Fatalf("cast dropped: %+v", s.Cast)
+	}
+	if s.Cast[0].Character != "bird" || s.Cast[0].Coat != "chaffinch" {
+		t.Errorf("bird cast mangled: %+v", s.Cast[0])
+	}
+	for _, b := range s.Beats {
+		if b.Action == "jump" && b.Target != "ina" {
+			t.Errorf("bird jump lost its target: %+v", b)
+		}
+	}
+}

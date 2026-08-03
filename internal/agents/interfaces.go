@@ -115,3 +115,22 @@ type OutputSetter interface {
 	// SetOutput to some Writer
 	SetOutput(io.Writer) error
 }
+
+// Teller prepares a short story for the next visit and hands out the current
+// one. The house contract of the intro splash (phase 9 — moved here from the
+// old intro-story package, which the theatre replaced): the media index wires
+// the theatre as this interface.
+type Teller interface {
+	// Next returns the story to play now. It never fails: if nothing has been
+	// prepared it composes one synchronously.
+	Next() model.Story
+
+	// Prepare generates the story for the *next* visit. Subject to the
+	// cooldown and to single-flight; returns true if a generation actually
+	// ran.
+	Prepare(ctx context.Context, reason string) bool
+
+	// Warm makes sure something good is ready before the first visitor
+	// arrives.
+	Warm(ctx context.Context)
+}

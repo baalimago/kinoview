@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
-	"github.com/baalimago/kinoview/internal/agents/storyteller"
+	"github.com/baalimago/kinoview/internal/agents/theatre"
 )
 
 //go:embed frontend/*
@@ -55,8 +55,11 @@ type command struct {
 	conciergeModel                *string
 	conciergeStartupDelay         *time.Duration
 	startupWriteDelay             *time.Duration
-	storytellerModel              *string
-	storytellerCooldown           *time.Duration
+	theatreModel                  *string
+	theatreCooldown               *time.Duration
+	theatreMaxCalls               *int
+	theatreWallClock              *time.Duration
+	theatreGlobalCalls            *int
 	butlerDebounce                *time.Duration
 	butlerCacheTTL                *time.Duration
 	pongGrace                     *time.Duration
@@ -71,7 +74,7 @@ func Command() *command {
 		recommenderModel:              &defaultModel,
 		butlerModel:                   &defaultModel,
 		conciergeModel:                &defaultModel,
-		storytellerModel:              &defaultModel,
+		theatreModel:                  &defaultModel,
 		conciergeStartupDelay:         new(time.Duration),
 		classificationWorkers:         new(int),
 		classificationRate:            new(float64),
@@ -82,8 +85,14 @@ func Command() *command {
 	*ret.classificationRate = 0.2
 	*ret.classificationBurst = 3
 	*ret.conciergeStartupDelay = 60 * time.Second
-	ret.storytellerCooldown = new(time.Duration)
-	*ret.storytellerCooldown = storyteller.DefaultCooldown
+	ret.theatreCooldown = new(time.Duration)
+	*ret.theatreCooldown = theatre.DefaultCooldown
+	ret.theatreMaxCalls = new(int)
+	*ret.theatreMaxCalls = theatre.DefaultDirectorBudget
+	ret.theatreWallClock = new(time.Duration)
+	*ret.theatreWallClock = theatre.DefaultWallClock
+	ret.theatreGlobalCalls = new(int)
+	*ret.theatreGlobalCalls = theatre.DefaultGlobalBudget
 	ret.startupWriteDelay = new(time.Duration)
 	*ret.startupWriteDelay = 30 * time.Second
 	ret.butlerDebounce = new(time.Duration)
@@ -237,8 +246,11 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeStartupDelay = fs.Duration("conciergeStartupDelay", 60*time.Second, "delay before first concierge run, 0 runs immediately")
-	c.storytellerModel = fs.String("storyteller", "", "set to LLM text model used to write the intro splash story. If unset, a deterministic composer is used instead.")
-	c.storytellerCooldown = fs.Duration("storytellerCooldown", storyteller.DefaultCooldown, "minimum time between intro story generations, so refreshes don't each cost an LLM call")
+	c.theatreModel = fs.String("theatre", "", "set to LLM text model used to write the intro splash story. If unset, a deterministic composer is used instead.")
+	c.theatreCooldown = fs.Duration("theatreCooldown", theatre.DefaultCooldown, "minimum time between intro story generations, so refreshes don't each cost an LLM call")
+	c.theatreMaxCalls = fs.Int("theatreMaxCalls", theatre.DefaultDirectorBudget, "maximum tool calls for the intro-story director within one generation")
+	c.theatreWallClock = fs.Duration("theatreWallClock", theatre.DefaultWallClock, "wall-clock cap for one intro-story generation; the company refuses new work past it")
+	c.theatreGlobalCalls = fs.Int("theatreGlobalCalls", theatre.DefaultGlobalBudget, "global LLM call cap across all roles for one intro-story generation")
 	c.startupWriteDelay = fs.Duration("startupWriteDelay", 30*time.Second, "delay before store writes are flushed to disk, 0 writes immediately")
 	c.butlerDebounce = fs.Duration("butlerDebounce", 30*time.Second, "minimum interval between butler suggestion cascades; triggers within the window are dropped")
 	c.butlerCacheTTL = fs.Duration("butlerCacheTTL", 6*time.Hour, "how long a cached suggestion set is served before re-querying the butler; 0 disables caching")

@@ -1,4 +1,4 @@
-package storyteller
+package theatre
 
 import (
 	"sort"
@@ -6,21 +6,6 @@ import (
 
 	"github.com/baalimago/kinoview/internal/model"
 )
-
-// Muse supplies what the next play should be about.
-//
-// The storyteller asks it at generation time rather than being handed a value,
-// because preparation happens long after the story was requested — by then the
-// household may have watched something else.
-type Muse interface {
-	// Theme returns a short description of what to riff on, or "" for none.
-	Theme() string
-}
-
-// MuseFunc adapts a plain function to a Muse.
-type MuseFunc func() string
-
-func (f MuseFunc) Theme() string { return f() }
 
 // LatestTheme picks the most recently watched title across every session.
 //

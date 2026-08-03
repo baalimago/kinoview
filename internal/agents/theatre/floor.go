@@ -1,7 +1,8 @@
-package storyteller
+package theatre
 
 import (
 	"math/rand"
+	"slices"
 	"strings"
 
 	"github.com/baalimago/kinoview/internal/model"
@@ -45,7 +46,8 @@ func ComposeThemed(r *rand.Rand, theme string) model.Story {
 const (
 	ina    = "ina"    // the cat
 	freija = "freija" // the dog
-	mouse  = "mouse1"
+	mouse  = "mouse1" // the mouse
+	pip    = "pip"    // the bird (phase 8 — registry entry, canonical chaffinch)
 )
 
 var catCoats = []string{"ginger", "grey", "cream", "tuxedo", "char", "siamese"}
@@ -75,8 +77,8 @@ func dogCast(r *rand.Rand, p plan) model.Cast {
 // Backdrops that suit each scene, so the set matches the action rather than
 // being picked at random against it.
 var (
-	indoorSets  = []string{"livingroom", "theatre"}
-	outdoorSets = []string{"garden", "night", "sunset"}
+	indoorSets  = []string{"livingroom", "theatre", "kitchen"}
+	outdoorSets = []string{"garden", "night", "sunset", "forest", "rain"}
 )
 
 func cellAt(id, row string, col int, piece string) model.Cell {
@@ -183,24 +185,122 @@ func fixed(name string) func(*rand.Rand) string {
 }
 
 func indoorSet(r *rand.Rand, p plan) model.Scene {
-	return dressPlan(pick(r, indoorSets), r, p, []dresser{
-		{row: "far", piece: fixed("window")},              // tall, on the back wall
-		{row: "mid", piece: fixed("lamp")},                // tall, rises past a body
-		{row: "far", piece: fixed("sofa"), clear: true},   // low
-		{row: "near", piece: fixed("plant"), clear: true}, // low, foreground
-		{row: "near", piece: fixed("rug")},                // flat, underfoot
-	})
+	backdrop := pick(r, indoorSets)
+	return dressPlan(backdrop, r, p, indoorDressers(backdrop))
 }
 
 func outdoorSet(r *rand.Rand, p plan) model.Scene {
 	backdrop := pick(r, outdoorSets)
-	return dressPlan(backdrop, r, p, []dresser{
-		{row: "far", piece: fixed("tree")}, // tall
-		{row: "far", piece: fixed("tree")}, // tall
-		{row: "sky", piece: func(rr *rand.Rand) string { return skyPieceFor(backdrop, rr) }},
-		{row: "mid", piece: fixed("bush"), clear: true},  // low
-		{row: "mid", piece: fixed("fence"), clear: true}, // low
-	})
+	return dressPlan(backdrop, r, p, outdoorDressers(backdrop))
+}
+
+// kitchenSet dresses the kitchen specifically, so the midnight raid always
+// happens in the room the template's shape calls for.
+func kitchenSet(r *rand.Rand, p plan) model.Scene {
+	return dressPlan("kitchen", r, p, indoorDressers("kitchen"))
+}
+
+// indoorDressers lists the pieces a room gets, in the order dressPlan lays
+// them. Extracted from indoorSet so the scenographer's deterministic floor
+// (DressDraft) can dress a room around an existing cast. Each room dresses
+// differently so the phase-7 pieces actually appear: a kitchen gets the door
+// and the bookshelf, a living room the hearth (whose fire can go out
+// mid-play), the theatre keeps its lamp and curtains.
+func indoorDressers(backdrop string) []dresser {
+	switch backdrop {
+	case "kitchen":
+		return []dresser{
+			{row: "far", piece: fixed("door")},      // tall — a way out
+			{row: "far", piece: fixed("bookshelf")}, // tall, on the back wall
+			{row: "mid", piece: fixed("fireplace")}, // tall hearth
+			{row: "near", piece: fixed("rug")},      // flat, underfoot
+		}
+	case "theatre":
+		return []dresser{
+			{row: "far", piece: fixed("window")},              // tall, on the back wall
+			{row: "mid", piece: fixed("lamp")},                // tall, rises past a body
+			{row: "far", piece: fixed("sofa"), clear: true},   // low
+			{row: "near", piece: fixed("plant"), clear: true}, // low, foreground
+			{row: "near", piece: fixed("rug")},                // flat, underfoot
+		}
+	default: // livingroom
+		return []dresser{
+			{row: "far", piece: fixed("window")},              // tall, on the back wall
+			{row: "mid", piece: fixed("fireplace")},           // tall hearth
+			{row: "far", piece: fixed("sofa"), clear: true},   // low
+			{row: "near", piece: fixed("plant"), clear: true}, // low, foreground
+			{row: "near", piece: fixed("rug")},                // flat, underfoot
+		}
+	}
+}
+
+// outdoorDressers lists the pieces an outdoor set gets. The sky piece depends
+// on the backdrop (a moon belongs over a night), so the backdrop is a
+// parameter. A forest leads with the log — it is the point of a forest floor —
+// and a rainy set with the door, the shelter the cast reacts to.
+func outdoorDressers(backdrop string) []dresser {
+	switch backdrop {
+	case "forest":
+		return []dresser{
+			{row: "near", piece: fixed("log"), clear: true}, // low — the forest floor
+			{row: "far", piece: fixed("tree")},              // tall
+			{row: "far", piece: fixed("tree")},              // tall
+			{row: "sky", piece: fixed("cloud")},
+			{row: "mid", piece: fixed("bush"), clear: true}, // low
+		}
+	case "rain":
+		return []dresser{
+			{row: "far", piece: fixed("door")},               // tall — the shelter's door
+			{row: "far", piece: fixed("tree")},               // tall
+			{row: "sky", piece: fixed("cloud")},              // the storm sky
+			{row: "mid", piece: fixed("fence"), clear: true}, // low
+			{row: "mid", piece: fixed("log"), clear: true},   // low
+		}
+	default: // garden, night, sunset
+		return []dresser{
+			{row: "far", piece: fixed("tree")}, // tall
+			{row: "far", piece: fixed("tree")}, // tall
+			{row: "sky", piece: func(rr *rand.Rand) string { return skyPieceFor(backdrop, rr) }},
+			{row: "mid", piece: fixed("bush"), clear: true},  // low
+			{row: "mid", piece: fixed("fence"), clear: true}, // low
+			{row: "near", piece: fixed("log"), clear: true},  // low
+		}
+	}
+}
+
+// DressDraft is the deterministic scenographer floor (phase 5): it dresses a
+// draft's set around wherever the playwright put the cast — the draft's
+// backdrop is kept when valid, and pieces are laid into the columns nobody
+// occupies (the staging rules from staging_test.go). Migrated into the
+// theatre in phase 9; the scenographer fallback uses it.
+func DressDraft(r *rand.Rand, s model.Story) model.Scene {
+	backdrop := s.Scene.Backdrop
+	if !model.ValidBackdrops[backdrop] {
+		backdrop = model.DefaultBackdrop
+	}
+	p := planFromCast(s.Cast)
+	if indoorBackdrop(backdrop) {
+		return dressPlan(backdrop, r, p, indoorDressers(backdrop))
+	}
+	return dressPlan(backdrop, r, p, outdoorDressers(backdrop))
+}
+
+// cellWithPiece returns the id of the first cell holding a piece, or "" when
+// the dressing left it out (a clear piece with no free column). Templates that
+// need to target a specific piece — the log, the door — look it up this way
+// and skip the targeted beats when it is not standing.
+func cellWithPiece(sc model.Scene, piece string) string {
+	for _, c := range sc.Cells {
+		if c.Piece == piece {
+			return c.ID
+		}
+	}
+	return ""
+}
+
+// indoorBackdrop reports whether a backdrop belongs to the indoor sets.
+func indoorBackdrop(backdrop string) bool {
+	return slices.Contains(indoorSets, backdrop)
 }
 
 func mouseCast(p plan) model.Cast {
@@ -209,6 +309,15 @@ func mouseCast(p plan) model.Cast {
 		// Species size lives in the frontend character registry; the story
 		// scale only nudges it.
 		Lane: p.laneOf(mouse), X: p.markOf(mouse), Scale: 1,
+	}
+}
+
+// birdCast casts the permanent bird (phase 8): the registry's canonical
+// look, like ina/ginger — pin_identity stamps it regardless.
+func birdCast(p plan) model.Cast {
+	return model.Cast{
+		ID: pip, Character: "bird", Coat: "chaffinch",
+		Lane: p.laneOf(pip), X: p.markOf(pip), Scale: 1,
 	}
 }
 
@@ -286,12 +395,16 @@ var scenes = []scene{
 			Scene:      outdoorSet(r, p),
 			DurationMs: 9200,
 			Cast:       []model.Cast{catCast(r, p), dogCast(r, p)},
+			// A peace offering between the two marks: whichever of them notices
+			// it first investigates before the greeting.
+			Props: []model.Prop{{ID: "bone1", Prop: "bone", Lane: 1, X: clamp01((p.markOf(lead) + p.markOf(foil)) / 2)}},
 			Beats: []model.Beat{
 				enter(p, lead, 0, jitter(r, 1600, 150)),
 				enter(p, foil, jitter(r, 700, 200), jitter(r, 1700, 150)),
 				{T: jitter(r, 2400, 150), Actor: lead, Action: "stareoff", Target: foil, Ms: 800},
 				{T: jitter(r, 3300, 150), Actor: lead, Action: "greet", Target: foil, Ms: 600},
 				{T: jitter(r, 3900, 120), Actor: lead, Action: "vocalize"},
+				{T: jitter(r, 4250, 150), Actor: lead, Action: "sniff", Target: "bone1", Ms: 800},
 				{T: jitter(r, 4600, 120), Actor: foil, Action: "vocalize"},
 				{T: jitter(r, 5300, 150), Actor: foil, Action: "greet", Target: lead, Ms: 600},
 				{T: jitter(r, 6100, 150), Actor: lead, Action: "stretch"},
@@ -450,21 +563,150 @@ var scenes = []scene{
 			cast = []model.Cast{catCast(r, p)}
 			title = []string{"Ina Arrives", "Good Evening", "Just Ina"}
 		}
+		// The solo performer brings its own company: a bone for the dog's
+		// night, a cushion for the cat's nap.
+		target, propName := "bone1", "bone"
+		if who == ina {
+			target, propName = "cush1", "cushion"
+		}
 		return model.Story{
 			Title:      pick(r, title),
 			Scene:      indoorSet(r, p),
 			DurationMs: 8200,
 			Cast:       cast,
+			Props:      []model.Prop{{ID: target, Prop: propName, Lane: 0, X: clamp01(p.markOf(who) + 0.14)}},
 			Beats: []model.Beat{
 				enter(p, who, 0, jitter(r, 1700, 200)),
 				{T: jitter(r, 2100, 150), Actor: who, Action: "vocalize"},
 				{T: jitter(r, 2900, 150), Actor: who, Action: "stretch"},
+				{T: jitter(r, 3500, 150), Actor: who, Action: "sniff", Target: target, Ms: 800},
 				{T: jitter(r, 3800, 150), Actor: who, Action: "blink"},
 				{T: jitter(r, 4400, 150), Actor: who, Action: "sit", Ms: 2200},
 				{T: jitter(r, 5400, 120), Actor: who, Action: "vocalize"},
 				{T: jitter(r, 6300, 150), Actor: who, Action: "blink"},
 				{T: jitter(r, 7000, 150), Actor: who, Action: "nap", Ms: 1200},
 			},
+		}
+	}},
+	{"midnightsnack", func(r *rand.Rand) model.Story {
+		// Ina raids the kitchen at midnight: the bowl draws her, the ball
+		// distracts her, the mouse defends the bowl, and the fire goes out
+		// as she settles into a victory nap. The new vocabulary in one scene:
+		// yawn, sniff, jump, bowl, ball, the kitchen set.
+		p := stage(r, ina, mouse, "")
+		return model.Story{
+			Title:      pick(r, []string{"Midnight Snack", "The Kitchen Raid", "Bowl Watching"}),
+			Scene:      kitchenSet(r, p),
+			DurationMs: 9500,
+			Cast:       []model.Cast{catCast(r, p), mouseCast(p)},
+			Props: []model.Prop{
+				{ID: "bowl1", Prop: "bowl", Lane: 1, X: clamp01(p.markOf(mouse) + 0.04)},
+				{ID: "ball1", Prop: "ball", Lane: 0, X: clamp01(p.markOf(ina) + 0.16)},
+			},
+			Beats: []model.Beat{
+				enter(p, ina, 0, jitter(r, 1500, 150)),
+				{T: jitter(r, 1700, 150), Actor: ina, Action: "yawn", Ms: 1200},
+				{T: jitter(r, 3000, 150), Actor: ina, Action: "sniff", Target: "bowl1", Ms: 900},
+				{T: jitter(r, 3900, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 4600, 120), Actor: ina, Action: "bat", Target: "ball1"},
+				enter(p, mouse, jitter(r, 5200, 200), 1200),
+				{T: jitter(r, 6500, 120), Actor: mouse, Action: "vocalize"},
+				{T: jitter(r, 7000, 150), Actor: ina, Action: "stareoff", Target: mouse, Ms: 900},
+				{T: jitter(r, 7700, 150), Actor: ina, Action: "jump", Target: "ball1", Ms: 700},
+				leave(r, p, mouse, jitter(r, 8200, 120), 900),
+				{T: jitter(r, 8600, 120), Actor: ina, Action: "sit", Ms: 1100},
+				{T: jitter(r, 8900, 120), Actor: ina, Action: "vocalize"},
+				{T: jitter(r, 9000, 150), Action: "setCell", Target: "set_c", Piece: ""},
+			},
+		}
+	}},
+	{"birdwatching", func(r *rand.Rand) model.Story {
+		// The trio gathers on the forest floor and watches the sky — a quiet
+		// shape that foreshadows the bird. Ina hops onto the log for a better
+		// view when one stands; the jump is the only movement in the piece.
+		p := stage(r, ina, freija, mouse)
+		scene := dressPlan("forest", r, p, outdoorDressers("forest"))
+		beats := []model.Beat{
+			enter(p, ina, 0, jitter(r, 1500, 150)),
+			{T: jitter(r, 1700, 150), Actor: ina, Action: "yawn", Ms: 1200},
+			enter(p, freija, jitter(r, 2700, 200), jitter(r, 1500, 150)),
+			{T: jitter(r, 4300, 150), Actor: freija, Action: "sit", Ms: 2600},
+			enter(p, mouse, jitter(r, 5000, 200), 1300),
+			{T: jitter(r, 6300, 120), Actor: mouse, Action: "vocalize"},
+			{T: jitter(r, 6900, 150), Actor: ina, Action: "vocalize"},
+			{T: jitter(r, 7600, 150), Actor: freija, Action: "stareoff", Target: ina, Ms: 900},
+			{T: jitter(r, 8200, 150), Actor: ina, Action: "sit", Ms: 1300},
+			{T: jitter(r, 8700, 120), Actor: mouse, Action: "vocalize"},
+		}
+		if logID := cellWithPiece(scene, "log"); logID != "" {
+			beats = append(beats, model.Beat{T: jitter(r, 5900, 150), Actor: ina, Action: "jump", Target: logID, Ms: 700})
+		}
+		return model.Story{
+			Title:      pick(r, []string{"Birdwatching", "Something in the Sky", "The Skywatchers"}),
+			Scene:      scene,
+			DurationMs: 9500,
+			Cast:       []model.Cast{catCast(r, p), dogCast(r, p), mouseCast(p)},
+			Beats:      beats,
+		}
+	}},
+	{"snowed-in", func(r *rand.Rand) model.Story {
+		// The intruder shape under a storm: ina and freija shelter by the
+		// door, freija smells something out there, the mouse arrives, the dog
+		// jumps at it, and the rain clears to the forest as the storm passes.
+		p := stage(r, ina, freija, mouse)
+		scene := dressPlan("rain", r, p, outdoorDressers("rain"))
+		beats := []model.Beat{
+			enter(p, ina, 0, jitter(r, 1500, 150)),
+			enter(p, freija, jitter(r, 700, 200), jitter(r, 1500, 150)),
+			{T: jitter(r, 2300, 150), Actor: ina, Action: "sit", Ms: 1800},
+			{T: jitter(r, 3100, 150), Actor: freija, Action: "vocalize"},
+			{T: jitter(r, 3900, 150), Actor: ina, Action: "yawn", Ms: 1200},
+			enter(p, mouse, jitter(r, 5600, 200), 1300),
+			{T: jitter(r, 7000, 150), Actor: mouse, Action: "vocalize"},
+			{T: jitter(r, 7500, 150), Actor: ina, Action: "stareoff", Target: mouse, Ms: 900},
+			{T: jitter(r, 8000, 150), Actor: freija, Action: "jump", Target: mouse, Ms: 700},
+			leave(r, p, mouse, jitter(r, 8500, 120), 900),
+			{T: jitter(r, 8800, 120), Actor: freija, Action: "vocalize"},
+			{T: jitter(r, 4900, 200), Action: "setBackdrop", Piece: "forest"},
+		}
+		if doorID := cellWithPiece(scene, "door"); doorID != "" {
+			beats = append(beats, model.Beat{T: jitter(r, 3400, 150), Actor: freija, Action: "sniff", Target: doorID, Ms: 900})
+		}
+		return model.Story{
+			Title:      pick(r, []string{"Snowed In", "The Storm", "Someone at the Door"}),
+			Scene:      scene,
+			DurationMs: 9500,
+			Cast:       []model.Cast{catCast(r, p), dogCast(r, p), mouseCast(p)},
+			Beats:      beats,
+		}
+	}},
+	{"birdvisit", func(r *rand.Rand) model.Story {
+		// The bird comes to call (phase 8): ina settles in, pip perches above
+		// her, chirps, teases her with a hop that lands just short — a swat
+		// that misses — and flies off, leaving her meowing at the sky. The
+		// perch is a species trait in the player, so the story only sets the
+		// lane and the marks.
+		p := stage(r, ina, pip, "")
+		backdrop := pick(r, []string{"forest", "garden", "rain"})
+		beats := []model.Beat{
+			enter(p, ina, 0, jitter(r, 1500, 150)),
+			{T: jitter(r, 2000, 150), Actor: ina, Action: "sit", Ms: 1800},
+			{T: jitter(r, 2600, 120), Actor: ina, Action: "vocalize"},
+			enter(p, pip, jitter(r, 3400, 200), 1300),
+			{T: jitter(r, 4600, 120), Actor: pip, Action: "vocalize"},
+			{T: jitter(r, 5200, 150), Actor: ina, Action: "stareoff", Target: pip, Ms: 900},
+			{T: jitter(r, 6100, 150), Actor: pip, Action: "stareoff", Target: ina, Ms: 800},
+			{T: jitter(r, 6800, 150), Actor: pip, Action: "jump", Target: ina, Ms: 700},
+			{T: jitter(r, 7500, 120), Actor: pip, Action: "vocalize"},
+			leave(r, p, pip, jitter(r, 8100, 150), 1000),
+			{T: jitter(r, 8700, 120), Actor: ina, Action: "vocalize"},
+		}
+		return model.Story{
+			Title:      pick(r, []string{"The Visitor", "Pip Calls By", "A Bird in the House"}),
+			Scene:      dressPlan(backdrop, r, p, outdoorDressers(backdrop)),
+			DurationMs: 9500,
+			Cast:       []model.Cast{catCast(r, p), birdCast(p)},
+			Beats:      beats,
 		}
 	}},
 }
@@ -499,17 +741,6 @@ func billing(r *rand.Rand, theme string) string {
 		"Tonight: " + theme,
 		"A Tribute to " + theme,
 	})
-}
-
-const idAlphabet = "abcdefghijklmnopqrstuvwxyz0123456789"
-
-func newID(r *rand.Rand) string {
-	var b strings.Builder
-	b.WriteString("stry_")
-	for range 8 {
-		b.WriteByte(idAlphabet[r.Intn(len(idAlphabet))])
-	}
-	return b.String()
 }
 
 // SceneNames lists the composer's templates, for logging and tests.

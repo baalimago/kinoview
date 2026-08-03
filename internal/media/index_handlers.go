@@ -294,11 +294,11 @@ func (i *Indexer) suggestionsHandler() http.HandlerFunc {
 }
 
 // introStoryHandler serves the story the intro splash should play now, then
-// asks the storyteller to prepare the next one.
+// asks the theatre to prepare the next one.
 //
 // Preparing on consume (rather than only on session end) is deliberate: a TV
 // app can be killed without ever firing an unload event, and we would then
-// replay the same story forever. The storyteller's cooldown is what keeps this
+// replay the same story forever. The theatre's cooldown is what keeps this
 // from turning every page refresh into an LLM call.
 func (i *Indexer) introStoryHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -306,12 +306,12 @@ func (i *Indexer) introStoryHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if i.storyteller == nil {
-			http.Error(w, "storyteller not configured", http.StatusNotFound)
+		if i.theatre == nil {
+			http.Error(w, "theatre not configured", http.StatusNotFound)
 			return
 		}
 
-		story := i.storyteller.Next()
+		story := i.theatre.Next()
 
 		w.Header().Set("Content-Type", "application/json")
 		// The splash is per-visit; a cached copy would freeze the story.
@@ -332,8 +332,8 @@ func (i *Indexer) introSessionEndHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if i.storyteller == nil {
-			http.Error(w, "storyteller not configured", http.StatusNotFound)
+		if i.theatre == nil {
+			http.Error(w, "theatre not configured", http.StatusNotFound)
 			return
 		}
 		// sendBeacon does not read the response; answer immediately and work after.
@@ -343,12 +343,12 @@ func (i *Indexer) introSessionEndHandler() http.HandlerFunc {
 }
 
 // prepareNextStory kicks off preparation in the background. Generation can take
-// tens of seconds on an LLM, so it must never block the request. The
-// storyteller itself enforces the cooldown and single-flight.
+// tens of seconds on an LLM, so it must never block the request. The theatre
+// itself enforces the cooldown and single-flight, and its own gates bound the
+// goroutine: the production's wall clock (`-theatreWallClock`), the call
+// budgets and the single-flight slot. A caller-side timeout here would
+// silently undercut the wall-clock flag on every HTTP-triggered generation
+// (review 3, R3-01), so the trigger passes a context without a deadline.
 func (i *Indexer) prepareNextStory(reason string) {
-	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		defer cancel()
-		i.storyteller.Prepare(ctx, reason)
-	}()
+	go i.theatre.Prepare(context.Background(), reason)
 }

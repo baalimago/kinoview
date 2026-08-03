@@ -1,4 +1,4 @@
-package storyteller
+package theatre
 
 import (
 	"fmt"

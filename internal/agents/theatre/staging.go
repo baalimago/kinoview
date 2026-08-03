@@ -1,6 +1,10 @@
-package storyteller
+package theatre
 
-import "math/rand"
+import (
+	"math/rand"
+
+	"github.com/baalimago/kinoview/internal/model"
+)
 
 // plan is where everybody stands and which side they come on from.
 //
@@ -18,6 +22,19 @@ type plan struct {
 func (p plan) markOf(id string) float64 { return p.x[id] }
 func (p plan) sideOf(id string) string  { return p.from[id] }
 func (p plan) laneOf(id string) int     { return p.lane[id] }
+
+// planFromCast recovers a staging plan from a story's cast — the marks and
+// lanes the playwright chose — so the deterministic scenographer floor can
+// dress around them. Entry sides are unknown from the cast; dressPlan does
+// not use them.
+func planFromCast(cast []model.Cast) plan {
+	p := plan{x: map[string]float64{}, from: map[string]string{}, lane: map[string]int{}}
+	for _, c := range cast {
+		p.x[c.ID] = c.X
+		p.lane[c.ID] = c.Lane
+	}
+	return p
+}
 
 // layouts describe where two leads end up. The interesting part is that a mark
 // is chosen independently of the side walked on from: a character whose mark is

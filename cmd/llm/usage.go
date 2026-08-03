@@ -281,7 +281,7 @@ func classifyAgent(systemContent string) string {
 	case strings.Contains(lower, "media concierge"):
 		return "concierge"
 	case strings.Contains(lower, "slapstick"):
-		return "storyteller"
+		return "theatre"
 	case strings.Contains(lower, "media recommender"):
 		return "recommender"
 	default:
