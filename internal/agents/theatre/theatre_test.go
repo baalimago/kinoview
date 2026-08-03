@@ -52,8 +52,7 @@ func fixtureScript(t *testing.T) func(context.Context, llmParams) (llmOutcome, e
 			callTool(t, p, "write_brief", models.Input{"brief": "mood=standoff, lineup=3"})
 			return llmOutcome{text: deliverable("brief posted")}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t), "report": "16 beats / 3 acts"})
-			return llmOutcome{text: deliverable("draft saved")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		case strings.Contains(p.prompt, "You are the scenographer."):
 			callTool(t, p, "write_scene", models.Input{"backdrop": "garden", "report": "a night garden"})
 			return llmOutcome{text: deliverable("scene saved")}, nil
@@ -156,7 +155,10 @@ func TestTheatre_FixtureProductionRunsFlow(t *testing.T) {
 	}
 	byRole := map[string]bool{}
 	for _, a := range ledger.Actors {
-		byRole[a.Role] = a.Calls > 0
+		// The playwright's structured story is its final answer, not a tool
+		// call (machine fix, 2026-08-03): its activity shows as the answer
+		// record, so presence — not a call count — is the telemetry proof.
+		byRole[a.Role] = a.Status == "active" || a.Calls > 0
 	}
 	for _, role := range []string{"director", "dramaturg", "playwright", "scenographer"} {
 		if !byRole[role] {
@@ -215,8 +217,7 @@ func TestTheatre_BudgetExhaustionShipsLastValidatedDraft(t *testing.T) {
 			callTool(t, p, "validate_story", models.Input{})
 			return llmOutcome{text: "out of budget"}, nil // never submits
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -273,8 +274,7 @@ func TestTheatre_DraftOnlyExhaustionFallsToComposer(t *testing.T) {
 			callTool(t, p, "draft_story", models.Input{})
 			return llmOutcome{text: "out of budget"}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -310,8 +310,7 @@ func TestTheatre_ValidatedThenRewrittenDraftDoesNotShip(t *testing.T) {
 			callTool(t, p, "draft_story", models.Input{})
 			return llmOutcome{text: "out of budget"}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -359,8 +358,7 @@ func TestTheatre_SubmitTwiceRefused(t *testing.T) {
 			second = callTool(t, p, "submit_story", models.Input{})
 			return llmOutcome{text: second}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -431,8 +429,7 @@ func TestTheatre_SubmitAbortsWhenStoryNotPersisted(t *testing.T) {
 			submitOut = callTool(t, p, "submit_story", models.Input{})
 			return llmOutcome{text: submitOut}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -476,8 +473,7 @@ func TestTheatre_WallClockRefusesSpawnsPastDeadline(t *testing.T) {
 			dressOut = callTool(t, p, "dress_set", models.Input{})
 			return llmOutcome{text: dressOut}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -510,8 +506,7 @@ func TestTheatre_WorkingFileUnreadableShipsComposer(t *testing.T) {
 			out := callTool(t, p, "submit_story", models.Input{})
 			return llmOutcome{text: out}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -569,11 +564,10 @@ func TestTheatre_SubagentFailureFallsBackAndContinues(t *testing.T) {
 			// The dramaturg's LLM fails; the fallback posts a brief anyway.
 			return llmOutcome{}, errors.New("llm query: boom")
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		case strings.Contains(p.prompt, "You are the scenographer."):
 			callTool(t, p, "write_scene", models.Input{"backdrop": "garden"})
-			return llmOutcome{text: deliverable("done")}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -1033,11 +1027,7 @@ func TestTheatre_SecondGenerationReadsFirstLibrary(t *testing.T) {
 			callTool(t, p, "write_brief", models.Input{"brief": `{"mood":"standoff","shape":"mousehunt","theme":"Solaris 1972"}`})
 			return llmOutcome{text: "brief posted"}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{
-				"story":  storyJSON(t),
-				"report": `{"title":"The Test Night","acts":[{"name":"a","beats":2}],"canon":["the mouse got away"]}`,
-			})
-			return llmOutcome{text: "draft saved"}, nil
+			return llmOutcome{text: storyWithCanon(t, "the mouse got away")}, nil
 		case strings.Contains(p.prompt, "You are the scenographer."):
 			callTool(t, p, "write_scene", models.Input{"backdrop": "garden"})
 			return llmOutcome{text: "scene saved"}, nil
@@ -1067,8 +1057,7 @@ func TestTheatre_SecondGenerationReadsFirstLibrary(t *testing.T) {
 			return llmOutcome{text: "brief posted"}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
 			playwright = p.prompt
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: "draft saved"}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -1132,8 +1121,7 @@ func TestTheatre_SubmitCanonizesApprovedCharacter(t *testing.T) {
 			})
 			return llmOutcome{text: submitOut}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": draft()})
-			return llmOutcome{text: "draft saved"}, nil
+			return llmOutcome{text: draft()}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}
@@ -1168,8 +1156,7 @@ func TestTheatre_SubmitCanonizesApprovedCharacter(t *testing.T) {
 			})
 			return llmOutcome{text: submitOut}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
-			callTool(t, p, "write_draft", models.Input{"story": storyJSON(t)})
-			return llmOutcome{text: "draft saved"}, nil
+			return llmOutcome{text: storyJSON(t)}, nil
 		}
 		return llmOutcome{text: "ok"}, nil
 	}

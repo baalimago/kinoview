@@ -215,7 +215,7 @@ func (p *production) directorTools(ctx context.Context) []models.LLMTool {
 		}),
 		tools.NewDraftStory(func(notes string) (string, error) {
 			res, err := p.runner.Run(ctx, Invocation{
-				Role: "playwright", Task: p.roleTask("Write the full draft story: the beats, the cast usage, the props, the title and the canon facts. Deliver it with write_draft.", notes),
+				Role: "playwright", Task: p.roleTask("Write the full draft story: the beats, the cast usage, the props, the title and the canon facts. Your final answer is the complete story JSON — a single JSON object checked against the story schema.", notes),
 				Budget: DefaultSubagentBudget, Depth: 0,
 			})
 			if err != nil {

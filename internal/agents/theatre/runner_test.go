@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -99,18 +98,21 @@ func TestRunner_AssemblesWorkingContext(t *testing.T) {
 
 // The runner produces a valid artifact for each of the four roles against a
 // fixture board: the stub uses each role's deliverable writer and the side
-// effect lands where it belongs.
+// effect lands where it belongs. The playwright is the exception since the
+// 2026-08-03 machine fix: its story arrives as the structured final answer
+// (tool == "") and the runner persists it into the working file.
 func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 	cases := []struct {
-		name   string
-		role   string
-		tool   string
-		input  models.Input
-		verify func(t *testing.T, co *Company, res Result, toolOut string)
+		name      string
+		role      string
+		tool      string
+		input     models.Input
+		wantCalls int
+		verify    func(t *testing.T, co *Company, res Result, toolOut string)
 	}{
 		{
 			name: "dramaturg writes the brief to the board",
-			role: "dramaturg", tool: "write_brief",
+			role: "dramaturg", tool: "write_brief", wantCalls: 1,
 			input: models.Input{"brief": "mood=standoff, lineup=3"},
 			verify: func(t *testing.T, co *Company, _ Result, _ string) {
 				board, err := co.LoadBoard()
@@ -123,10 +125,9 @@ func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 			},
 		},
 		{
-			name: "playwright saves the draft to the working file",
-			role: "playwright", tool: "write_draft",
-			input: models.Input{"story": storyJSON(t), "report": "16 beats / 3 acts"},
-			verify: func(t *testing.T, co *Company, _ Result, toolOut string) {
+			name: "playwright's structured final answer lands in the working file",
+			role: "playwright", tool: "",
+			verify: func(t *testing.T, co *Company, res Result, _ string) {
 				w, err := co.LoadWorking()
 				if err != nil {
 					t.Fatal(err)
@@ -137,14 +138,18 @@ func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 				if w.Story.ID != "stry_ab12" {
 					t.Errorf("story id = %q, want the generation id", w.Story.ID)
 				}
-				if !strings.Contains(toolOut, "revision 1") {
-					t.Errorf("tool output = %q, want the revision confirmation", toolOut)
+				if w.Story.Origin != "llm" {
+					t.Errorf("story origin = %q, want llm", w.Story.Origin)
+				}
+				// The director sees the compact report, not the full story JSON.
+				if !strings.Contains(res.Text, "draft written") || strings.Contains(res.Text, `"cast"`) {
+					t.Errorf("deliverable = %q, want the compact report", res.Text)
 				}
 			},
 		},
 		{
 			name: "scenographer dresses the working draft",
-			role: "scenographer", tool: "write_scene",
+			role: "scenographer", tool: "write_scene", wantCalls: 1,
 			input: models.Input{"backdrop": "garden", "report": "a night garden"},
 			verify: func(t *testing.T, co *Company, _ Result, _ string) {
 				w, err := co.LoadWorking()
@@ -158,7 +163,7 @@ func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 		},
 		{
 			name: "wardrobe answers in text",
-			role: "wardrobe", tool: "advise",
+			role: "wardrobe", tool: "advise", wantCalls: 1,
 			input: models.Input{"answer": "silver reads; keep ina lane 1"},
 			verify: func(t *testing.T, _ *Company, res Result, toolOut string) {
 				if toolOut != "silver reads; keep ina lane 1" {
@@ -189,7 +194,11 @@ func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 			runner := NewRunner(co, stage, WithCacheDir(t.TempDir()))
 			runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 				gotParams = p
-				// The stub "uses" the role's writer tool, then reports.
+				// The playwright's story is the structured final answer; the
+				// other roles "use" their writer tool, then report.
+				if tt.tool == "" {
+					return llmOutcome{text: storyJSON(t)}, nil
+				}
 				toolOut = callTool(t, p, tt.tool, tt.input)
 				return llmOutcome{text: "report: done"}, nil
 			}
@@ -204,9 +213,10 @@ func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 
 			// Every invocation is accounted: the writer tool call. The final
 			// answer is the loop's terminal roundtrip, not a budgeted call
-			// (review 3, R3-03).
-			if calls := ledgerCalls(t, stage, tt.role); calls != 1 {
-				t.Errorf("ledger calls for %s = %d, want 1 (the writer tool call only)", tt.role, calls)
+			// (review 3, R3-03). The playwright's structured story costs no
+			// tool calls.
+			if calls := ledgerCalls(t, stage, tt.role); calls != tt.wantCalls {
+				t.Errorf("ledger calls for %s = %d, want %d", tt.role, calls, tt.wantCalls)
 			}
 			// The deliver event names the role's artifact.
 			tr, err := co.LoadTranscript()
@@ -538,9 +548,10 @@ func TestRunner_StreamsTaggedLogEntries(t *testing.T) {
 	}
 }
 
-// The playwright's append_canon accumulates canon facts into the working
-// file, capped in count and length.
-func TestRunner_AppendCanonAccumulates(t *testing.T) {
+// The playwright's structured story carries its canon facts: the wrapper
+// captures the story's "canon" array into the working file, capped in count
+// and length (machine fix, 2026-08-03).
+func TestRunner_StoryCanonAccumulates(t *testing.T) {
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -552,8 +563,7 @@ func TestRunner_AppendCanonAccumulates(t *testing.T) {
 	runner := NewRunner(co, stage, WithCacheDir(t.TempDir()))
 	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		gotParams = p
-		callTool(t, p, "append_canon", models.Input{"fact": "the mouse got away"})
-		return llmOutcome{text: "report: done"}, nil
+		return llmOutcome{text: storyWithCanon(t, "the mouse got away")}, nil
 	}
 	if _, err := runner.Run(context.Background(), Invocation{Role: "playwright", Task: "t", Budget: 8}); err != nil {
 		t.Fatal(err)
@@ -566,7 +576,7 @@ func TestRunner_AppendCanonAccumulates(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(w.Canon) != 1 || w.Canon[0] != "the mouse got away" {
-		t.Errorf("canon = %v, want the appended fact", w.Canon)
+		t.Errorf("canon = %v, want the story's canon fact", w.Canon)
 	}
 }
 
@@ -680,8 +690,7 @@ func TestRunner_PostToBoardRejectsUnknownAddressee(t *testing.T) {
 }
 
 // The writer tools answer with clear messages when their preconditions are
-// missing: a draft that is not JSON, a scene without a draft, a canon fact
-// without a draft, and a full canon.
+// missing: a scene without a draft.
 func TestRunner_WriterErrorPaths(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -691,23 +700,7 @@ func TestRunner_WriterErrorPaths(t *testing.T) {
 		want  string
 		setup func(t *testing.T, co *Company)
 	}{
-		{"draft not json", "playwright", "write_draft", models.Input{"story": "{broken"}, "not valid JSON", nil},
 		{"scene without draft", "scenographer", "write_scene", models.Input{"backdrop": "garden"}, "no draft", nil},
-		{"canon without draft", "playwright", "append_canon", models.Input{"fact": "the mouse got away"}, "no draft", nil},
-		{
-			"canon full", "playwright", "append_canon",
-			models.Input{"fact": "one more"},
-			"canon full",
-			func(t *testing.T, co *Company) {
-				facts := make([]string, CanonMaxFacts)
-				for i := range facts {
-					facts[i] = fmt.Sprintf("fact %d", i)
-				}
-				if err := co.SaveWorking(Working{Story: validStory(), Revision: 1, Status: "draft", Canon: facts}); err != nil {
-					t.Fatal(err)
-				}
-			},
-		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -818,8 +811,10 @@ func TestRunner_FullBudgetNeverShowsOverCap(t *testing.T) {
 }
 
 // Canon facts round-trip (acceptance): facts injected into the playwright's
-// context are visible in the working file's canon when the playwright keeps
-// them in its draft report — the soft-continuity seam (D6).
+// context are visible in the working file's canon when the playwright
+// appends them through append_canon — the soft-continuity seam (D6). The
+// playwright's story itself arrives as the structured final answer (machine
+// fix, 2026-08-03).
 func TestRunner_CanonFactsRoundTrip(t *testing.T) {
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
@@ -839,13 +834,7 @@ func TestRunner_CanonFactsRoundTrip(t *testing.T) {
 		if !strings.Contains(p.prompt, "the mouse got away") {
 			t.Errorf("playwright context lacks the injected canon fact")
 		}
-		callTool(t, p, "write_draft", models.Input{
-			"story": storyJSON(t),
-			"report": `{"title":"The Test Night","acts":[{"name":"act 1","beats":2,"oneLine":"the setup"}],` +
-				`"cast":["ina"],"props":[],"beatsCount":2,` +
-				`"canon":["the mouse got away","the box was claimed"]}`,
-		})
-		return llmOutcome{text: "report: done"}, nil
+		return llmOutcome{text: storyWithCanon(t, "the box was claimed")}, nil
 	}
 	if _, err := runner.Run(context.Background(), Invocation{Role: "playwright", Task: "t", Budget: 8}); err != nil {
 		t.Fatal(err)
@@ -855,14 +844,14 @@ func TestRunner_CanonFactsRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// The injected fact is kept, the new one appended — both capped and
-	// deduped by the working file's own gate.
+	// The injected fact is kept, the appended one added — both capped and
+	// deduped by the working file's own gate. The story is the playwright's
+	// structured deliverable, not the fixture's.
 	if len(w.Canon) != 2 || w.Canon[0] != "the mouse got away" || w.Canon[1] != "the box was claimed" {
-		t.Errorf("canon = %v, want the injected and the kept facts", w.Canon)
+		t.Errorf("canon = %v, want the injected and the appended facts", w.Canon)
 	}
-	// The report is stored beside the draft.
-	if w.Report == nil || w.Report.Title != "The Test Night" || len(w.Report.Acts) != 1 {
-		t.Errorf("report = %+v, want the stored draft report", w.Report)
+	if w.Story.Title != "The Test Night" || w.Story.Origin != "llm" {
+		t.Errorf("story = {title %q, origin %q}, want the structured deliverable", w.Story.Title, w.Story.Origin)
 	}
 }
 
@@ -876,11 +865,7 @@ func TestRunner_CanonFactTruncatedToCap(t *testing.T) {
 	longFact := strings.Repeat("the mouse got away ", 30)
 	runner := NewRunner(co, stage, WithCacheDir(t.TempDir()))
 	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
-		callTool(t, p, "write_draft", models.Input{
-			"story":  storyJSON(t),
-			"report": `{"title":"T","canon":["` + longFact + `"]}`,
-		})
-		return llmOutcome{text: "done"}, nil
+		return llmOutcome{text: storyWithCanon(t, longFact)}, nil
 	}
 	if _, err := runner.Run(context.Background(), Invocation{Role: "playwright", Task: "t", Budget: 8}); err != nil {
 		t.Fatal(err)
@@ -1005,4 +990,109 @@ func TestRunner_RunClaiFailsWithoutModel(t *testing.T) {
 	if len(board.Entries) != 1 || board.Entries[0].Kind != "brief" || board.Entries[0].Author != "dramaturg" {
 		t.Errorf("board = %+v, want the fallback brief posted by the dramaturg", board.Entries)
 	}
+}
+
+// The playwright's structured-output contract (machine fix, 2026-08-03): the
+// production playwright's loop carries the story response format (json_schema,
+// strict), so the API enforces the story shape; a consulted playwright
+// answers in place and other roles deliver through tools, so their loops stay
+// free text.
+func TestRunner_ResponseFormatOnlyForProductionPlaywright(t *testing.T) {
+	co := Open(t.TempDir())
+	stage := OpenStage(co, "stry_ab12")
+	silenceFeed(stage)
+	runner, _ := stubRunner(t, stage, nil)
+
+	var formats []*models.ResponseFormat
+	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
+		formats = append(formats, p.rf)
+		return llmOutcome{text: storyJSON(t)}, nil
+	}
+
+	// Production playwright (depth 0): structured story.
+	if _, err := runner.Run(context.Background(), Invocation{Role: "playwright", Task: "t", Budget: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if len(formats) != 1 || formats[0] == nil || formats[0].Type != "json_object" || formats[0].Schema != nil {
+		t.Fatalf("playwright response format = %+v, want json_object (the deepseek endpoint supports json_object only)", formats)
+	}
+
+	// Consulted playwright (depth 1): answers in place, free text.
+	broker := NewBroker(co, stage, runner)
+	runner.WireBroker(broker)
+	if _, err := broker.Consult(context.Background(), "director", "playwright", "what is the draft?", 0); err != nil {
+		t.Fatal(err)
+	}
+	if len(formats) != 2 || formats[1] != nil {
+		t.Fatalf("consulted playwright response format = %+v, want nil (free text)", formats[1])
+	}
+
+	// Another production role: its deliverable is a tool, not the final answer.
+	if _, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if len(formats) != 3 || formats[2] != nil {
+		t.Fatalf("dramaturg response format = %+v, want nil (free text)", formats[2])
+	}
+}
+
+// A playwright final answer that is not a playable story gets one bounded
+// revision round with the exact validation error (the writeDraft gate's
+// schema hint), then the corrected story lands in the working file — the
+// backstop for endpoints that enforce the story schema weakly.
+func TestRunner_PlaywrightInvalidStoryRevision(t *testing.T) {
+	co := Open(t.TempDir())
+	stage := OpenStage(co, "stry_ab12")
+	silenceFeed(stage)
+	runner, _ := stubRunner(t, stage, nil)
+
+	calls := 0
+	var feedback string
+	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
+		calls++
+		if calls == 1 {
+			// The exact shape the production playwright produced on 09:16:
+			// cast entries with the wrong field names.
+			return llmOutcome{text: `{"title":"The Cheese Inspection","durationMs":8000,"scene":{"backdrop":"kitchen"},"cast":[{"role":"cat","species":"cat"}],"beats":[{"t":0,"actor":"ina","action":"enter"}]}`}, nil
+		}
+		feedback = p.prompt
+		return llmOutcome{text: storyJSON(t)}, nil
+	}
+	if _, err := runner.Run(context.Background(), Invocation{Role: "playwright", Task: "t", Budget: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 {
+		t.Errorf("llm calls = %d, want 2 (original + one revision)", calls)
+	}
+	if !strings.Contains(feedback, "no valid cast") || !strings.Contains(feedback, "character") {
+		t.Errorf("revision feedback lacks the validation error and the schema hint: %q", feedback)
+	}
+	w, err := co.LoadWorking()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Story.Title != "The Test Night" || w.Story.Origin != "llm" {
+		t.Errorf("story = {title %q, origin %q}, want the revised deliverable", w.Story.Title, w.Story.Origin)
+	}
+}
+
+// storyWithCanon is storyJSON plus a canon array — the structured story the
+// playwright delivers when it leaves canon facts behind (the soft-continuity
+// seam rides on the story's "canon" field, machine fix 2026-08-03).
+func storyWithCanon(t *testing.T, facts ...string) string {
+	t.Helper()
+	b, err := json.Marshal(validStory())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(b, &m); err != nil {
+		t.Fatal(err)
+	}
+	m["canon"] = facts
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(out)
 }

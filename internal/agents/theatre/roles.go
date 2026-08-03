@@ -20,7 +20,7 @@ import (
 
 const dramaturgPrompt = `You are the dramaturg. You decide: the production brief — the mood the story should carry, the shape it should take, the 1-3 member cast lineup, and what to avoid repeating. You ask: nothing — you work from the board and the character registry alone; the playwright and the scenographer build on your brief. You stop: when the brief is delivered with write_brief — deliver it once and stop.`
 
-const playwrightPrompt = `You are the playwright. You decide: the full draft — the title, the beats, the cast usage, the props, and 1-2 canon facts the story leaves behind (short past-tense outcomes, at most 120 characters each). Riff on the canon facts you are told; never contradict the pinned registry (a cat stays a cat, a pinned coat stays pinned). You ask: the wardrobe, via consult, when a look needs checking against the set. You stop: when the draft is written with write_draft (the full story JSON) — write it once and stop.`
+const playwrightPrompt = `You are the playwright. You decide: the full draft — the title, the beats, the cast usage, the props, and 1-2 canon facts the story leaves behind (short past-tense outcomes, at most 120 characters each, carried in the story's "canon" array). Riff on the canon facts you are told; never contradict the pinned registry (a cat stays a cat, a pinned coat stays pinned). You ask: the wardrobe, via consult, when a look needs checking against the set. You stop: when your final answer is the complete story as a single JSON object — it is checked against the story schema, so follow it exactly and never guess. The field rules: "cast" is an array of {"id","character","coat","lane","scale","x"} with character one of cat, dog, mouse, bird; "props" is an array of {"id","prop","lane","x"} with prop one of yarn, box, ball, bone, cushion, bowl; "beats" is an array of {"t","actor","action","x","target","ms","from","piece"} with actor a cast id and action one of enter, exit, walkTo, vocalize, sit, stretch, blink, pounce, chase, greet, stareoff, nap, bat, yawn, sniff, jump, setCell, setBackdrop; "scene" is {"backdrop": one of night, livingroom, garden, theatre, sunset, kitchen, forest, rain, "cells": []}; "durationMs" is 1200-10000. Write the story once and stop.`
 
 const scenographerPrompt = `You are the scenographer. You decide: the set around the draft's staging — the backdrop, the cells and the prop placements; never put a piece through a performer. You ask: the wardrobe, via consult, when a coat's contrast against a backdrop needs checking. You stop: when the scene is delivered with write_scene — deliver it once and stop.`
 
@@ -105,14 +105,11 @@ func (r *Runner) roleTools(ctx context.Context, role string, depth int) []models
 			return r.writeBrief(brief)
 		}))
 	case "playwright":
-		shared = append(shared,
-			tools.NewWriteDraft(func(story, report string) (string, error) {
-				return r.writeDraft(story, report)
-			}),
-			tools.NewAppendCanon(func(fact string) error {
-				return r.appendCanon(fact)
-			}),
-		)
+		// The playwright's story arrives as its structured final answer (the
+		// machine fix, 2026-08-03): no writer tools — the runner persists the
+		// final answer into the working file, and the canon facts ride on the
+		// story's "canon" array. It keeps the shared tools and consult.
+		return shared
 	case "scenographer":
 		shared = append(shared, tools.NewWriteScene(func(backdrop, report string) (string, error) {
 			return r.writeScene(backdrop, report)
@@ -236,13 +233,21 @@ func (r *Runner) validateBrief(text string) (string, bool) {
 // report, when it is a JSON draft report, is stored beside the draft — its
 // acts supersede the derived count — and the canon facts the playwright kept
 // are appended to the working file, truncated to the canon cap.
+//
+// The rejection errors carry the schema field rules: the production
+// playwright used to burn its whole budget guessing the story shape from
+// bare errors like "no valid cast"; the hint turns the first failure into a
+// self-correction roundtrip (machine fix, 2026-08-03).
 func (r *Runner) writeDraft(story, report string) (string, error) {
 	var s model.Story
 	if err := json.Unmarshal([]byte(story), &s); err != nil {
-		return "", fmt.Errorf("draft is not valid JSON: %v", err)
+		return "", fmt.Errorf("draft is not valid JSON: %v — the story must be a JSON object: cast an array of {\"id\",\"character\",\"coat\",\"lane\",\"scale\",\"x\"}, props an array of {\"id\",\"prop\",\"lane\",\"x\"}, beats an array of {\"t\",\"actor\",\"action\",\"x\",\"target\",\"ms\",\"from\",\"piece\"}", err)
 	}
 	s.ID = r.stage.gen
 	s.Origin = "llm"
+	if err := s.Validate(); err != nil {
+		return "", fmt.Errorf("draft rejected: %v — follow the story schema: cast entries are {\"id\",\"character\",\"coat\",\"lane\",\"scale\",\"x\"} with character one of cat/dog/mouse/bird; beats are {\"t\",\"actor\",\"action\",...} with actor a cast id and action one of enter/exit/walkTo/vocalize/sit/stretch/blink/pounce/chase/greet/stareoff/nap/bat/yawn/sniff/jump", err)
+	}
 	w, err := r.company.LoadWorking()
 	if err != nil {
 		w = Working{}
@@ -250,6 +255,22 @@ func (r *Runner) writeDraft(story, report string) (string, error) {
 	if rep, ok := parseDraftReport(report); ok {
 		w.Report = &rep
 		for _, f := range rep.Canon {
+			if len(w.Canon) >= CanonMaxFacts {
+				break
+			}
+			w.Canon = append(w.Canon, truncateRunes(strings.TrimSpace(f), CanonMaxFact))
+		}
+	}
+	// The canon facts ride on the structured story deliverable: the
+	// playwright's story JSON carries a "canon" array (machine fix,
+	// 2026-08-03). model.Story does not know the field — it is a
+	// soft-continuity seam, not part of the playable story — so the wrapper
+	// reads it off the raw JSON before the model.Story unmarshal drops it.
+	var canon struct {
+		Canon []string `json:"canon"`
+	}
+	if json.Unmarshal([]byte(story), &canon) == nil {
+		for _, f := range canon.Canon {
 			if len(w.Canon) >= CanonMaxFacts {
 				break
 			}
@@ -385,21 +406,4 @@ func applyPropPlacements(s *model.Story, placements []PropPlacement) {
 		s.Props[i].X = p.X
 		s.Props[i].Lane = p.Lane
 	}
-}
-
-// appendCanon appends a canon fact to the working file, capped in count and
-// length (soft continuity, D6).
-func (r *Runner) appendCanon(fact string) error {
-	w, err := r.company.LoadWorking()
-	if err != nil {
-		return fmt.Errorf("no draft in the working file yet — the playwright must write first")
-	}
-	if len(w.Canon) >= CanonMaxFacts {
-		return fmt.Errorf("canon full (%d facts)", CanonMaxFacts)
-	}
-	w.Canon = append(w.Canon, truncateRunes(strings.TrimSpace(fact), CanonMaxFact))
-	if err := r.company.SaveWorking(w); err != nil {
-		return err
-	}
-	return nil
 }

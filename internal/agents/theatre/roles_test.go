@@ -68,7 +68,11 @@ func TestRolePrompts_ScopeTextPinned(t *testing.T) {
 		role, needle string
 	}{
 		{"dramaturg", "delivered with write_brief"},
-		{"playwright", "written with write_draft"},
+		{"playwright", "final answer is the complete story"},
+		{"playwright", "character one of cat, dog, mouse, bird"},
+		{"playwright", "prop one of yarn, box, ball, bone, cushion, bowl"},
+		{"playwright", "action one of enter, exit, walkTo, vocalize, sit, stretch, blink, pounce, chase, greet, stareoff, nap, bat, yawn, sniff, jump"},
+		{"playwright", "one of night, livingroom, garden, theatre, sunset, kitchen, forest, rain"},
 		{"playwright", "1-2 canon facts"},
 		{"scenographer", "delivered with write_scene"},
 		{"scenographer", "never put a piece through a performer"},
