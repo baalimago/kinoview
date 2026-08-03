@@ -1371,7 +1371,7 @@ func TestSelect_NoSubtitleStreams(t *testing.T) {
 // Phase 4 tests — Butler Payload Diet
 
 func TestProjectItems_FieldSet(t *testing.T) {
-	rawMeta := json.RawMessage(`{"name": "The Movie", "year": 2023, "season": 1, "episode": 4, "genre": "Action", "duration_min": 120}`)
+	rawMeta := json.RawMessage(`{"name": "The Movie", "showName": "The Show", "year": 2023, "season": 1, "episode": 4, "genre": "Action", "duration_min": 120}`)
 	items := []model.Item{
 		{Name: "Movie.mp4", Metadata: &rawMeta},
 	}
@@ -1387,12 +1387,15 @@ func TestProjectItems_FieldSet(t *testing.T) {
 		t.Fatalf("Failed to unmarshal view: %v", err)
 	}
 
-	// Every key must be one of the eight allowed fields.
-	allowed := map[string]bool{"i": true, "n": true, "t": true, "y": true, "s": true, "e": true, "g": true, "r": true}
+	// Every key must be one of the allowed fields.
+	allowed := map[string]bool{"i": true, "n": true, "t": true, "y": true, "s": true, "e": true, "g": true, "r": true, "sn": true}
 	for k := range out {
 		if !allowed[k] {
 			t.Errorf("Unexpected key %q in butlerItemView JSON — field not in the projection", k)
 		}
+	}
+	if out["sn"] != "The Show" {
+		t.Errorf("showName not projected, got %v", out["sn"])
 	}
 }
 

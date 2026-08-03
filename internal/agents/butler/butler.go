@@ -27,9 +27,9 @@ type butler struct {
 }
 
 // SuggestionFingerprintVersion is bumped whenever the picker system prompt,
-// the response schema, or butlerItemView changes. Phase 2 (index) and Phase 4
-// (payload diet) each bumped it; start at 3.
-const SuggestionFingerprintVersion = 3
+// the response schema, or butlerItemView changes. Phase 2 (index), Phase 4
+// (payload diet) and the suggestion-view upgrade (showName) each bumped it.
+const SuggestionFingerprintVersion = 4
 
 const pickerSystemPrompt = `You are a media Butler. Your goal is to anticipate what the user wants to watch next.
 You will be given the user's context (viewing history, time of day etc) and a list of available media.
@@ -39,7 +39,7 @@ Do not suggest items that are clearly not in the provided media list.
 Be concise.
 Add a posh style to your replies as it will be user facing.
 
-Item key legend: i=index n=filename t=title y=year s=season e=episode g=genre r=runtimeMinutes
+Item key legend: i=index n=filename t=title y=year s=season e=episode g=genre r=runtimeMinutes sn=seriesName (for episodes)
 
 Hints, in order of importance:
 	1. Users prefer to watch series sequentially. If previous episode was 3, the next should be 4, of the same season.
@@ -85,6 +85,8 @@ type butlerItemView struct {
 	Episode int    `json:"e,omitempty"`
 	Genre   string `json:"g,omitempty"`
 	Runtime int    `json:"r,omitempty"`
+	// ShowName is the series name for episodes, when known.
+	ShowName string `json:"sn,omitempty"`
 }
 
 // butlerContextView is the subset of ClientContext the butler receives.
@@ -102,6 +104,7 @@ type viewMetadata struct {
 // butlerMetadata is the subset of classifier metadata relevant to the butler.
 type butlerMetadata struct {
 	Name        string `json:"name"`
+	ShowName    string `json:"showName"`
 	AltName     string `json:"alt_name"`
 	Year        int    `json:"year"`
 	Season      int    `json:"season"`
@@ -230,6 +233,7 @@ func ProjectItems(items []model.Item) []butlerItemView {
 				v.Episode = meta.Episode
 				v.Genre = meta.Genre
 				v.Runtime = meta.DurationMin
+				v.ShowName = meta.ShowName
 				if meta.Name != "" && meta.Name != it.Name {
 					v.Title = meta.Name
 				} else if meta.AltName != "" && meta.AltName != it.Name {

@@ -245,7 +245,7 @@ func (i *Indexer) runCascade(reason disconnectReason, clientCtx model.ClientCont
 	// Push to connected websocket clients so they re-render live.
 	payload := model.SuggestionsPayload{
 		State:       "available",
-		Suggestions: recs,
+		Suggestions: enrichSuggestions(recs),
 		Generated:   generated.UTC().Format(time.RFC3339),
 	}
 	i.broadcastSuggestions(payload)
@@ -282,7 +282,7 @@ func (i *Indexer) suggestionsHandler() http.HandlerFunc {
 
 		payload := model.SuggestionsPayload{
 			State:       state,
-			Suggestions: recs,
+			Suggestions: enrichSuggestions(recs),
 			Generated:   generated,
 		}
 

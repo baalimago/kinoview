@@ -195,6 +195,58 @@ func TestSuggestionsHandler_IncludesGenerated(t *testing.T) {
 	}
 }
 
+func TestSuggestionsHandler_AttachesView(t *testing.T) {
+	tempDir := t.TempDir()
+	sm, err := suggestions.NewManager(tempDir)
+	if err != nil {
+		t.Fatalf("failed to create suggestions manager: %v", err)
+	}
+
+	rawMeta := json.RawMessage(`{"name":"Endgame","season":8,"episode":10,"year":2004}`)
+	sm.Update([]model.Suggestion{
+		{
+			Item: model.Item{
+				ID:       "sg1-e10",
+				Path:     "/mnt/usb_b/movies/Stargate.SG-1.S08/Stargate.SG-1.S08E10.Endgame.mkv",
+				Name:     "Stargate.SG-1.S08E10.Endgame.mkv",
+				Metadata: &rawMeta,
+			},
+			Motivation: "resume the campaign",
+		},
+	})
+
+	i := &Indexer{suggestions: sm}
+	rr := doGet(i.suggestionsHandler())
+
+	var payload model.SuggestionsPayload
+	if err := json.Unmarshal(rr.Body.Bytes(), &payload); err != nil {
+		t.Fatal(err)
+	}
+	if len(payload.Suggestions) != 1 {
+		t.Fatalf("got %d suggestions, want 1", len(payload.Suggestions))
+	}
+
+	view := payload.Suggestions[0].View
+	if view == nil {
+		t.Fatal("expected suggestion view to be attached by the handler")
+	}
+	if view.Kind != "episode" {
+		t.Errorf("kind = %q, want %q", view.Kind, "episode")
+	}
+	if view.Title != "Stargate SG-1" {
+		t.Errorf("title = %q, want %q", view.Title, "Stargate SG-1")
+	}
+	if view.EpisodeTitle != "Endgame" {
+		t.Errorf("episodeTitle = %q, want %q", view.EpisodeTitle, "Endgame")
+	}
+	if view.Season != 8 || view.Episode != 10 {
+		t.Errorf("position = S%dE%d, want S8E10", view.Season, view.Episode)
+	}
+	if view.Year != 2004 {
+		t.Errorf("year = %d, want 2004", view.Year)
+	}
+}
+
 func doGet(h http.HandlerFunc) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodGet, "/suggestions", nil)
 	rr := httptest.NewRecorder()

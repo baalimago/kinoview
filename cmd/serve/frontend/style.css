@@ -776,10 +776,86 @@ body {
   box-shadow: 0 12px 24px -8px rgba(0,0,0,0.5);
 }
 .suggestion-item:hover::before { transform: scaleY(1); }
-.suggestion-item strong {
-  display: block; color: var(--text-primary); margin-bottom: 0.35rem; font-size: 0.95rem;
+
+/* Rich card anatomy: badge row, title, episode title, meta line,
+   description (clamped), motivation quote. */
+.suggestion-badge-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.5rem;
 }
-.suggestion-item p { color: var(--text-secondary); font-size: 0.85rem; margin: 0; font-style: italic; line-height: 1.45; }
+
+.suggestion-kind {
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.suggestion-kind-movie { color: #34d399; background: rgba(52, 211, 153, 0.12); border-color: rgba(52, 211, 153, 0.35); }
+.suggestion-kind-extras { color: #fbbf24; background: rgba(251, 191, 36, 0.12); border-color: rgba(251, 191, 36, 0.35); }
+.suggestion-kind-media { color: var(--text-muted); background: rgba(100, 116, 139, 0.14); border-color: rgba(100, 116, 139, 0.35); }
+
+.suggestion-pos {
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  color: var(--text-secondary);
+  padding: 0.18rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-color);
+}
+
+.suggestion-item .suggestion-title {
+  display: block;
+  color: var(--text-primary);
+  font-size: 1.02rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin-bottom: 0.2rem;
+}
+
+.suggestion-ep-title {
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  margin-bottom: 0.35rem;
+}
+
+.suggestion-meta {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  margin-bottom: 0.5rem;
+}
+
+.suggestion-desc {
+  color: var(--text-secondary);
+  font-size: 0.8rem;
+  line-height: 1.45;
+  margin: 0 0 0.6rem;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.suggestion-motivation {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+  font-style: italic;
+  line-height: 1.45;
+  margin: 0;
+  padding-top: 0.55rem;
+  border-top: 1px dashed var(--border);
+}
 
 /* Suggestions status: computing skeleton, empty state */
 .suggestions-status {

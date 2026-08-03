@@ -640,6 +640,58 @@ func Test_newJSONStore_options(t *testing.T) {
 	})
 }
 
+func Test_store_UpdateMetadata_mergesPartial(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup failed: %v", err)
+	}
+
+	rawMeta := json.RawMessage(`{"name":"Endgame","year":2004,"season":8,"episode":10}`)
+	item := model.Item{ID: "sg1", Name: "Stargate.SG-1.S08E10.mkv", Metadata: &rawMeta}
+	if err := s.store(item); err != nil {
+		t.Fatalf("store failed: %v", err)
+	}
+
+	// The concierge completes the missing series name without re-supplying the
+	// rest of the classification.
+	err := s.UpdateMetadata(item, `{"showName":"Stargate SG-1"}`)
+	if err != nil {
+		t.Fatalf("UpdateMetadata failed: %v", err)
+	}
+
+	got, err := s.GetItemByID("sg1")
+	if err != nil {
+		t.Fatalf("GetItemByID failed: %v", err)
+	}
+	if got.Metadata == nil {
+		t.Fatal("metadata is nil after merge")
+	}
+	var md map[string]any
+	if err := json.Unmarshal(*got.Metadata, &md); err != nil {
+		t.Fatalf("failed to unmarshal merged metadata: %v", err)
+	}
+	if md["showName"] != "Stargate SG-1" {
+		t.Errorf("showName = %v, want %q", md["showName"], "Stargate SG-1")
+	}
+	if md["name"] != "Endgame" {
+		t.Errorf("name = %v, want %q — partial update must not drop existing fields", md["name"], "Endgame")
+	}
+	if md["season"] != float64(8) || md["episode"] != float64(10) || md["year"] != float64(2004) {
+		t.Errorf("existing fields altered: %v", md)
+	}
+}
+
+func Test_store_UpdateMetadata_invalidJSON(t *testing.T) {
+	s := newTestStore(t)
+	if _, err := s.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup failed: %v", err)
+	}
+	item := model.Item{ID: "x", Name: "n"}
+	if err := s.UpdateMetadata(item, `{not json`); err == nil {
+		t.Fatal("expected error for invalid metadata JSON, got nil")
+	}
+}
+
 func Test_store_Store(t *testing.T) {
 	t.Run("store item updates cache", func(t *testing.T) {
 		s := newTestStore(t)

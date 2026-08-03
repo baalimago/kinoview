@@ -2,6 +2,7 @@ package constants
 
 const MetadataFormat = `{
 	"name": "<NAME>",
+	"showName": "<SERIES NAME (if the media is part of a series, e.g. episodes or extras)>" (string),
 	"alt_name": "<ALTERNATIVE NAME (if there were multiple titles)>" (string),
 	"actors": [ "ACTOR FULLNAME 0" (string), "ACTOR FULLNAME 1" (string), ... ],
 	"year": <RELEASE YEAR OF MEDIA> (int),

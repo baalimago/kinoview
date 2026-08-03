@@ -132,6 +132,28 @@ type Suggestion struct {
 	Item
 	Motivation string `json:"motivation"`
 	SubtitleID string `json:"subtitleID"`
+	// View is the resolved card display data, attached server-side at payload
+	// build time (see internal/media). It is never persisted with meaning:
+	// stored suggestions keep View nil and the payload builder recomputes it.
+	View *SuggestionView `json:"view,omitempty"`
+}
+
+// SuggestionView is the display data for one suggestion card. It is derived
+// deterministically from the item's metadata and file path so the frontend
+// never has to re-derive series names or season/episode positions, and so
+// both the concierge and the butler render identically.
+type SuggestionView struct {
+	// Kind is "movie", "episode", "extras" or "media" (unclassified fallback).
+	Kind         string   `json:"kind"`
+	Title        string   `json:"title"` // movie title, or series name for episodes/extras
+	EpisodeTitle string   `json:"episodeTitle,omitempty"`
+	Season       int      `json:"season,omitempty"`
+	Episode      int      `json:"episode,omitempty"`
+	Year         int      `json:"year,omitempty"`
+	DurationMin  int      `json:"durationMin,omitempty"`
+	Language     string   `json:"language,omitempty"`
+	Description  string   `json:"description,omitempty"`
+	Actors       []string `json:"actors,omitempty"`
 }
 
 // SuggestionsPayload is the payload for the suggestions websocket event

@@ -543,6 +543,97 @@ function handleSuggestionsEvent(payload) {
   renderSuggestionsFromPayload(payload);
 }
 
+function suggestionKindLabel(kind) {
+  switch (kind) {
+    case "movie": return "Movie";
+    case "episode": return "Episode";
+    case "extras": return "Extras";
+    default: return "Media";
+  }
+}
+
+// buildSuggestionCard renders one suggestion as a rich card. The server
+// attaches a resolved `view` (kind, title, series position, year, duration,
+// description …) to every suggestion; older servers without it fall back to
+// the legacy title + motivation layout.
+function buildSuggestionCard(rec) {
+  var card = document.createElement("div");
+  card.className = "suggestion-item";
+  card.onclick = function () {
+    selectMedia(rec.ID);
+    if (rec.subtitleID) {
+      setTimeout(function () { selectSubtitle(rec.subtitleID); }, 500);
+    }
+  };
+
+  var view = (rec.view && typeof rec.view === "object") ? rec.view : null;
+  if (!view || !view.title) {
+    var legacyTitle = document.createElement("strong");
+    legacyTitle.className = "suggestion-title";
+    legacyTitle.innerText = prettyMediaName(rec);
+    card.appendChild(legacyTitle);
+    var legacyMot = document.createElement("p");
+    legacyMot.className = "suggestion-motivation";
+    legacyMot.innerText = rec.motivation || "";
+    card.appendChild(legacyMot);
+    return card;
+  }
+
+  // Badge row: kind pill + series position pill for episodes.
+  var badgeRow = document.createElement("div");
+  badgeRow.className = "suggestion-badge-row";
+  var badge = document.createElement("span");
+  badge.className = "suggestion-kind suggestion-kind-" + view.kind;
+  badge.innerText = suggestionKindLabel(view.kind);
+  badgeRow.appendChild(badge);
+  if (view.kind === "episode" && view.season && view.episode) {
+    var pos = document.createElement("span");
+    pos.className = "suggestion-pos";
+    pos.innerText = "S" + view.season + "\u00B7E" + view.episode;
+    badgeRow.appendChild(pos);
+  }
+  card.appendChild(badgeRow);
+
+  var title = document.createElement("strong");
+  title.className = "suggestion-title";
+  title.innerText = view.title;
+  card.appendChild(title);
+
+  if (view.episodeTitle) {
+    var epTitle = document.createElement("div");
+    epTitle.className = "suggestion-ep-title";
+    epTitle.innerText = view.episodeTitle;
+    card.appendChild(epTitle);
+  }
+
+  var metaParts = [];
+  if (view.year) metaParts.push(String(view.year));
+  if (view.durationMin) metaParts.push(view.durationMin + " min");
+  if (view.language) metaParts.push(view.language);
+  if (metaParts.length) {
+    var meta = document.createElement("div");
+    meta.className = "suggestion-meta";
+    meta.innerText = metaParts.join(" \u00B7 ");
+    card.appendChild(meta);
+  }
+
+  if (view.description) {
+    var desc = document.createElement("p");
+    desc.className = "suggestion-desc";
+    desc.innerText = view.description;
+    card.appendChild(desc);
+  }
+
+  if (rec.motivation) {
+    var mot = document.createElement("p");
+    mot.className = "suggestion-motivation";
+    mot.innerText = rec.motivation;
+    card.appendChild(mot);
+  }
+
+  return card;
+}
+
 function renderSuggestionsFromPayload(payload) {
   var suggestions = payload.suggestions || [];
   var state = payload.state || "empty";
@@ -565,22 +656,8 @@ function renderSuggestionsFromPayload(payload) {
     if (list) {
       list.style.display = "block";
       list.innerHTML = "";
-      suggestions.forEach(function(rec) {
-        var itemDiv = document.createElement("div");
-        itemDiv.className = "suggestion-item";
-        itemDiv.onclick = function() {
-          selectMedia(rec.ID);
-          if (rec.subtitleID) {
-            setTimeout(function() { selectSubtitle(rec.subtitleID); }, 500);
-          }
-        };
-        var title = document.createElement("strong");
-        title.innerText = prettyMediaName(rec);
-        var motivation = document.createElement("p");
-        motivation.innerText = rec.motivation;
-        itemDiv.appendChild(title);
-        itemDiv.appendChild(motivation);
-        list.appendChild(itemDiv);
+      suggestions.forEach(function (rec) {
+        list.appendChild(buildSuggestionCard(rec));
       });
     }
     if (ageEl) {
@@ -593,22 +670,8 @@ function renderSuggestionsFromPayload(payload) {
     if (suggestions.length > 0 && list) {
       list.style.display = "block";
       list.innerHTML = "";
-      suggestions.forEach(function(rec) {
-        var itemDiv = document.createElement("div");
-        itemDiv.className = "suggestion-item";
-        itemDiv.onclick = function() {
-          selectMedia(rec.ID);
-          if (rec.subtitleID) {
-            setTimeout(function() { selectSubtitle(rec.subtitleID); }, 500);
-          }
-        };
-        var title = document.createElement("strong");
-        title.innerText = prettyMediaName(rec);
-        var motivation = document.createElement("p");
-        motivation.innerText = rec.motivation;
-        itemDiv.appendChild(title);
-        itemDiv.appendChild(motivation);
-        list.appendChild(itemDiv);
+      suggestions.forEach(function (rec) {
+        list.appendChild(buildSuggestionCard(rec));
       });
     }
   } else {

@@ -54,7 +54,7 @@ func (umt *updateMetadataTool) Call(input models.Input) (string, error) {
 func (umt *updateMetadataTool) Specification() models.Specification {
 	return models.Specification{
 		Name:        "update_metadata",
-		Description: "Use this tool to update the metadata of some item by supplying new metadata.",
+		Description: "Use this tool to update the metadata of some item. The supplied fields are merged into the existing metadata, so a partial metadata object is enough to add or correct a single field (e.g. just showName).",
 		Inputs: &models.InputSchema{
 			Type: "object",
 			Properties: map[string]models.ParameterObject{

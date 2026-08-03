@@ -562,13 +562,30 @@ func (s *store) GetItemByName(name string) (model.Item, error) {
 	return model.Item{}, fmt.Errorf("failed to find item with name: %v", name)
 }
 
+// UpdateMetadata merges the supplied metadata JSON into the item's current
+// metadata (top-level keys; supplied keys win) and persists the result. A
+// partial object such as {"showName": "Stargate SG-1"} therefore preserves
+// all other classified fields — agents can complete a missing field without
+// re-supplying the full classification.
 func (s *store) UpdateMetadata(item model.Item, metadata string) error {
-	raw := json.RawMessage(metadata)
-	_, err := raw.MarshalJSON()
-	if err != nil {
-		return fmt.Errorf("failed to marshal, invalid json: %w", err)
+	var incoming map[string]any
+	if err := json.Unmarshal([]byte(metadata), &incoming); err != nil {
+		return fmt.Errorf("failed to unmarshal metadata, invalid json: %w", err)
 	}
-	item.Metadata = &raw
+	merged := map[string]any{}
+	if item.Metadata != nil {
+		if err := json.Unmarshal(*item.Metadata, &merged); err != nil {
+			merged = map[string]any{}
+		}
+	}
+	for k, v := range incoming {
+		merged[k] = v
+	}
+	raw, err := json.Marshal(merged)
+	if err != nil {
+		return fmt.Errorf("failed to marshal merged metadata: %w", err)
+	}
+	item.Metadata = (*json.RawMessage)(&raw)
 	return s.store(item)
 }
 
