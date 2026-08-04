@@ -26,6 +26,7 @@ func waitUntil(t *testing.T, d time.Duration, f func() bool) {
 }
 
 func Test_startClassificationStation_success(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -83,6 +84,7 @@ func Test_startClassificationStation_success(t *testing.T) {
 }
 
 func Test_startClassificationStation_error(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -181,6 +183,7 @@ DONE:
 }
 
 func Test_startClassificationStation_concurrency(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -205,6 +208,15 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 					break
 				}
 			}
+			// Barrier: hold every worker until all 4 are inside the
+			// classifier. Without it, the peak-concurrency observation races
+			// the scheduler under parallel load — a straggler worker can
+			// arrive after the first wave already finished its sleep, capping
+			// maxConc at 3 despite the station being fully concurrent.
+			deadline := time.Now().Add(2 * time.Second)
+			for atomic.LoadInt32(&active) < 4 && time.Now().Before(deadline) {
+				time.Sleep(time.Millisecond)
+			}
 			time.Sleep(30 * time.Millisecond)
 			atomic.AddInt32(&active, -1)
 			meta := json.RawMessage(`{"ok":true}`)
@@ -218,7 +230,6 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 	}
 
 	M := 8
-	start := time.Now()
 	for i := range M {
 		it := model.Item{
 			ID:       fmt.Sprintf("c-%d", i),
@@ -233,19 +244,18 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 		defer s.cacheMu.RUnlock()
 		return len(s.cache) == M
 	})
-	dur := time.Since(start)
 
-	// The maxConc check below is the real concurrency proof; the duration
-	// check only catches pathologically slow scheduling, so keep it loose.
-	if dur >= 300*time.Millisecond {
-		t.Fatalf("took too long: %v", dur)
-	}
+	// The maxConc check is the concurrency proof: with 4 workers and 8 items
+	// the station must run at least 4 at once. No wall-clock bound here —
+	// under parallel package load the 8 classifications can take longer than
+	// any fixed budget without the station being any less concurrent.
 	if atomic.LoadInt32(&maxConc) < 4 {
 		t.Fatalf("expected >=4 concurrent, got %d", maxConc)
 	}
 }
 
 func Test_startClassificationStation_context(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 
 	dir := t.TempDir()
@@ -289,6 +299,7 @@ func Test_startClassificationStation_context(t *testing.T) {
 }
 
 func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithCancel(context.Background())
 
 	dir := t.TempDir()
@@ -327,9 +338,17 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	cancel()
 
-	// ensure no further changes after cancel window
+	// Cancel must stop the station: the delegator clears the started flag on
+	// the way out. A fixed sleep window would race the worker drain under
+	// load — in-flight results land asynchronously, and the delegator's
+	// select is random between ctx.Done and a ready result — so poll for the
+	// pipeline's own shutdown signal instead.
+	waitUntil(t, 2*time.Second, func() bool { return !s.started.Load() })
+
+	// With the station down the cache count is final: the delegator that
+	// stores results has exited. Record it and verify it holds.
 	s.cacheMu.RLock()
-	before := len(s.cache)
+	settled := len(s.cache)
 	s.cacheMu.RUnlock()
 
 	time.Sleep(100 * time.Millisecond)
@@ -338,13 +357,14 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 	after := len(s.cache)
 	s.cacheMu.RUnlock()
 
-	if after != before {
-		t.Fatalf("got new stores after cancel, %d -> %d", before, after)
+	if after != settled {
+		t.Fatalf("cache grew after station shutdown: %d -> %d", settled, after)
 	}
 	close(block)
 }
 
 func Test_startClassificationStation_backpressure(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -378,7 +398,10 @@ func Test_startClassificationStation_backpressure(t *testing.T) {
 		s.AddToClassificationQueue(it)
 	}
 
-	waitUntil(t, time.Second, func() bool {
+	// 40 items through 20 workers at 30ms each is ~60ms of pure work, but the
+	// pipeline (queue, delegator, results) stretches under parallel load —
+	// poll with a budget that tolerates it instead of a tight window.
+	waitUntil(t, 3*time.Second, func() bool {
 		s.cacheMu.RLock()
 		defer s.cacheMu.RUnlock()
 		return len(s.cache) == M
@@ -392,6 +415,7 @@ func Test_startClassificationStation_backpressure(t *testing.T) {
 }
 
 func Test_startClassificationStation_corr_id_in_error(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -439,6 +463,7 @@ func Test_startClassificationStation_corr_id_in_error(t *testing.T) {
 }
 
 func Test_startClassificationStation_large_volume(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
@@ -511,6 +536,7 @@ func indexOf(h, n string) int {
 // --- rate limiter unit tests ---
 
 func Test_newRateLimiter_zero_rate(t *testing.T) {
+	t.Parallel()
 	if rl := newRateLimiter(0, 5); rl != nil {
 		t.Fatal("expected nil for zero rate")
 	}
@@ -520,12 +546,14 @@ func Test_newRateLimiter_zero_rate(t *testing.T) {
 }
 
 func Test_newRateLimiter_zero_burst(t *testing.T) {
+	t.Parallel()
 	if rl := newRateLimiter(1.0, 0); rl != nil {
 		t.Fatal("expected nil for zero burst")
 	}
 }
 
 func Test_rateLimiter_allow_burst(t *testing.T) {
+	t.Parallel()
 	rl := newRateLimiter(100, 3) // very high rate, burst 3
 	if rl == nil {
 		t.Fatal("expected non-nil rate limiter")
@@ -543,6 +571,7 @@ func Test_rateLimiter_allow_burst(t *testing.T) {
 }
 
 func Test_rateLimiter_allow_refill(t *testing.T) {
+	t.Parallel()
 	// rate=100/s, burst=2: each token takes 10ms to refill
 	rl := newRateLimiter(100, 2)
 	if rl == nil {
@@ -567,6 +596,7 @@ func Test_rateLimiter_allow_refill(t *testing.T) {
 }
 
 func Test_rateLimiter_allow_refill_caps_at_burst(t *testing.T) {
+	t.Parallel()
 	rl := newRateLimiter(1000, 1) // 1ms per token, burst 1
 	if rl == nil {
 		t.Fatal("expected non-nil")
@@ -587,6 +617,7 @@ func Test_rateLimiter_allow_refill_caps_at_burst(t *testing.T) {
 }
 
 func Test_rateLimiter_concurrent(t *testing.T) {
+	t.Parallel()
 	// 1000/s, burst 50 → essentially unlimited for this test
 	rl := newRateLimiter(1000, 50)
 	if rl == nil {
@@ -608,6 +639,7 @@ func Test_rateLimiter_concurrent(t *testing.T) {
 // --- classification queue gating tests ---
 
 func Test_AddToClassificationQueue_cooldown(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -662,6 +694,7 @@ func Test_AddToClassificationQueue_cooldown(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_rateLimit(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -714,6 +747,7 @@ func Test_AddToClassificationQueue_rateLimit(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_queueCap(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -756,8 +790,18 @@ func Test_AddToClassificationQueue_queueCap(t *testing.T) {
 		}
 	}()
 
-	// Give delegator time to fill workChan (cap=2) and start dropping
-	time.Sleep(100 * time.Millisecond)
+	// Wait until the delegator has finished draining the queue. With the
+	// worker blocked and workChan (cap workers*2) full, every item beyond
+	// worker+cap is dropped and marked pending — so the drop count reaching
+	// M-(workers+cap) means the pipeline is quiescent. "All sends done" is
+	// not a barrier here: the unbuffered request sends complete via handoff
+	// before the delegator processes the item, so the last item can still be
+	// dispatched after the senders have finished.
+	waitUntil(t, 2*time.Second, func() bool {
+		s.pendingRequeueMu.Lock()
+		defer s.pendingRequeueMu.Unlock()
+		return len(s.pendingRequeue) == M-3
+	})
 
 	// Unblock worker
 	close(workerBlock)
@@ -785,6 +829,7 @@ func Test_AddToClassificationQueue_queueCap(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_nilRateLimiter(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -827,6 +872,7 @@ func Test_AddToClassificationQueue_nilRateLimiter(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_dedup_sameItem(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -872,6 +918,7 @@ func Test_AddToClassificationQueue_dedup_sameItem(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_dedup_cleanupOnSuccess(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -903,9 +950,15 @@ func Test_AddToClassificationQueue_dedup_cleanupOnSuccess(t *testing.T) {
 	it := model.Item{ID: "cleanup-ok", Name: "cleanup-ok", MIMEType: "video/mp4"}
 	s.AddToClassificationQueue(it)
 
-	// Wait for classification to complete
+	// Wait for the classification to be fully processed: the item lands in
+	// the cache only after the delegator cleared the in-flight marker, which
+	// is what re-queueing gates on. Syncing on the worker's attempt counter
+	// alone races the delegator under load.
 	waitUntil(t, 2*time.Second, func() bool {
-		return stored.Load() == 1
+		s.cacheMu.RLock()
+		defer s.cacheMu.RUnlock()
+		_, ok := s.cache[it.ID]
+		return ok
 	})
 
 	// After completion, same item should be queueable again
@@ -920,6 +973,7 @@ func Test_AddToClassificationQueue_dedup_cleanupOnSuccess(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_dedup_cleanupOnError(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -955,9 +1009,16 @@ func Test_AddToClassificationQueue_dedup_cleanupOnError(t *testing.T) {
 	it := model.Item{ID: "cleanup-err", Name: "cleanup-err", MIMEType: "video/mp4"}
 	s.AddToClassificationQueue(it)
 
-	// Wait for first attempt
+	// Wait for the first attempt to be fully processed: the item lands in the
+	// cache (the error path stores it too) only after the delegator cleared
+	// the in-flight marker, which is what re-queueing gates on. Syncing on the
+	// worker's attempt counter alone races the delegator under load — the
+	// marker can still be set when the counter has already moved.
 	waitUntil(t, 2*time.Second, func() bool {
-		return attempts.Load() == 1
+		s.cacheMu.RLock()
+		defer s.cacheMu.RUnlock()
+		_, ok := s.cache[it.ID]
+		return ok
 	})
 
 	// After error, in-flight should be cleared → item can be re-queued
@@ -968,6 +1029,7 @@ func Test_AddToClassificationQueue_dedup_cleanupOnError(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_dedup_concurrent(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -1036,6 +1098,7 @@ func Test_AddToClassificationQueue_dedup_concurrent(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_dedup_differentItems(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -1087,6 +1150,7 @@ func Test_AddToClassificationQueue_dedup_differentItems(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_dedup_cooldownCleanup(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -1135,6 +1199,7 @@ func Test_AddToClassificationQueue_dedup_cooldownCleanup(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_dedup_limitCleanup(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -1170,8 +1235,13 @@ func Test_AddToClassificationQueue_dedup_limitCleanup(t *testing.T) {
 	s.AddToClassificationQueue(it)
 	s.AddToClassificationQueue(it) // burst exhausted → dropped
 
+	// Wait for the first item to be fully processed (delegator cleared the
+	// in-flight marker), then refill and retry.
 	waitUntil(t, 2*time.Second, func() bool {
-		return stored.Load() == 1
+		s.cacheMu.RLock()
+		defer s.cacheMu.RUnlock()
+		_, ok := s.cache[it.ID]
+		return ok
 	})
 
 	// Now the item completed. Wait for a token to refill (rate=100/s → 10ms) and retry
@@ -1188,6 +1258,7 @@ func Test_AddToClassificationQueue_dedup_limitCleanup(t *testing.T) {
 }
 
 func Test_AddToClassificationQueue_noStationDoesNotBlock(t *testing.T) {
+	t.Parallel()
 	// This test used to assert the opposite — that enqueuing with nothing draining
 	// the channel BLOCKS. That behaviour was a bug: the `kinoview media` CLI shares
 	// this write path without running a station, so reclassifying from the CLI hung
@@ -1227,6 +1298,7 @@ func Test_AddToClassificationQueue_noStationDoesNotBlock(t *testing.T) {
 }
 
 func Test_StartClassificationStation_cooldownDefault(t *testing.T) {
+	t.Parallel()
 	// Default store has cooldown=10s, which we override to a tiny value for test speed
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
@@ -1281,6 +1353,7 @@ func Test_StartClassificationStation_cooldownDefault(t *testing.T) {
 }
 
 func Test_StartClassificationStation_negativeCooldown(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
@@ -1320,6 +1393,7 @@ func Test_StartClassificationStation_negativeCooldown(t *testing.T) {
 }
 
 func Test_startClassificationStation_workersUseClones(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -1401,6 +1475,7 @@ func Test_startClassificationStation_workersUseClones(t *testing.T) {
 }
 
 func Test_memoryHigh_disabled(t *testing.T) {
+	t.Parallel()
 	t.Run("threshold 0 disables", func(t *testing.T) {
 		s := NewStore(WithMemoryThreshold(0))
 		if s.memoryHigh() {
@@ -1436,6 +1511,7 @@ func Test_memoryHigh_disabled(t *testing.T) {
 }
 
 func Test_memoryHigh_enabled(t *testing.T) {
+	t.Parallel()
 	t.Run("threshold 0.01 triggers with any allocation", func(t *testing.T) {
 		// Pin total RAM at 1 MiB. Any running Go process has a footprint well
 		// above 10 KiB (1% of 1 MiB), so the assertion is deterministic.
@@ -1449,6 +1525,7 @@ func Test_memoryHigh_enabled(t *testing.T) {
 }
 
 func Test_startClassificationStation_memoryGuard(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -1513,6 +1590,7 @@ func Test_startClassificationStation_memoryGuard(t *testing.T) {
 }
 
 func Test_StartClassificationStation_workersWarning(t *testing.T) {
+	t.Parallel()
 	t.Run("workers <= 3: no warning", func(t *testing.T) {
 		s := NewStore(
 			WithClassificationWorkers(3),
@@ -1563,6 +1641,7 @@ func Test_StartClassificationStation_workersWarning(t *testing.T) {
 // --- Phase 9: classification failure resilience ---
 
 func Test_classificationBackoff(t *testing.T) {
+	t.Parallel()
 	t.Run("attempts=0 returns 0", func(t *testing.T) {
 		if d := classificationBackoff(0); d != 0 {
 			t.Fatalf("expected 0, got %v", d)
@@ -1606,6 +1685,7 @@ func Test_classificationBackoff(t *testing.T) {
 }
 
 func Test_handleVideoItem_maxAttempts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationMaxAttempts(3))
 
@@ -1628,6 +1708,7 @@ func Test_handleVideoItem_maxAttempts(t *testing.T) {
 }
 
 func Test_handleVideoItem_backoffActive(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir))
 
@@ -1651,6 +1732,7 @@ func Test_handleVideoItem_backoffActive(t *testing.T) {
 }
 
 func Test_handleVideoItem_backoffExpired(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(
 		WithStorePath(dir),
@@ -1706,6 +1788,7 @@ func Test_handleVideoItem_backoffExpired(t *testing.T) {
 }
 
 func Test_handleVideoItem_incrementsAttempts(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir))
 	s.classificationRequest = make(chan classificationCandidate, 1) // buffered to avoid blocking
@@ -1733,6 +1816,7 @@ func Test_handleVideoItem_incrementsAttempts(t *testing.T) {
 }
 
 func Test_handleVideoItem_legacyItem(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir))
 	s.classificationRequest = make(chan classificationCandidate, 1) // buffered to avoid blocking
@@ -1756,6 +1840,7 @@ func Test_handleVideoItem_legacyItem(t *testing.T) {
 }
 
 func Test_startClassificationStation_successClearsAttempts(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
@@ -1815,6 +1900,7 @@ func Test_startClassificationStation_successClearsAttempts(t *testing.T) {
 }
 
 func Test_startClassificationStation_errorPersistsAttempts(t *testing.T) {
+	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 

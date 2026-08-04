@@ -12,6 +12,7 @@ import (
 // A transcript that has grown past the cap trims its oldest lines on the next
 // append, keeping the newest TranscriptMaxLines.
 func TestAppendTranscript_TrimsOldestPastCap(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	path := filepath.Join(dir, CompanyDir, transcriptFileName)
@@ -62,6 +63,7 @@ func TestAppendTranscript_TrimsOldestPastCap(t *testing.T) {
 // Corrupt lines drop, semantically invalid events drop, the readable rest
 // survives.
 func TestLoadTranscript_CorruptLinesDropped(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, CompanyDir, transcriptFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -88,6 +90,7 @@ func TestLoadTranscript_CorruptLinesDropped(t *testing.T) {
 
 // Untrusted events record nothing: no gen, alien kind, or missing author.
 func TestAppendTranscript_DropsInvalidEvents(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	for _, ev := range []TranscriptEvent{
 		{Gen: "", Kind: "post", From: "director"},
@@ -110,6 +113,7 @@ func TestAppendTranscript_DropsInvalidEvents(t *testing.T) {
 
 // Seq continues from the last readable line even when the file was trimmed.
 func TestAppendTranscript_SeqContinuesAcrossAppends(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	for i := range 3 {
 		if err := co.AppendTranscript(TranscriptEvent{Gen: "g", Kind: "note", From: "stage", Body: fmt.Sprintf("n%d", i)}); err != nil {
@@ -127,6 +131,7 @@ func TestAppendTranscript_SeqContinuesAcrossAppends(t *testing.T) {
 
 // A zero timestamp is stamped by the writer, so events are always ordered.
 func TestAppendTranscript_StampsZeroTime(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	if err := co.AppendTranscript(TranscriptEvent{Gen: "g", Kind: "note", From: "stage", Body: "now"}); err != nil {
 		t.Fatal(err)
@@ -143,6 +148,7 @@ func TestAppendTranscript_StampsZeroTime(t *testing.T) {
 // A corrupt trailing line cannot supply the next seq; the append falls back to
 // the line count and still succeeds.
 func TestAppendTranscript_CorruptTrailingLineSeqFallback(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	path := filepath.Join(dir, CompanyDir, transcriptFileName)
@@ -166,6 +172,7 @@ func TestAppendTranscript_CorruptTrailingLineSeqFallback(t *testing.T) {
 
 // An unreadable transcript file is reported, never fatal.
 func TestLoadTranscript_UnreadableFileErrors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, CompanyDir, transcriptFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

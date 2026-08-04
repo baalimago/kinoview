@@ -578,9 +578,7 @@ func (s *store) UpdateMetadata(item model.Item, metadata string) error {
 			merged = map[string]any{}
 		}
 	}
-	for k, v := range incoming {
-		merged[k] = v
-	}
+	maps.Copy(merged, incoming)
 	raw, err := json.Marshal(merged)
 	if err != nil {
 		return fmt.Errorf("failed to marshal merged metadata: %w", err)

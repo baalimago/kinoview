@@ -6,6 +6,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path"
@@ -133,9 +134,18 @@ func Command() *command {
 	return &ret
 }
 
-func (c *command) startServeRoutine(mux *http.ServeMux, serverErrChan chan error) func(context.Context) error {
+func (c *command) startServeRoutine(mux *http.ServeMux, serverErrChan chan error) (func(context.Context) error, error) {
+	// Bind explicitly so a port conflict surfaces here, synchronously, and so
+	// port 0 can ask the OS for a free ephemeral port.
+	ln, err := net.Listen("tcp", fmt.Sprintf(":%v", *c.port))
+	if err != nil {
+		return nil, fmt.Errorf("failed to listen on port %v: %w", *c.port, err)
+	}
+	port := *c.port
+	if port == 0 {
+		port = ln.Addr().(*net.TCPAddr).Port
+	}
 	s := http.Server{
-		Addr:        fmt.Sprintf(":%v", *c.port),
 		Handler:     mux,
 		ReadTimeout: 0,
 	}
@@ -146,7 +156,7 @@ func (c *command) startServeRoutine(mux *http.ServeMux, serverErrChan chan error
 	if serveTLS {
 		protocol = "https"
 	}
-	baseURL := fmt.Sprintf("%s://%s:%d", protocol, hostname, *c.port)
+	baseURL := fmt.Sprintf("%s://%s:%d", protocol, hostname, port)
 
 	ancli.Okf("Server started successfully:")
 	ancli.Noticef("- URL: %s", baseURL)
@@ -157,19 +167,18 @@ func (c *command) startServeRoutine(mux *http.ServeMux, serverErrChan chan error
 		ancli.Noticef("- TLS disabled")
 	}
 
-	var err error
 	go func() {
 		if serveTLS {
-			err = s.ListenAndServeTLS(*c.tlsCertPath, *c.tlsKeyPath)
+			err = s.ServeTLS(ln, *c.tlsCertPath, *c.tlsKeyPath)
 		} else {
-			err = s.ListenAndServe()
+			err = s.Serve(ln)
 		}
 		if !errors.Is(err, http.ErrServerClosed) {
 			serverErrChan <- err
 		}
 	}()
 
-	return s.Shutdown
+	return s.Shutdown, nil
 }
 
 func (c *command) Run(ctx context.Context) error {
@@ -180,7 +189,10 @@ func (c *command) Run(ctx context.Context) error {
 
 	serverErrChan := make(chan error, 1)
 	fsErrChan := make(chan error, 1)
-	serverShutdown := c.startServeRoutine(mux, serverErrChan)
+	serverShutdown, err := c.startServeRoutine(mux, serverErrChan)
+	if err != nil {
+		return fmt.Errorf("c.Run failed to start server: %w", err)
+	}
 	go func() {
 		ancli.Noticef("starting fsnotify file detector")
 		indexErr := c.indexer.Start(ctx)

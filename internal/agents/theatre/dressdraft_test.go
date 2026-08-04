@@ -10,6 +10,7 @@ import (
 // valid, and a clear piece never shares a column with a performer — the
 // staging rules staging_test.go exists to protect.
 func TestDressDraft_KeepsBackdropAndRespectsStaging(t *testing.T) {
+	t.Parallel()
 	clearPieces := map[string]bool{"bush": true, "fence": true, "sofa": true, "plant": true, "log": true}
 	for seed := range int64(200) {
 		r := rand.New(rand.NewSource(seed))
@@ -32,6 +33,7 @@ func TestDressDraft_KeepsBackdropAndRespectsStaging(t *testing.T) {
 // An invalid backdrop on the draft degrades to the default — a naming slip
 // must not stop the floor from dressing.
 func TestDressDraft_InvalidBackdropDefaults(t *testing.T) {
+	t.Parallel()
 	s := Compose(rand.New(rand.NewSource(1)))
 	s.Scene.Backdrop = "bogus"
 	scene := DressDraft(rand.New(rand.NewSource(2)), s)

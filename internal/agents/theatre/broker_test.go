@@ -106,6 +106,7 @@ func ledgerCalls(t *testing.T, stage *Stage, role string) int {
 // clear message, no spawn happens past the cap, and the ledger records hop
 // depth 2 as the max.
 func TestBroker_ConsultChainDepth3Terminates(t *testing.T) {
+	t.Parallel()
 	_, stage, _, broker, prompts := wiredProduction(t, func(prompt string) llmOutcome {
 		switch {
 		case strings.Contains(prompt, "q2"):
@@ -156,6 +157,7 @@ func TestBroker_ConsultChainDepth3Terminates(t *testing.T) {
 // transcript notes the table hit, so the telemetry sees every consultation
 // (review 1, R1-03).
 func TestBroker_RepeatConsultReturnsCachedAnswer(t *testing.T) {
+	t.Parallel()
 	_, stage, _, broker, _ := wiredProduction(t, nil)
 
 	answer, err := broker.Consult(context.Background(), "dramaturg", "wardrobe", "does silver read?", 0)
@@ -206,6 +208,7 @@ func TestBroker_RepeatConsultReturnsCachedAnswer(t *testing.T) {
 // The table keys on the questioner too: the same question from a different
 // role is a different consultation.
 func TestBroker_RepeatConsultQuestionerSpecific(t *testing.T) {
+	t.Parallel()
 	_, _, _, broker, prompts := wiredProduction(t, nil)
 
 	for _, questioner := range []string{"dramaturg", "playwright"} {
@@ -225,6 +228,7 @@ func TestBroker_RepeatConsultQuestionerSpecific(t *testing.T) {
 // refused at the door with a clear message — the input schema restricts the
 // role enum, and the broker enforces it as well.
 func TestBroker_RefusesNonProductionRoles(t *testing.T) {
+	t.Parallel()
 	_, _, _, broker, _ := wiredProduction(t, nil)
 	for _, target := range []string{"director", "stage", "bogus", "costume"} {
 		msg, err := broker.Consult(context.Background(), "dramaturg", target, "q", 0)
@@ -246,6 +250,7 @@ func TestBroker_RefusesNonProductionRoles(t *testing.T) {
 
 // A spawn past the global call cap is refused and the caller is told.
 func TestBroker_GlobalBudgetExhaustedRefusal(t *testing.T) {
+	t.Parallel()
 	_, stage, _, broker, _ := wiredProduction(t, nil, WithBudgets(50, 2))
 	for range 2 {
 		stage.RecordCall("director", "read_story")
@@ -261,6 +266,7 @@ func TestBroker_GlobalBudgetExhaustedRefusal(t *testing.T) {
 
 // A spawn past the wall-clock deadline is refused and the caller is told.
 func TestBroker_WallDeadlineExceededRefusal(t *testing.T) {
+	t.Parallel()
 	_, _, _, broker, _ := wiredProduction(t, nil, WithWallDeadline(-time.Minute))
 	msg, err := broker.Consult(context.Background(), "dramaturg", "wardrobe", "q", 0)
 	if err != nil {
@@ -274,6 +280,7 @@ func TestBroker_WallDeadlineExceededRefusal(t *testing.T) {
 // A consultation posts the question and the answer to the board and records
 // both in the transcript.
 func TestBroker_PostsQuestionAndAnswer(t *testing.T) {
+	t.Parallel()
 	co, _, _, broker, _ := wiredProduction(t, nil)
 
 	answer, err := broker.Consult(context.Background(), "dramaturg", "wardrobe", "does silver read?", 0)
@@ -317,6 +324,7 @@ func TestBroker_PostsQuestionAndAnswer(t *testing.T) {
 // A board write failure is logged and the consultation continues: the board
 // is context, not the show — the transcript keeps the authoritative record.
 func TestBroker_BoardWriteFailureContinues(t *testing.T) {
+	t.Parallel()
 	co, _, _, broker, _ := wiredProduction(t, nil)
 	// The board path is a directory, so every board write fails.
 	if err := os.MkdirAll(co.boardPath(), 0o755); err != nil {

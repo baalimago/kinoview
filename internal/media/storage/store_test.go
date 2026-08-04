@@ -18,6 +18,7 @@ import (
 )
 
 func Test_store_Setup(t *testing.T) {
+	t.Parallel()
 	t.Run("successful setup", func(t *testing.T) {
 		s := newTestStore(t)
 
@@ -68,6 +69,7 @@ func Test_store_Setup(t *testing.T) {
 }
 
 func TestJSONStore_Store(t *testing.T) {
+	t.Parallel()
 	t.Run("store item successfully", func(t *testing.T) {
 		s := newTestStore(t)
 
@@ -318,6 +320,7 @@ func Test_streamMkvToMp4(t *testing.T) {
 }
 
 func Test_parseStartSeconds(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name   string
 		target string
@@ -341,6 +344,7 @@ func Test_parseStartSeconds(t *testing.T) {
 }
 
 func Test_streamMkvToMp4_withSeek(t *testing.T) {
+	t.Parallel()
 	if _, err := exec.LookPath("ffmpeg"); err != nil {
 		t.Skip("ffmpeg binary not found")
 	}
@@ -364,6 +368,9 @@ func Test_streamMkvToMp4_withSeek(t *testing.T) {
 }
 
 func Test_Stream_store_ffmpegSubsUtil_extract(t *testing.T) {
+	// Not parallel: the "ffmpeg not installed" subtest mutates the global
+	// PATH, which would break any concurrently running test that spawns
+	// ffmpeg.
 	t.Run("extract subs if possible", func(t *testing.T) {
 		subsUtil := ffmpegSubsUtil{
 			subsCache: make(map[string]string),
@@ -399,6 +406,8 @@ func Test_Stream_store_ffmpegSubsUtil_extract(t *testing.T) {
 }
 
 func Test_Stream_store_ffmpegSubsUtil_find(t *testing.T) {
+	// Not parallel: the "ffmpeg not installed" case mutates the global PATH,
+	// which would break any concurrently running test that spawns ffmpeg.
 	t.Run("find uses mediaCache hit", func(t *testing.T) {
 		wantIdx := 404
 		util := &ffmpegSubsUtil{
@@ -455,6 +464,7 @@ func Test_Stream_store_ffmpegSubsUtil_find(t *testing.T) {
 }
 
 func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
+	t.Parallel()
 	t.Run("it should return item on media cache hit", func(t *testing.T) {
 		wantIdx := 1337
 		// Setup ffmpegSubsUtil with mock caches
@@ -626,6 +636,7 @@ func Test_Stream_store_ffmpegSubsUtil_cache(t *testing.T) {
 }
 
 func Test_newJSONStore_options(t *testing.T) {
+	t.Parallel()
 	t.Run("options pattern should work", func(t *testing.T) {
 		mockClassifier := &mockClassifier{}
 
@@ -641,6 +652,7 @@ func Test_newJSONStore_options(t *testing.T) {
 }
 
 func Test_store_UpdateMetadata_mergesPartial(t *testing.T) {
+	t.Parallel()
 	s := newTestStore(t)
 	if _, err := s.Setup(context.Background()); err != nil {
 		t.Fatalf("Setup failed: %v", err)
@@ -682,6 +694,7 @@ func Test_store_UpdateMetadata_mergesPartial(t *testing.T) {
 }
 
 func Test_store_UpdateMetadata_invalidJSON(t *testing.T) {
+	t.Parallel()
 	s := newTestStore(t)
 	if _, err := s.Setup(context.Background()); err != nil {
 		t.Fatalf("Setup failed: %v", err)
@@ -693,6 +706,7 @@ func Test_store_UpdateMetadata_invalidJSON(t *testing.T) {
 }
 
 func Test_store_Store(t *testing.T) {
+	t.Parallel()
 	t.Run("store item updates cache", func(t *testing.T) {
 		s := newTestStore(t)
 
@@ -957,6 +971,7 @@ func Test_store_Store(t *testing.T) {
 }
 
 func Test_loadPersistedItems(t *testing.T) {
+	t.Parallel()
 	t.Run("loads valid item into cache", func(t *testing.T) {
 		dir := t.TempDir()
 		s := NewStore(WithStorePath(dir))
@@ -1070,6 +1085,7 @@ func Test_loadPersistedItems(t *testing.T) {
 }
 
 func Test_startupWriteBatching(t *testing.T) {
+	t.Parallel()
 	t.Run("defers writes during startup window", func(t *testing.T) {
 		dir := t.TempDir()
 		s := NewStore(WithStorePath(dir), WithStartupWriteDelay(100*time.Millisecond))

@@ -9,6 +9,7 @@ import (
 // AssembleContext renders every section, in the documented order, with the
 // working summary in its context-cheap shape.
 func TestAssembleContext_OrderAndContent(t *testing.T) {
+	t.Parallel()
 	var board Board
 	board.Generation = "stry_test1"
 	for i := range 5 {
@@ -50,6 +51,7 @@ func TestAssembleContext_OrderAndContent(t *testing.T) {
 // The excerpt cap is the same regardless of how far past it the board grows:
 // a 60-entry board renders the same number of board lines as a 21-entry one.
 func TestAssembleContext_BoardExcerptCapped(t *testing.T) {
+	t.Parallel()
 	boardLines := func(n int) int {
 		var board Board
 		for i := range n {
@@ -68,6 +70,7 @@ func TestAssembleContext_BoardExcerptCapped(t *testing.T) {
 }
 
 func TestAssembleContext_EmptyBoard(t *testing.T) {
+	t.Parallel()
 	out := AssembleContext("g", "", Board{}, Summary{}, "role", "task")
 	if !strings.Contains(out, "(empty — nothing posted yet)") {
 		t.Errorf("empty board not marked:\n%s", out)

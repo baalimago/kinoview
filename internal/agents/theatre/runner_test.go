@@ -37,6 +37,7 @@ func callTool(t *testing.T, p llmParams, name string, input models.Input) string
 // excerpt, working summary, role prompt and task — in that order — and every
 // piece is present in the prompt the LLM sees.
 func TestRunner_AssemblesWorkingContext(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -102,6 +103,7 @@ func TestRunner_AssemblesWorkingContext(t *testing.T) {
 // 2026-08-03 machine fix: its story arrives as the structured final answer
 // (tool == "") and the runner persists it into the working file.
 func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name      string
 		role      string
@@ -251,6 +253,7 @@ func storyJSON(t *testing.T) string {
 // A failing LLM call falls back to the role's deterministic answer (the
 // phase-5 seam), which the runner reports on the result and the transcript.
 func TestRunner_LLMFailureFallsBack(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -292,6 +295,7 @@ func TestRunner_LLMFailureFallsBack(t *testing.T) {
 // When both the LLM and the fallback fail, the runner returns a real error —
 // the caller answers with the composer floor.
 func TestRunner_LLMAndFallbackBothFail(t *testing.T) {
+	t.Parallel()
 	_, stage, _, _, _ := wiredProduction(t, nil)
 	runner := NewRunner(stage.company, stage)
 	runner.runLLM = func(context.Context, llmParams) (llmOutcome, error) {
@@ -308,6 +312,7 @@ func TestRunner_LLMAndFallbackBothFail(t *testing.T) {
 // A run past the global call cap stops at the cap with a clear refusal and
 // never reaches the LLM.
 func TestRunner_GlobalBudgetCapRefused(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, prompts := wiredProduction(t, nil, WithBudgets(50, 0))
 	_, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8})
 	if err == nil || !strings.Contains(err.Error(), "call budget exhausted") {
@@ -323,6 +328,7 @@ func TestRunner_GlobalBudgetCapRefused(t *testing.T) {
 
 // A run past the wall-clock deadline is refused without an LLM call.
 func TestRunner_WallDeadlineRefused(t *testing.T) {
+	t.Parallel()
 	_, _, runner, _, prompts := wiredProduction(t, nil, WithWallDeadline(-time.Minute))
 	_, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8})
 	if err == nil || !strings.Contains(err.Error(), "deadline exceeded") {
@@ -336,6 +342,7 @@ func TestRunner_WallDeadlineRefused(t *testing.T) {
 // A panicking agent loop is recovered: the runner returns an error and the
 // ledger records the failure — the generation continues.
 func TestRunner_PanicRecovered(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, _ := wiredProduction(t, nil)
 	runner.runLLM = func(context.Context, llmParams) (llmOutcome, error) {
 		panic("boom")
@@ -359,6 +366,7 @@ func TestRunner_PanicRecovered(t *testing.T) {
 // A board read failure degrades to the empty board: the subagent gets the
 // empty excerpt and the generation continues.
 func TestRunner_BoardReadFailureGetsEmptyBoard(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -380,6 +388,7 @@ func TestRunner_BoardReadFailureGetsEmptyBoard(t *testing.T) {
 // A collaborations field in the deliverable yields exactly one re-invocation
 // of the original role, with the consulted role's answer present in its task.
 func TestRunner_CollaborationsResolvedOnce(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, prompts := wiredProduction(t, func(prompt string) llmOutcome {
 		switch {
 		case strings.Contains(prompt, "does silver read?"):
@@ -441,6 +450,7 @@ func TestRunner_CollaborationsResolvedOnce(t *testing.T) {
 // The wrapper resolves at most two collaboration rounds per invocation, no
 // matter how many the deliverable requests.
 func TestRunner_CollaborationsCappedAtTwoRounds(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, prompts := wiredProduction(t, func(prompt string) llmOutcome {
 		switch {
 		case strings.Contains(prompt, "You are the wardrobe consultant."):
@@ -491,6 +501,7 @@ func TestRunner_CollaborationsCappedAtTwoRounds(t *testing.T) {
 // The runner writes the session to the per-role log file: the assembled
 // context is in the file, and nothing reaches stdout.
 func TestRunner_SessionLogWritten(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -525,6 +536,7 @@ func TestRunner_SessionLogWritten(t *testing.T) {
 // The runner streams session entries tagged theatre.<role> with the
 // generation id as corrID — the shape the house loghandler prints.
 func TestRunner_StreamsTaggedLogEntries(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	var msgs []model.LogMessage
 	stage := OpenStage(co, "stry_ab12", WithLogSink(func(m model.LogMessage) {
@@ -552,6 +564,7 @@ func TestRunner_StreamsTaggedLogEntries(t *testing.T) {
 // captures the story's "canon" array into the working file, capped in count
 // and length (machine fix, 2026-08-03).
 func TestRunner_StoryCanonAccumulates(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -584,6 +597,7 @@ func TestRunner_StoryCanonAccumulates(t *testing.T) {
 // consult routes through the broker, so a subagent can read the room and ask
 // a production role mid-invocation.
 func TestRunner_SharedToolsWorkInLoop(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, _ := wiredProduction(t, nil)
 	if err := stage.company.SaveBoard(Board{
 		Generation: "stry_ab12",
@@ -623,6 +637,7 @@ func TestRunner_SharedToolsWorkInLoop(t *testing.T) {
 // post_to_board rejects unknown kinds with a message the model can read; the
 // board gate would otherwise drop the entry silently.
 func TestRunner_PostToBoardRejectsUnknownKind(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, _ := wiredProduction(t, nil)
 	var out string
 	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
@@ -650,6 +665,7 @@ func TestRunner_PostToBoardRejectsUnknownKind(t *testing.T) {
 // dropped the same event (review 1, R1-04). A valid addressee records on
 // both.
 func TestRunner_PostToBoardRejectsUnknownAddressee(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, _ := wiredProduction(t, nil)
 	var bad, good string
 	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
@@ -692,6 +708,7 @@ func TestRunner_PostToBoardRejectsUnknownAddressee(t *testing.T) {
 // The writer tools answer with clear messages when their preconditions are
 // missing: a scene without a draft.
 func TestRunner_WriterErrorPaths(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name  string
 		role  string
@@ -726,6 +743,7 @@ func TestRunner_WriterErrorPaths(t *testing.T) {
 // The runner options apply: model, config dir and the deterministic fallback
 // seam all land on the runner.
 func TestRunner_OptionsApplied(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -749,6 +767,7 @@ func TestRunner_OptionsApplied(t *testing.T) {
 // is the director's loop too (phase 4), and the tool wiring is the seam
 // between the two.
 func TestRunner_DirectorUsesInjectedTools(t *testing.T) {
+	t.Parallel()
 	_, stage, runner, _, _ := wiredProduction(t, nil)
 	called := false
 	runner.directorTools = func(context.Context) []models.LLMTool {
@@ -783,6 +802,7 @@ func TestRunner_DirectorUsesInjectedTools(t *testing.T) {
 // more calls than its budget — the trailing answer is the loop's terminal
 // roundtrip, not a budgeted call, so the phase line reads exactly budget/budget.
 func TestRunner_FullBudgetNeverShowsOverCap(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12", WithBudgets(50, 200))
 	silenceFeed(stage)
@@ -816,6 +836,7 @@ func TestRunner_FullBudgetNeverShowsOverCap(t *testing.T) {
 // playwright's story itself arrives as the structured final answer (machine
 // fix, 2026-08-03).
 func TestRunner_CanonFactsRoundTrip(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -858,6 +879,7 @@ func TestRunner_CanonFactsRoundTrip(t *testing.T) {
 // A canon fact past the length cap is truncated to the cap on write — the
 // same bound the working file's own gate applies on load.
 func TestRunner_CanonFactTruncatedToCap(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -883,6 +905,7 @@ func TestRunner_CanonFactTruncatedToCap(t *testing.T) {
 // contract): a prop placement naming a prop the draft does not have is
 // dropped, and the placements for the draft's own props are applied.
 func TestRunner_SceneValidatedAgainstDraft(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -923,6 +946,7 @@ func TestRunner_SceneValidatedAgainstDraft(t *testing.T) {
 // composer draft (error table): the director always has a working file to
 // build on, and the transcript notes the offer.
 func TestRunner_PlaywrightNoDraftFallsBack(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -966,6 +990,7 @@ func TestRunner_PlaywrightNoDraftFallsBack(t *testing.T) {
 // with a brief posted to the board — nothing crashes and the production
 // still has an artifact.
 func TestRunner_RunClaiFailsWithoutModel(t *testing.T) {
+	t.Parallel()
 	co, stage, _, _, _ := wiredProduction(t, nil)
 	// Rebuild without the stub: the production runLLM (runClai) and the
 	// internal fallback dispatcher. The config dir is a temp dir so clai's
@@ -998,6 +1023,7 @@ func TestRunner_RunClaiFailsWithoutModel(t *testing.T) {
 // answers in place and other roles deliver through tools, so their loops stay
 // free text.
 func TestRunner_ResponseFormatOnlyForProductionPlaywright(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -1041,6 +1067,7 @@ func TestRunner_ResponseFormatOnlyForProductionPlaywright(t *testing.T) {
 // schema hint), then the corrected story lands in the working file — the
 // backstop for endpoints that enforce the story schema weakly.
 func TestRunner_PlaywrightInvalidStoryRevision(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)

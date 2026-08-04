@@ -14,6 +14,7 @@ import (
 // any seed. A template regression would otherwise silently degrade to
 // minimalStory in production.
 func TestCompose_AllScenesValidateAcrossSeeds(t *testing.T) {
+	t.Parallel()
 	seen := map[string]bool{}
 	for seed := range int64(400) {
 		r := rand.New(rand.NewSource(seed))
@@ -41,6 +42,7 @@ func TestCompose_AllScenesValidateAcrossSeeds(t *testing.T) {
 // Anyone who acts must have entered first, otherwise the player would be asked
 // to animate a character that is not on stage.
 func TestCompose_EveryActorEntersBeforeActing(t *testing.T) {
+	t.Parallel()
 	for seed := range int64(200) {
 		r := rand.New(rand.NewSource(seed))
 		s := Compose(r)
@@ -73,6 +75,7 @@ func TestCompose_EveryActorEntersBeforeActing(t *testing.T) {
 }
 
 func TestCompose_BeatsWithinDuration(t *testing.T) {
+	t.Parallel()
 	for seed := range int64(200) {
 		s := Compose(rand.New(rand.NewSource(seed)))
 		for _, b := range s.Beats {
@@ -84,6 +87,7 @@ func TestCompose_BeatsWithinDuration(t *testing.T) {
 }
 
 func TestSceneNames_NonEmpty(t *testing.T) {
+	t.Parallel()
 	if len(SceneNames()) == 0 {
 		t.Fatal("expected composer scenes")
 	}
@@ -91,6 +95,7 @@ func TestSceneNames_NonEmpty(t *testing.T) {
 
 // The theme must reach the marquee even with no LLM configured.
 func TestComposeThemed_BillsTheTheme(t *testing.T) {
+	t.Parallel()
 	s := ComposeThemed(newRand(1), "The Godfather 1972")
 	if s.Theme != "The Godfather 1972" {
 		t.Errorf("theme not recorded: %q", s.Theme)
@@ -106,6 +111,7 @@ func TestComposeThemed_BillsTheTheme(t *testing.T) {
 // The composer must actually use the set it dresses, otherwise the cell system
 // is dead weight: every scene needs a backdrop and pieces standing on it.
 func TestCompose_DressesTheSet(t *testing.T) {
+	t.Parallel()
 	withCells := 0
 	for seed := range int64(120) {
 		s := Compose(rand.New(rand.NewSource(seed)))
@@ -134,6 +140,7 @@ func TestCompose_DressesTheSet(t *testing.T) {
 
 // Scene beats must address a cell that exists, or the swap silently does nothing.
 func TestCompose_SceneBeatsAddressRealCells(t *testing.T) {
+	t.Parallel()
 	sawSceneBeat := false
 	for seed := range int64(200) {
 		s := Compose(rand.New(rand.NewSource(seed)))
@@ -168,6 +175,7 @@ func TestCompose_SceneBeatsAddressRealCells(t *testing.T) {
 // reach the stage: every template is reachable, and the new pieces, props,
 // backdrops and actions appear across seeds.
 func TestCompose_Phase7VocabularyReachable(t *testing.T) {
+	t.Parallel()
 	names := map[string]bool{}
 	for _, n := range SceneNames() {
 		names[n] = true
@@ -222,6 +230,7 @@ func TestCompose_Phase7VocabularyReachable(t *testing.T) {
 // A jump beat must always carry a target — the model drops targetless jumps,
 // so the composer must never emit one.
 func TestCompose_JumpAlwaysTargeted(t *testing.T) {
+	t.Parallel()
 	for seed := range int64(400) {
 		s := Compose(rand.New(rand.NewSource(seed)))
 		for _, b := range s.Beats {
@@ -235,6 +244,7 @@ func TestCompose_JumpAlwaysTargeted(t *testing.T) {
 // The log stands clear of the cast: a composed scene never puts it through a
 // performer (the staging rules staging_test.go exists to protect).
 func TestCompose_LogNeverThroughABody(t *testing.T) {
+	t.Parallel()
 	withLog := 0
 	for seed := range int64(300) {
 		s := Compose(rand.New(rand.NewSource(seed)))
@@ -257,6 +267,7 @@ func TestCompose_LogNeverThroughABody(t *testing.T) {
 // those stand: a jump onto the log and a sniff at the door. The targeted
 // beats must reference a cell that actually exists.
 func TestCompose_Phase7PieceBeatsAddressRealCells(t *testing.T) {
+	t.Parallel()
 	for seed := range int64(400) {
 		s := Compose(rand.New(rand.NewSource(seed)))
 		cells := map[string]bool{}
@@ -282,6 +293,7 @@ func TestCompose_Phase7PieceBeatsAddressRealCells(t *testing.T) {
 // inside the closed vocabulary. The 400-seed sweep in
 // TestCompose_AllScenesValidateAcrossSeeds covers the template's validity.
 func TestCompose_BirdSceneReachable(t *testing.T) {
+	t.Parallel()
 	names := map[string]bool{}
 	for _, n := range SceneNames() {
 		names[n] = true
@@ -312,6 +324,7 @@ func TestCompose_BirdSceneReachable(t *testing.T) {
 // bird only enters, exits, vocalizes, stares and jumps (a hop at the cat —
 // the swat-miss tease). No sit, no pounce, no chase.
 func TestCompose_BirdBeatsStayInBirdVocabulary(t *testing.T) {
+	t.Parallel()
 	allowed := map[string]bool{"enter": true, "exit": true, "vocalize": true, "stareoff": true, "jump": true}
 	for seed := range int64(200) {
 		s := Compose(rand.New(rand.NewSource(seed)))
@@ -335,6 +348,7 @@ func TestCompose_BirdBeatsStayInBirdVocabulary(t *testing.T) {
 // structs: an empty Props slice marshals away and round-trips as nil, so
 // struct equality would flag a JSON artifact as a drift.
 func TestCompose_SnapshotMatchesFrozenPreMigrationOutput(t *testing.T) {
+	t.Parallel()
 	b, err := os.ReadFile("testdata/composer_snapshot.json")
 	if err != nil {
 		t.Fatal(err)

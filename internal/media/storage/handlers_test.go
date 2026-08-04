@@ -19,6 +19,7 @@ import (
 )
 
 func Test_store_ListHandlerFunc_search(t *testing.T) {
+	t.Parallel()
 	s := newTestStore(t)
 	h := s.ListHandlerFunc()
 
@@ -142,6 +143,7 @@ func Test_store_ListHandlerFunc_search(t *testing.T) {
 
 // TestStoreSearchE2E primes the store via Setup, then queries with search.
 func TestStoreSearchE2E(t *testing.T) {
+	t.Parallel()
 	tmpDir := t.TempDir()
 	s := NewStore(WithStorePath(tmpDir))
 	s.classifier = &mockClassifier{
@@ -249,6 +251,7 @@ func TestStoreSearchE2E(t *testing.T) {
 }
 
 func Test_store_ListHandlerFunc_basic(t *testing.T) {
+	t.Parallel()
 	s := newTestStore(t)
 	h := s.ListHandlerFunc()
 
@@ -278,6 +281,7 @@ func Test_store_ListHandlerFunc_basic(t *testing.T) {
 }
 
 func Test_store_ListHandlerFunc_ok(t *testing.T) {
+	t.Parallel()
 	s := newTestStore(t)
 	h := s.ListHandlerFunc()
 
@@ -312,6 +316,7 @@ func Test_store_ListHandlerFunc_ok(t *testing.T) {
 }
 
 func Test_store_ImageHandlerFunc(t *testing.T) {
+	t.Parallel()
 	s := newTestStore(t)
 	h := s.ImageHandlerFunc()
 
@@ -398,6 +403,7 @@ func Test_store_ImageHandlerFunc(t *testing.T) {
 }
 
 func Test_store_VideoHandlerFunc(t *testing.T) {
+	t.Parallel()
 	js := newTestStore(t)
 	handler := js.VideoHandlerFunc()
 
@@ -502,6 +508,7 @@ func Test_store_VideoHandlerFunc(t *testing.T) {
 }
 
 func Test_store_StreamHandlerFunc(t *testing.T) {
+	t.Parallel()
 	s := newTestStore(t)
 
 	t.Run("cache nil triggers not found", func(t *testing.T) {
@@ -557,6 +564,7 @@ func Test_store_StreamHandlerFunc(t *testing.T) {
 }
 
 func Test_store_StreamListHandlerFunc(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()))
 	s.cacheMu.Lock()
 	s.cache["withMime"] = model.Item{
@@ -614,6 +622,7 @@ func writePNG(t *testing.T, p string, w, h int) {
 }
 
 func Test_store_handleImageItem(t *testing.T) {
+	t.Parallel()
 	t.Run("uses existing thumb", func(t *testing.T) {
 		s := newTestStore(t)
 		dir := t.TempDir()
@@ -712,6 +721,7 @@ func Test_store_handleImageItem(t *testing.T) {
 }
 
 func Test_handlePaginatedRequest_errors(t *testing.T) {
+	t.Parallel()
 	t.Run("nil request returns error", func(t *testing.T) {
 		_, err := handlePaginatedRequest(10, nil)
 		if err == nil {
@@ -777,6 +787,7 @@ func Test_handlePaginatedRequest_errors(t *testing.T) {
 }
 
 func Test_handlePaginatedRequest_withSearch(t *testing.T) {
+	t.Parallel()
 	t.Run("extracts search query param", func(t *testing.T) {
 		req := httptest.NewRequest(
 			http.MethodGet,
@@ -824,6 +835,7 @@ func Test_handlePaginatedRequest_withSearch(t *testing.T) {
 }
 
 func Test_handlePaginatedRequest_ok(t *testing.T) {
+	t.Parallel()
 	t.Run("caps end at totalAm", func(t *testing.T) {
 		req := httptest.NewRequest(
 			http.MethodGet,

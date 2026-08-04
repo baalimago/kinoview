@@ -11,6 +11,7 @@ import (
 )
 
 func TestLatestTheme_PicksMostRecentAcrossSessions(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	ctxs := []model.ClientContext{
 		{
@@ -33,6 +34,7 @@ func TestLatestTheme_PicksMostRecentAcrossSessions(t *testing.T) {
 }
 
 func TestLatestTheme_EmptyWhenNothingWatched(t *testing.T) {
+	t.Parallel()
 	if got := LatestTheme(nil); got != "" {
 		t.Errorf("expected empty theme, got %q", got)
 	}
@@ -42,6 +44,7 @@ func TestLatestTheme_EmptyWhenNothingWatched(t *testing.T) {
 }
 
 func TestCleanTitle(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		"The.Godfather.1972.1080p.BluRay.x264.mkv": "The Godfather 1972",
 		"Big_Buck_Bunny.mp4":                       "Big Buck Bunny",
@@ -58,10 +61,12 @@ func TestCleanTitle(t *testing.T) {
 
 // A hostile or broken muse must never take the splash (or the server) down.
 func TestTheme_SurvivesPanickingMuse(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	tl := New(cfgNone(), dir, time.Hour, WithMuse(MuseFunc(func() string {
 		panic("muse exploded")
 	})))
+	t.Cleanup(tl.writeWG.Wait)
 
 	if got := tl.theme(); got != "" {
 		t.Errorf("expected empty theme after panic, got %q", got)

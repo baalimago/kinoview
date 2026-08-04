@@ -7,6 +7,7 @@ import (
 )
 
 func TestLoadLedger_MissingIsZero(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	l, err := co.LoadLedger()
 	if err != nil {
@@ -19,6 +20,7 @@ func TestLoadLedger_MissingIsZero(t *testing.T) {
 
 // A corrupt ledger degrades to the zero ledger, never a crash.
 func TestLoadLedger_CorruptFileFallsBackToZero(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, CompanyDir, ledgerFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -38,6 +40,7 @@ func TestLoadLedger_CorruptFileFallsBackToZero(t *testing.T) {
 
 // Negative counters clamp and actors naming unknown roles drop on load.
 func TestLoadLedger_Normalizes(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, CompanyDir, ledgerFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

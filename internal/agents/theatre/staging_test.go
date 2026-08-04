@@ -12,6 +12,7 @@ import (
 // of opinion.
 
 func TestStaging_EntrySidesVary(t *testing.T) {
+	t.Parallel()
 	counts := map[string]int{}
 	for seed := range int64(300) {
 		s := Compose(rand.New(rand.NewSource(seed)))
@@ -36,6 +37,7 @@ func TestStaging_EntrySidesVary(t *testing.T) {
 }
 
 func TestStaging_MarksVary(t *testing.T) {
+	t.Parallel()
 	// Bucket each principal's mark; a monotonous composer collapses into one or
 	// two buckets.
 	buckets := map[string]map[int]bool{ina: {}, freija: {}}
@@ -56,6 +58,7 @@ func TestStaging_MarksVary(t *testing.T) {
 
 // Nobody should be permanently stage-left or stage-right of the other.
 func TestStaging_LeadsSwapSides(t *testing.T) {
+	t.Parallel()
 	catLeft, dogLeft := 0, 0
 	for seed := range int64(300) {
 		s := Compose(rand.New(rand.NewSource(seed)))
@@ -86,6 +89,7 @@ func TestStaging_LeadsSwapSides(t *testing.T) {
 // A character whose mark is on the far side crosses the stage; that shape must
 // actually occur.
 func TestStaging_SomeoneCrossesTheStage(t *testing.T) {
+	t.Parallel()
 	crossings := 0
 	for seed := range int64(300) {
 		s := Compose(rand.New(rand.NewSource(seed)))
@@ -113,6 +117,7 @@ func TestStaging_SomeoneCrossesTheStage(t *testing.T) {
 
 // Distinct scene shapes must all be reachable.
 func TestCompose_AllTemplatesReachable(t *testing.T) {
+	t.Parallel()
 	seen := map[string]bool{}
 	for seed := range int64(500) {
 		s := Compose(rand.New(rand.NewSource(seed)))

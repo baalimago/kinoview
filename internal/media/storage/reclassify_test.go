@@ -13,6 +13,7 @@ import (
 // `kinoview media` CLI — must not block for ever on the send. This was the
 // "reclassify just hangs" bug.
 func TestAddToClassificationQueue_DoesNotBlockWhenNotStarted(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()), WithClassificationStartupCooldown(0))
 
 	done := make(chan struct{})
@@ -30,6 +31,7 @@ func TestAddToClassificationQueue_DoesNotBlockWhenNotStarted(t *testing.T) {
 
 // The same call must still enqueue normally once the station is up.
 func TestAddToClassificationQueue_EnqueuesWhenStarted(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()), WithClassificationStartupCooldown(0))
 	ctx := t.Context()
 
@@ -68,6 +70,7 @@ func seedItem(t *testing.T, s *store, i model.Item) {
 // deliberately copies existing metadata back over the incoming item, so the
 // reset was silently undone and reclassify appeared to do nothing.
 func TestResetClassification_ClearsMetadataAndAttempts(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()))
 	raw := json.RawMessage(`{"name":"Done","genre":"drama"}`)
 	seedItem(t, s, model.Item{
@@ -104,6 +107,7 @@ func TestResetClassification_ClearsMetadataAndAttempts(t *testing.T) {
 }
 
 func TestResetClassification_UnknownID(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()))
 	if _, err := s.ResetClassification("nope"); err == nil {
 		t.Error("expected an error for an unknown ID")
@@ -113,6 +117,7 @@ func TestResetClassification_UnknownID(t *testing.T) {
 // Clearing the stop-loss must re-open only the items that actually hit the
 // ceiling, and must not throw away metadata they already have.
 func TestClearClassificationStopLoss(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()), WithClassificationMaxAttempts(5))
 	raw := json.RawMessage(`{"name":"Partial"}`)
 	seedItem(t, s, model.Item{ID: "blocked", Name: "blocked.mkv", ClassificationAttempts: 5, ClassificationError: "rate limited", Metadata: &raw})
@@ -164,6 +169,7 @@ func TestClearClassificationStopLoss(t *testing.T) {
 }
 
 func TestClassificationMaxAttempts_ReportsConfigured(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()), WithClassificationMaxAttempts(7))
 	if got := s.ClassificationMaxAttempts(); got != 7 {
 		t.Errorf("ClassificationMaxAttempts = %d, want 7", got)

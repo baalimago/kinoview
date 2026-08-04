@@ -7,6 +7,7 @@ import (
 )
 
 func TestWriteFileAtomic_RoundTrip(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "doc.json")
 	if err := writeFileAtomic(path, []byte("hello")); err != nil {
 		t.Fatal(err)
@@ -25,6 +26,7 @@ func TestWriteFileAtomic_RoundTrip(t *testing.T) {
 // untouched. The rename onto a directory is the failure: the temp file is
 // already written by then, so the cleanup path is what this exercises.
 func TestWriteFileAtomic_FailureCleansTempAndKeepsTarget(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "doc.json")
 	if err := writeFileAtomic(path, []byte("old")); err != nil {
@@ -54,6 +56,7 @@ func TestWriteFileAtomic_FailureCleansTempAndKeepsTarget(t *testing.T) {
 }
 
 func TestTruncateRunes(t *testing.T) {
+	t.Parallel()
 	if got := truncateRunes("short", 10); got != "short" {
 		t.Errorf("truncateRunes(short) = %q", got)
 	}

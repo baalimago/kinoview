@@ -3,7 +3,6 @@ package serve
 import (
 	"context"
 	"flag"
-	"math/rand/v2"
 	"os"
 	"path"
 	"strings"
@@ -137,8 +136,9 @@ func TestRun(t *testing.T) {
 		t.Cleanup(func() {
 			cancel()
 		})
-		randPort := 1000 + rand.IntN(40000)
-		c.port = &randPort
+		// Port 0 asks the OS for a free ephemeral port, so repeated runs
+		// (-count=3) and parallel package runs can never collide.
+		c.port = new(int)
 		err := c.Setup(ctx)
 		if err != nil {
 			t.Fatalf("unexpected error: %v", err)

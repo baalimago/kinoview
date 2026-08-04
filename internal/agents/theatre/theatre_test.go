@@ -27,7 +27,11 @@ func seededCompose(seed int64) model.Story {
 // regression surface for the composer-only mode (no director is ever built).
 func newTestTheatre(t *testing.T, opts ...Option) *Theatre {
 	t.Helper()
-	return New(models.Configurations{}, t.TempDir(), time.Hour, opts...)
+	th := New(models.Configurations{}, t.TempDir(), time.Hour, opts...)
+	// Next persists what it composes in a background goroutine; the TempDir
+	// cleanup must not race that write (writeWG tracks it for exactly this).
+	t.Cleanup(th.writeWG.Wait)
+	return th
 }
 
 // fixtureScript is a scripted fake LLM that runs one full production: the
@@ -65,8 +69,10 @@ func fixtureScript(t *testing.T) func(context.Context, llmParams) (llmOutcome, e
 // validate → pin → submit — with the transcript and the ledger recording
 // every step, and the submitted story persisted to intro_story.json.
 func TestTheatre_FixtureProductionRunsFlow(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	th := New(models.Configurations{Model: "stub", ConfigDir: t.TempDir()}, cacheDir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
 	th.runLLM = fixtureScript(t)
 
 	if !th.Prepare(context.Background(), "test") {
@@ -182,6 +188,7 @@ func TestTheatre_FixtureProductionRunsFlow(t *testing.T) {
 // the submit gate. Every spec validates (the tools package's spec-shape test
 // covers the shape; here the set is asserted).
 func TestTheatre_DirectorToolSetRegistered(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	p := th.openProduction("")
 	defer p.stage.Close()
@@ -209,6 +216,7 @@ func TestTheatre_DirectorToolSetRegistered(t *testing.T) {
 // path ships that last validated draft — never an invalid one — and the
 // transcript records the exhaustion.
 func TestTheatre_BudgetExhaustionShipsLastValidatedDraft(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		switch {
@@ -265,6 +273,7 @@ func TestTheatre_BudgetExhaustionShipsLastValidatedDraft(t *testing.T) {
 // validated draft, and a draft-only generation falls through to the composer
 // floor.
 func TestTheatre_DraftOnlyExhaustionFallsToComposer(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		switch {
@@ -300,6 +309,7 @@ func TestTheatre_DraftOnlyExhaustionFallsToComposer(t *testing.T) {
 // gate: a draft rewritten after validation loses it, so an exhaustion after
 // the rewrite still falls through to the composer floor (review 7, R7-01).
 func TestTheatre_ValidatedThenRewrittenDraftDoesNotShip(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		switch {
@@ -324,6 +334,7 @@ func TestTheatre_ValidatedThenRewrittenDraftDoesNotShip(t *testing.T) {
 // A director that never writes a draft and never submits leaves nothing; the
 // generation fails and the caller answers with the composer floor.
 func TestTheatre_NoDraftFailsToComposer(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		if strings.Contains(p.prompt, "You are the director of") {
@@ -348,6 +359,7 @@ func TestTheatre_NoDraftFailsToComposer(t *testing.T) {
 // submit_story is the final gate: a second call for the same generation is
 // refused, and the story is persisted exactly once.
 func TestTheatre_SubmitTwiceRefused(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	var second string
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
@@ -374,6 +386,7 @@ func TestTheatre_SubmitTwiceRefused(t *testing.T) {
 // submit_story refuses a story that fails model.Story.Validate and returns
 // the exact errors to the director.
 func TestTheatre_SubmitRefusesInvalidDraft(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	// A working file holding an unplayable story, written around SaveWorking's
 	// gate the way a hostile or hand-edited file would appear.
@@ -413,6 +426,7 @@ func TestTheatre_SubmitRefusesInvalidDraft(t *testing.T) {
 // is not marked submitted and the library is not distilled — paperwork must
 // never claim a success the disk did not record (review 7, R7-02).
 func TestTheatre_SubmitAbortsWhenStoryNotPersisted(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	// intro_story.json is a directory: the atomic rename onto it fails while
 	// the company paperwork stays writable — the exact R7-02 failure shape.
@@ -462,6 +476,7 @@ func TestTheatre_SubmitAbortsWhenStoryNotPersisted(t *testing.T) {
 // Past the wall-clock deadline the broker refuses spawns with a clear
 // message, and the last validated draft ships.
 func TestTheatre_WallClockRefusesSpawnsPastDeadline(t *testing.T) {
+	t.Parallel()
 	th := New(models.Configurations{}, t.TempDir(), time.Hour, WithWallClock(80*time.Millisecond))
 	var dressOut string
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
@@ -550,6 +565,7 @@ func TestTheatre_DirectorConstructionFailsFallsBackToComposer(t *testing.T) {
 // answers (the phase-5 seam), the production continues, and the transcript
 // records the fallback.
 func TestTheatre_SubagentFailureFallsBackAndContinues(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		switch {
@@ -602,6 +618,7 @@ func TestTheatre_SubagentFailureFallsBackAndContinues(t *testing.T) {
 // Repeated prepares within the cooldown are blocked; a generation after the
 // cooldown runs.
 func TestTheatre_PrepareCooldownBlocksRepeats(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	ctx := context.Background()
 	if !th.Prepare(ctx, "first") {
@@ -615,6 +632,7 @@ func TestTheatre_PrepareCooldownBlocksRepeats(t *testing.T) {
 }
 
 func TestTheatre_PrepareRunsAgainAfterCooldown(t *testing.T) {
+	t.Parallel()
 	th := New(models.Configurations{}, t.TempDir(), 10*time.Millisecond)
 	if !th.Prepare(context.Background(), "first") {
 		t.Fatal("first Prepare should run")
@@ -628,8 +646,10 @@ func TestTheatre_PrepareRunsAgainAfterCooldown(t *testing.T) {
 // A prepared story is persisted and picked back up by a fresh theatre over
 // the same cache dir.
 func TestTheatre_PreparePersistsAndReloads(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	th := New(models.Configurations{}, dir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
 	if !th.Prepare(context.Background(), "test") {
 		t.Fatal("Prepare should run")
 	}
@@ -646,6 +666,7 @@ func TestTheatre_PreparePersistsAndReloads(t *testing.T) {
 
 // A corrupt or hostile cache file must not reach the player.
 func TestTheatre_LoadFromDiskRejectsInvalidCache(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	bad := model.Story{ID: "../../escape", Title: "nope", Cast: []model.Cast{{ID: "x", Character: "dragon"}}}
 	b, err := json.Marshal(bad)
@@ -657,6 +678,7 @@ func TestTheatre_LoadFromDiskRejectsInvalidCache(t *testing.T) {
 	}
 
 	th := New(models.Configurations{}, dir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
 	if s := th.Next(); len(s.Cast) == 0 || s.Origin != "composer" {
 		t.Errorf("invalid cache served: %+v", s)
 	}
@@ -689,6 +711,7 @@ func writeCachedStory(t *testing.T, dir, origin string, age time.Duration) strin
 // so without the mtime fallback a crash-loop would cost one production per
 // restart.
 func TestTheatre_CooldownSurvivesRestartForLLMStories(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeCachedStory(t, dir, "llm", 0)
 
@@ -700,6 +723,7 @@ func TestTheatre_CooldownSurvivesRestartForLLMStories(t *testing.T) {
 
 // An old cache is fair game again.
 func TestTheatre_CooldownExpiredCacheAllowsRegeneration(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeCachedStory(t, dir, "llm", 3*time.Hour)
 
@@ -712,6 +736,7 @@ func TestTheatre_CooldownExpiredCacheAllowsRegeneration(t *testing.T) {
 // A composed story on disk must NOT hold the cooldown shut: the cooldown
 // limits API spend, and a composed story cost nothing.
 func TestTheatre_CooldownComposerStoryDoesNotGateLLM(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	seeder := New(models.Configurations{}, dir, time.Hour)
 	seeder.Warm(context.Background())
@@ -727,6 +752,7 @@ func TestTheatre_CooldownComposerStoryDoesNotGateLLM(t *testing.T) {
 
 // An LLM story, on the other hand, must hold it.
 func TestTheatre_CooldownLLMStoryGatesRegeneration(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeCachedStory(t, dir, "llm", 0)
 
@@ -742,6 +768,7 @@ func TestTheatre_CooldownLLMStoryGatesRegeneration(t *testing.T) {
 // Warm stores a story synchronously — no visitor can arrive before one is
 // prepared — themed on the last watched item.
 func TestTheatre_WarmStoresSynchronouslyFromLastViewed(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	th := New(models.Configurations{}, dir, time.Hour,
 		WithMuse(MuseFunc(func() string { return "Solaris 1972" })))
@@ -762,6 +789,7 @@ func TestTheatre_WarmStoresSynchronouslyFromLastViewed(t *testing.T) {
 
 // ...but it must not burn a generation when a good story is already cached.
 func TestTheatre_WarmNoopWhenCached(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	seed := New(models.Configurations{}, dir, time.Hour)
 	if !seed.Prepare(context.Background(), "initial") {
@@ -780,8 +808,10 @@ func TestTheatre_WarmNoopWhenCached(t *testing.T) {
 
 // Even the last-resort synchronous compose inside Next must end up on disk.
 func TestTheatre_NextPersistsWhatItInvents(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	th := New(models.Configurations{}, dir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
 
 	_ = th.Next() // nothing cached, nothing warmed
 
@@ -798,6 +828,7 @@ func TestTheatre_NextPersistsWhatItInvents(t *testing.T) {
 
 // Concurrent writers must never leave a partially written file behind.
 func TestTheatre_SaveStoryIsAtomic(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	th := New(models.Configurations{}, dir, time.Hour)
 	path := filepath.Join(dir, "intro_story.json")
@@ -831,6 +862,7 @@ func TestTheatre_SaveStoryIsAtomic(t *testing.T) {
 
 // Single-flight: a generation in progress refuses a second Prepare.
 func TestTheatre_SingleFlight(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	th.inFlight = true
 	if th.Prepare(context.Background(), "second") {
@@ -842,6 +874,7 @@ func TestTheatre_SingleFlight(t *testing.T) {
 // fallback then riffs on nothing, and the production never goes down for a
 // splash story).
 func TestTheatre_MusePanicGuarded(t *testing.T) {
+	t.Parallel()
 	th := New(models.Configurations{}, t.TempDir(), time.Hour,
 		WithMuse(MuseFunc(func() string { panic("boom") })))
 	if got := th.theme(); got != "" {
@@ -852,6 +885,7 @@ func TestTheatre_MusePanicGuarded(t *testing.T) {
 // The theatre's options land on the facade: muse, budgets, wall clock and the
 // session sink.
 func TestTheatre_OptionsApplied(t *testing.T) {
+	t.Parallel()
 	sink := func(model.LogMessage) {}
 	muse := MuseFunc(func() string { return "Solaris" })
 	th := New(models.Configurations{}, t.TempDir(), time.Hour,
@@ -877,6 +911,7 @@ func TestTheatre_OptionsApplied(t *testing.T) {
 // The director's read_story tool returns the working draft or one requested
 // part, and refuses unknown parts and a missing draft.
 func TestTheatre_ReadStoryParts(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	p := th.openProduction("")
 	defer p.stage.Close()
@@ -920,6 +955,7 @@ func TestTheatre_ReadStoryParts(t *testing.T) {
 // what to do with it: Next/Prepare/Warm log it and keep serving from memory,
 // while submit_story aborts the submit (review 7, R7-02).
 func TestTheatre_SaveStoryWriteFailureReturnsError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// The cache dir itself is a file, so every mkdir/write fails.
 	cacheDir := filepath.Join(dir, "cache")
@@ -942,6 +978,7 @@ func TestTheatre_SaveStoryWriteFailureReturnsError(t *testing.T) {
 // goroutines draw from math/rand at the same time (review 1, R1-01). The
 // -race detector fails the pre-fix code here.
 func TestTheatre_ConcurrentNextAndPrepareComposeSafely(t *testing.T) {
+	t.Parallel()
 	for range 400 {
 		th := newTestTheatre(t)
 		var wg sync.WaitGroup
@@ -968,6 +1005,7 @@ func TestTheatre_ConcurrentNextAndPrepareComposeSafely(t *testing.T) {
 // production's generation-id draw is never exercised. The -race detector
 // fails the pre-fix code here.
 func TestTheatre_ConcurrentNextAndPrepareProductionSafely(t *testing.T) {
+	t.Parallel()
 	for range 400 {
 		th := New(models.Configurations{Model: "stub", ConfigDir: t.TempDir()}, t.TempDir(), time.Hour)
 		// A terminal text is all the production needs: openProduction draws
@@ -994,6 +1032,7 @@ func TestTheatre_ConcurrentNextAndPrepareProductionSafely(t *testing.T) {
 
 // Next never returns an unplayable story.
 func TestTheatre_NextNeverEmpty(t *testing.T) {
+	t.Parallel()
 	th := newTestTheatre(t)
 	s := th.Next()
 	if len(s.Cast) == 0 || len(s.Beats) == 0 {
@@ -1007,6 +1046,7 @@ func TestTheatre_NextNeverEmpty(t *testing.T) {
 // director context carries generation 1's critique lesson. The library is
 // the only channel between the two — the board is per-generation.
 func TestTheatre_SecondGenerationReadsFirstLibrary(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	ctx := context.Background()
 
@@ -1096,6 +1136,7 @@ func TestTheatre_SecondGenerationReadsFirstLibrary(t *testing.T) {
 // in the draft enters the registry and survives the restart (the integration
 // contract: registry is the only place identities are born).
 func TestTheatre_SubmitCanonizesApprovedCharacter(t *testing.T) {
+	t.Parallel()
 	cacheDir := t.TempDir()
 	th := New(models.Configurations{Model: "stub", ConfigDir: t.TempDir()}, cacheDir, time.Hour)
 

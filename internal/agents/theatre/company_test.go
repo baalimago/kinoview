@@ -13,6 +13,7 @@ import (
 // Every company file round-trips: write → load → validate → identical
 // semantics.
 func TestBoard_RoundTrip(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	want := Board{
 		Generation: "stry_test1",
@@ -48,6 +49,7 @@ func TestBoard_RoundTrip(t *testing.T) {
 }
 
 func TestWorking_RoundTrip(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	want := Working{Story: validStory(), Revision: 3, Status: "dressed"}
 	if err := co.SaveWorking(want); err != nil {
@@ -69,6 +71,7 @@ func TestWorking_RoundTrip(t *testing.T) {
 }
 
 func TestLedger_RoundTrip(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	started := time.Now().Truncate(time.Second)
 	want := Ledger{
@@ -104,6 +107,7 @@ func TestLedger_RoundTrip(t *testing.T) {
 }
 
 func TestTranscript_RoundTrip(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	when := time.Now().Truncate(time.Second)
 	events := []TranscriptEvent{
@@ -140,6 +144,7 @@ func TestTranscript_RoundTrip(t *testing.T) {
 // Concurrent writers must never leave a partially written file behind — the
 // same read-loop pattern as the theatre's TestTheatre_SaveStoryIsAtomic.
 func TestSaveBoard_ConcurrentWritersNeverTorn(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	path := filepath.Join(dir, CompanyDir, boardFileName)

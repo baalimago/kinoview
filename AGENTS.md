@@ -272,6 +272,12 @@ Before signing off on ANY changes, these must all pass:
 The dupl check is a signal, not a verdict — see the Duplication policy
 below for deciding which clones are acceptable and which need fixing.
 
+**Important:** `go test ./... -race -count=3 -timeout=30s` MUST pass unedited. The strictness
+is intentional to produce a highly testable, efficient system which follows strict inversion of control.
+Do not modify the timeout, count, or race. Do not add test skips, false-positive tests or any other cheat.
+Instead, start testing early and ensure that test passes for each new modification.
+
+**Important:** 70+% test coverage is a must. 90+% test coverage is preferred.
 Run `make qa` to run all at once.
 
 ---

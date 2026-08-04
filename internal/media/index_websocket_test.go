@@ -96,6 +96,12 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Under parallel test load the readLoop can be starved for seconds, so a
+	// closed socket is only noticed by the heartbeat fallback. Accelerate the
+	// heartbeat so the disconnect cascade still fires promptly in that case.
+	idx.heartbeatInterval = 50 * time.Millisecond
+	idx.pongTimeout = 100 * time.Millisecond
+	idx.pongGrace = 200 * time.Millisecond
 	t.Cleanup(func() { _ = idx.Close() })
 	// Need to initialize store to avoid nil pointer in Snapshot called by disconnect
 	idx.store = &mockStore{
@@ -134,35 +140,49 @@ func TestEventStreamAndSuggestions(t *testing.T) {
 		t.Fatalf("timeout waiting for stored context")
 	}
 
-	// Close connection to trigger butler
+	// Close connection to trigger butler, then wait for the cascade to
+	// complete. The cascade runs on a goroutine, so poll instead of sleeping:
+	// under the race detector and parallel package load the disconnect
+	// handling can be starved for seconds.
 	ws.Close()
 
-	// Wait for butler (handled in goroutine)
-	time.Sleep(200 * time.Millisecond)
-
-	if !butler.called.Load() {
-		t.Error("Butler was not called after disconnect")
-	}
-	// Now check if suggestions are available via HTTP
-	resp, err := http.Get(server.URL + "/suggestions")
-	if err != nil {
-		t.Fatalf("Failed to get suggestions: %v", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("Expected status 200, got %d", resp.StatusCode)
+	deadline := time.Now().Add(5 * time.Second)
+	for !butler.called.Load() {
+		if time.Now().After(deadline) {
+			t.Error("Butler was not called after disconnect")
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
+	// The butler's suggestions are stored only after PrepSuggestions returns;
+	// poll until they appear instead of assuming they are already there.
 	var payload model.SuggestionsPayload
-	if err := json.NewDecoder(resp.Body).Decode(&payload); err != nil {
-		t.Fatalf("Failed to decode response: %v", err)
+	for {
+		resp, err := http.Get(server.URL + "/suggestions")
+		if err != nil {
+			t.Fatalf("Failed to get suggestions: %v", err)
+		}
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			t.Errorf("Expected status 200, got %d", resp.StatusCode)
+			break
+		}
+		err = json.NewDecoder(resp.Body).Decode(&payload)
+		resp.Body.Close()
+		if err != nil {
+			t.Fatalf("Failed to decode response: %v", err)
+		}
+		if len(payload.Suggestions) == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("Expected 1 recommendation, got %d", len(payload.Suggestions))
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 
 	recs := payload.Suggestions
-	if len(recs) != 1 {
-		t.Fatalf("Expected 1 recommendation, got %d", len(recs))
-	}
 	if recs[0].ID != "test-id" {
 		t.Errorf("Expected ID test-id, got %s", recs[0].ID)
 	}

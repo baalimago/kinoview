@@ -8,6 +8,7 @@ import (
 // requests; anything without a parseable envelope is the report itself, and
 // collaborations naming non-production roles are dropped at the door.
 func TestParseReport(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name       string
 		text       string

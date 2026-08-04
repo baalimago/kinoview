@@ -9,6 +9,7 @@ import (
 )
 
 func TestLoadBoard_MissingIsEmpty(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	b, err := co.LoadBoard()
 	if err != nil {
@@ -21,6 +22,7 @@ func TestLoadBoard_MissingIsEmpty(t *testing.T) {
 
 // A corrupt board degrades to the empty board, never a crash.
 func TestLoadBoard_CorruptFileFallsBackToEmpty(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, CompanyDir, boardFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -42,6 +44,7 @@ func TestLoadBoard_CorruptFileFallsBackToEmpty(t *testing.T) {
 // Entries with unknown kinds or roles drop, over-long bodies truncate, invalid
 // addressees clear, and seqs renumber — never a wholesale rejection.
 func TestLoadBoard_DropsUnknownsAndTruncates(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	long := strings.Repeat("x", EntryMaxBody+50)
@@ -87,6 +90,7 @@ func TestLoadBoard_DropsUnknownsAndTruncates(t *testing.T) {
 }
 
 func TestBoard_AppendDropsInvalid(t *testing.T) {
+	t.Parallel()
 	var b Board
 	b.Append(Entry{Author: "playwright", Kind: "alien", Body: "nope"})
 	b.Append(Entry{Author: "alien", Kind: "note", Body: "nope"})
@@ -109,6 +113,7 @@ func TestBoard_AppendDropsInvalid(t *testing.T) {
 // The board is bounded at write time: past BoardMaxEntries the oldest entries
 // drop, and seq stays contiguous.
 func TestBoard_AppendCapsAtSixty(t *testing.T) {
+	t.Parallel()
 	var b Board
 	for i := range BoardMaxEntries + 10 {
 		b.Append(Entry{Author: "stage", Kind: "note", Body: fmt.Sprintf("note %d", i)})
@@ -125,6 +130,7 @@ func TestBoard_AppendCapsAtSixty(t *testing.T) {
 }
 
 func TestBoard_ExcerptLastN(t *testing.T) {
+	t.Parallel()
 	var b Board
 	for i := range 25 {
 		b.Append(Entry{Author: "stage", Kind: "note", Body: fmt.Sprintf("note %d", i)})

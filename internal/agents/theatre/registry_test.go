@@ -11,6 +11,7 @@ import (
 // The registry defaults match the table (phase 6 + phase 8): the permanent
 // cast carries its canonical coat, species and wardrobe variants.
 func TestRegistry_CanonicalDefaultsMatchTable(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	want := []struct{ id, species, coat string }{
 		{"ina", "cat", "ginger"},
@@ -40,6 +41,7 @@ func TestRegistry_CanonicalDefaultsMatchTable(t *testing.T) {
 // or misstate coats: every registered id comes out with its canonical coat
 // and species, whatever the draft said (acceptance criterion).
 func TestRegistry_PinStableAcrossSeedsAndMisstatedCoats(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	want := map[string]struct{ species, coat string }{
 		"ina":    {"cat", "ginger"},
@@ -74,6 +76,7 @@ func TestRegistry_PinStableAcrossSeedsAndMisstatedCoats(t *testing.T) {
 // stand for a guest, and nothing crashes (error table). A guest never enters
 // the registry without approval.
 func TestRegistry_UnregisteredIdLeftAsIs(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	cast := []model.Cast{{ID: "guest1", Character: "cat", Coat: "silver", Lane: 0, X: 0.5}}
 	if applied := reg.PinAndApply(cast); applied != 0 {
@@ -91,6 +94,7 @@ func TestRegistry_UnregisteredIdLeftAsIs(t *testing.T) {
 // submit: valid entries are added with their species' variants, invalid ones
 // are refused with a reason, and the permanent cast is never re-approved.
 func TestRegistry_CanonizeApprovesOnlyValid(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	draft := []CharacterEntry{
 		{ID: "mouse2", Species: "mouse", Coat: "white"},
@@ -141,6 +145,7 @@ func TestRegistry_CanonizeApprovesOnlyValid(t *testing.T) {
 // cast keeps its canonical defaults, unknown species are dropped, and a
 // canonized character survives.
 func TestRegistry_LoadDocRepairsHostileFile(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	doc := RegistryDoc{
 		{ID: "ina", Species: "dragon", Coat: "black"},    // hostile override of a permanent id
@@ -161,6 +166,7 @@ func TestRegistry_LoadDocRepairsHostileFile(t *testing.T) {
 // out-of-palette coat can never surface in a working context or a wardrobe
 // answer.
 func TestRegistry_LoadDocDropsOutOfPaletteVariants(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	reg.LoadDoc(RegistryDoc{
 		{ID: "guest1", Species: "cat", Coat: "ginger", Variants: []string{"ginger", "pink", "GREY", "pink", "ultramarine"}},
@@ -192,6 +198,7 @@ func equalStrings(a, b []string) bool {
 
 // The registry doc is sorted by id, so writes are stable and diffable.
 func TestRegistry_DocSorted(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	reg.Canonize([]CharacterEntry{{ID: "mouse2", Species: "mouse", Coat: "white"}}, []string{"mouse2"})
 	doc := reg.Doc()

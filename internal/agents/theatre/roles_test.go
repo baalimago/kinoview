@@ -11,6 +11,7 @@ import (
 // asks and when it stops. A prompt missing a section would let the role drift
 // outside its remit or burn budget past its deliverable.
 func TestRolePrompts_ThreeSections(t *testing.T) {
+	t.Parallel()
 	for _, role := range []string{"dramaturg", "playwright", "scenographer", "wardrobe"} {
 		prompt := RolePrompt(role)
 		if !strings.HasPrefix(prompt, "You are the ") {
@@ -28,6 +29,7 @@ func TestRolePrompts_ThreeSections(t *testing.T) {
 // advise — without consult, matching its "You ask: nothing" scope (review 1,
 // R1-02). The other three production roles keep consult.
 func TestRoleTools_WardrobeLacksConsult(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -64,6 +66,7 @@ func TestRoleTools_WardrobeLacksConsult(t *testing.T) {
 // cannot silently drop the wardrobe's no-writer contract or the dramaturg's
 // ask-nothing clause.
 func TestRolePrompts_ScopeTextPinned(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		role, needle string
 	}{

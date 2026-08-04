@@ -80,11 +80,7 @@ func (i *Indexer) triggerCascade(reason disconnectReason) {
 
 	// Empty-context guard: if there is no viewing history and no last-played
 	// name, the butler has nothing to personalise from.
-	contexts := i.clientContextMgr.AllClientContexts()
-	var clientCtx model.ClientContext
-	if len(contexts) > 0 {
-		clientCtx = contexts[len(contexts)-1]
-	}
+	clientCtx := i.latestClientContext()
 	if len(clientCtx.ViewingHistory) == 0 && clientCtx.LastPlayedName == "" {
 		ancli.Noticef("cascade (%s): empty context, skipping", reason)
 		return
@@ -123,6 +119,20 @@ func (i *Indexer) triggerCascade(reason disconnectReason) {
 	i.butlerMu.Unlock()
 
 	go i.runCascade(reason, clientCtx, gen)
+}
+
+// latestClientContext returns the most recent stored client context, or the
+// zero value when nothing has been stored yet. The context manager may be nil
+// only in tests; production always wires one.
+func (i *Indexer) latestClientContext() model.ClientContext {
+	if i.clientContextMgr == nil {
+		return model.ClientContext{}
+	}
+	contexts := i.clientContextMgr.AllClientContexts()
+	if len(contexts) == 0 {
+		return model.ClientContext{}
+	}
+	return contexts[len(contexts)-1]
 }
 
 func (i *Indexer) handleDisconnect(reason disconnectReason) {
@@ -168,6 +178,17 @@ func (i *Indexer) runCascade(reason disconnectReason, clientCtx model.ClientCont
 			now := i.clock()
 			if i.butlerDebounce > 0 && now.Sub(i.butlerLastCascadeAt) < i.butlerDebounce {
 				i.butlerMu.Unlock()
+				return
+			}
+			// Re-read the client context: a trigger coalesced while the
+			// cascade was in flight may carry a new viewing session, and
+			// the rerun must not serve the previous session's cached
+			// suggestions against it. An empty latest context skips, as a
+			// fresh trigger would.
+			clientCtx := i.latestClientContext()
+			if len(clientCtx.ViewingHistory) == 0 && clientCtx.LastPlayedName == "" {
+				i.butlerMu.Unlock()
+				ancli.Noticef("cascade (%s): rerun skipped, empty context", reason)
 				return
 			}
 			i.butlerLastCascadeAt = now

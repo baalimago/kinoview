@@ -12,6 +12,7 @@ import (
 // A working file holding an unplayable story is rejected outright — the caller
 // answers with the composer floor.
 func TestLoadWorking_InvalidStoryRejected(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, CompanyDir, workingFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -37,6 +38,7 @@ func TestLoadWorking_InvalidStoryRejected(t *testing.T) {
 
 // A missing draft is "no usable draft yet": rejected, same fallback.
 func TestLoadWorking_MissingIsRejected(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	if _, err := co.LoadWorking(); err == nil {
 		t.Fatal("expected a missing draft to be rejected (composer floor)")
@@ -45,6 +47,7 @@ func TestLoadWorking_MissingIsRejected(t *testing.T) {
 
 // The write gate refuses an unplayable story before it reaches disk.
 func TestSaveWorking_RejectsUnplayableStory(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	w := Working{Story: model.Story{ID: "bad", Title: "no cast"}}
@@ -59,6 +62,7 @@ func TestSaveWorking_RejectsUnplayableStory(t *testing.T) {
 // An unknown status defaults rather than rejects: the draft itself may be
 // perfect, only the label is foreign.
 func TestLoadWorking_UnknownStatusDefaultsToDraft(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, CompanyDir, workingFileName)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -89,6 +93,7 @@ func TestLoadWorking_UnknownStatusDefaultsToDraft(t *testing.T) {
 // round-trip through the working file, and a pre-fix file without them still
 // loads (both fields are omitempty).
 func TestLoadWorking_BriefAndDressedRoundTrip(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	w := Working{
@@ -126,6 +131,7 @@ func TestLoadWorking_BriefAndDressedRoundTrip(t *testing.T) {
 }
 
 func TestWorking_Summary(t *testing.T) {
+	t.Parallel()
 	s := validStory()
 	// A set change mid-play reads as a second act.
 	s.Beats = append(s.Beats, model.Beat{T: 2000, Action: "setBackdrop", Piece: "sunset"})
@@ -155,6 +161,7 @@ func TestWorking_Summary(t *testing.T) {
 // supersedes the derived set-change count (D-P1-6), and the canon facts ride
 // into the summary so every agent context sees them.
 func TestWorking_ReportSupersedesDerivedActs(t *testing.T) {
+	t.Parallel()
 	s := validStory()
 	// One set change mid-play: two acts by the derived count.
 	s.Beats = append(s.Beats, model.Beat{T: 2000, Action: "setBackdrop", Piece: "sunset"})

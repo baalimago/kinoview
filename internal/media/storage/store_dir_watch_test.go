@@ -11,6 +11,7 @@ import (
 )
 
 func Test_isExternalClassificationReset(t *testing.T) {
+	t.Parallel()
 	raw := json.RawMessage(`{"name":"Done"}`)
 	tests := []struct {
 		name   string
@@ -85,6 +86,7 @@ func watchReadyStore(t *testing.T, s *store) chan model.Item {
 }
 
 func Test_requeueExternalReset_picksUpReset(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
 	raw := json.RawMessage(`{"name":"Done"}`)
@@ -131,6 +133,7 @@ func Test_requeueExternalReset_picksUpReset(t *testing.T) {
 }
 
 func Test_requeueExternalReset_noopWhenCacheMatchesDisk(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
 	seedItem(t, s, model.Item{ID: "id1", Name: "queued.mkv", Path: "/media/queued.mkv", MIMEType: "video/mp4"})
@@ -147,6 +150,7 @@ func Test_requeueExternalReset_noopWhenCacheMatchesDisk(t *testing.T) {
 }
 
 func Test_requeueExternalReset_stopLossCleared(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
 	seedItem(t, s, model.Item{
@@ -169,6 +173,7 @@ func Test_requeueExternalReset_stopLossCleared(t *testing.T) {
 }
 
 func Test_requeueExternalReset_imageIgnored(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir))
 	seedItem(t, s, model.Item{ID: "img1", Name: "poster.jpg", Path: "/media/poster.jpg", MIMEType: "image/jpeg"})
@@ -184,6 +189,7 @@ func Test_requeueExternalReset_imageIgnored(t *testing.T) {
 // A drop (here: no classification station running) must not consume the
 // item's attempt budget, and the item stays pending for a later retry.
 func Test_tryRequeue_restoresAttemptsWhenDropped(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
 	raw := json.RawMessage(`{"name":"Done"}`)
@@ -212,6 +218,7 @@ func Test_tryRequeue_restoresAttemptsWhenDropped(t *testing.T) {
 
 // The requeue loop retries pending items until the station accepts them.
 func Test_requeueLoop_eventuallyEnqueues(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
 	raw := json.RawMessage(`{"name":"Done"}`)
@@ -256,6 +263,7 @@ func Test_requeueLoop_eventuallyEnqueues(t *testing.T) {
 // End-to-end: the fsnotify watcher on the store directory picks up a reset
 // written by a separate store instance (the CLI) and re-queues the item.
 func Test_watchStoreDir_picksUpExternalReset(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
 	raw := json.RawMessage(`{"name":"Done"}`)
@@ -296,6 +304,7 @@ func Test_watchStoreDir_picksUpExternalReset(t *testing.T) {
 
 // The server's own writes must not be mistaken for external resets.
 func Test_watchStoreDir_ignoresServerWrites(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(0))
 	raw := json.RawMessage(`{"name":"Done"}`)
@@ -330,6 +339,7 @@ func Test_watchStoreDir_ignoresServerWrites(t *testing.T) {
 // A cooldown drop must not silently strand the item: it is marked for the
 // requeue loop to retry once the cooldown expires.
 func Test_AddToClassificationQueue_cooldownDropMarkedForRequeue(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()), WithClassificationStartupCooldown(time.Hour))
 	s.classificationStationStartTime = time.Now()
 	s.started.Store(true)
@@ -347,6 +357,7 @@ func Test_AddToClassificationQueue_cooldownDropMarkedForRequeue(t *testing.T) {
 
 // A rate-limit drop must be marked for the requeue loop as well.
 func Test_AddToClassificationQueue_rateDropMarkedForRequeue(t *testing.T) {
+	t.Parallel()
 	s := NewStore(WithStorePath(t.TempDir()), WithClassificationStartupCooldown(0))
 	s.started.Store(true)
 	// Never earns a token: every attempt is dropped.
@@ -365,6 +376,7 @@ func Test_AddToClassificationQueue_rateDropMarkedForRequeue(t *testing.T) {
 // End-to-end: an item dropped by the startup cooldown is re-presented by the
 // requeue loop once the cooldown expires, and gets enqueued.
 func Test_requeueLoop_recoversCooldownDroppedItem(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationStartupCooldown(50*time.Millisecond))
 	s.classificationStationStartTime = time.Now()

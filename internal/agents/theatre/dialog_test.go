@@ -10,6 +10,7 @@ import (
 // RenderDialog turns a fixture generation's transcript and ledger into a
 // readable script: phase markers, role lines with arrows, final summary.
 func TestRenderDialog_FixtureGeneration(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	scriptedProduction(t, co, "stry_ab12", false)
 
@@ -40,6 +41,7 @@ func TestRenderDialog_FixtureGeneration(t *testing.T) {
 // An unknown generation — nothing in the transcript, no matching ledger — is
 // a clear error, never an empty dialog.
 func TestRenderDialog_UnknownGeneration(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	scriptedProduction(t, co, "stry_ab12", false)
 
@@ -55,6 +57,7 @@ func TestRenderDialog_UnknownGeneration(t *testing.T) {
 // A corrupt transcript renders its readable events and warns, instead of
 // failing wholesale: a partial transcript is more useful than none.
 func TestRenderDialog_CorruptTranscriptWarns(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	path := filepath.Join(dir, CompanyDir, transcriptFileName)
@@ -86,6 +89,7 @@ func TestRenderDialog_CorruptTranscriptWarns(t *testing.T) {
 // A ledger that belongs to another generation is shown as such, so the dialog
 // never silently attributes stale numbers.
 func TestRenderDialog_LedgerForOtherGenerationNoted(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	path := filepath.Join(dir, CompanyDir, transcriptFileName)
@@ -113,6 +117,7 @@ func TestRenderDialog_LedgerForOtherGenerationNoted(t *testing.T) {
 
 // RenderDialog never writes: a read-only cache dir must not break rendering.
 func TestRenderDialog_NeverWrites(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
 	scriptedProduction(t, co, "stry_ab12", false)

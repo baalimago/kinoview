@@ -11,6 +11,7 @@ import (
 // lineup ids are dropped, ids are lowercased and deduped, and lengths are
 // capped — the same strictness as model.Story.Validate.
 func TestArtifacts_BriefLineupFilteredAgainstRegistry(t *testing.T) {
+	t.Parallel()
 	reg := newRegistry()
 	text := `{"mood":"standoff","shape":"standoff","lineup":["ina","dragon","FREIJA","ina"],"noRepeat":["x"],"theme":"Solaris"}`
 	var ba BriefArtifact
@@ -40,6 +41,7 @@ func TestArtifacts_BriefLineupFilteredAgainstRegistry(t *testing.T) {
 // Lengths are capped at the artifact caps; an over-long mood or theme never
 // survives into the board.
 func TestArtifacts_BriefLengthsCapped(t *testing.T) {
+	t.Parallel()
 	var ba BriefArtifact
 	text := `{"mood":"` + strings.Repeat("m", 200) + `","shape":"` + strings.Repeat("s", 200) +
 		`","theme":"` + strings.Repeat("t", 200) + `","noRepeat":["` + strings.Repeat("n", 200) + `"]}`
@@ -60,6 +62,7 @@ func TestArtifacts_BriefLengthsCapped(t *testing.T) {
 // ids are pattern-checked, counters are clamped and canon facts are bounded
 // like the working file's.
 func TestArtifacts_DraftReportNormalized(t *testing.T) {
+	t.Parallel()
 	rep := DraftReport{
 		Title: strings.Repeat("x", 100),
 		Acts: []Act{
@@ -94,6 +97,7 @@ func TestArtifacts_DraftReportNormalized(t *testing.T) {
 
 // An empty report carries nothing worth storing beside the draft.
 func TestArtifacts_EmptyReportDropped(t *testing.T) {
+	t.Parallel()
 	if _, ok := parseDraftReport(`{}`); ok {
 		t.Error("an empty report parsed as a usable artifact")
 	}
@@ -110,6 +114,7 @@ func TestArtifacts_EmptyReportDropped(t *testing.T) {
 // checked against the model vocabulary, columns are clamped into the grid and
 // prop placements are bounded.
 func TestArtifacts_SceneReportNormalized(t *testing.T) {
+	t.Parallel()
 	sr := SceneReport{
 		Backdrop: " Night ",
 		Cells: []CellPlacement{

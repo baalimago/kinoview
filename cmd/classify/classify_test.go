@@ -1164,7 +1164,10 @@ func TestCommand_startClassificationStation_context_timeout(t *testing.T) {
 		store: mock,
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), contextTimeout)
+	// A deadline in the past makes Done ready before the select runs, so the
+	// timeout branch wins deterministically instead of racing the station
+	// startup against timer latency.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-contextTimeout))
 	defer cancel()
 
 	errChan, err := cmd.startClassificationStation(ctx)

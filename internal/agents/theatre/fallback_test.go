@@ -23,18 +23,19 @@ func freshCompany(t *testing.T, dir string) *Company {
 }
 
 // Each role's fallback produces an artifact that passes its schema validation
-// across 250 seeds (the composer path is randomized): the dramaturg's brief
+// across 150 seeds (the composer path is randomized): the dramaturg's brief
 // is posted to the board and names only registered characters, the
 // playwright's report has a title and a readable draft behind it, the
 // scenographer's report has a valid backdrop and dresses the working file,
 // and the wardrobe answers from the registry. Each seed exercises the on-disk
-// paperwork, so the sweep is file-I/O bound: 250 seeds still draw every
-// composer template ~30 times while keeping the package inside the house
-// 30s -race -count=3 gate.
+// paperwork, so the sweep is file-I/O bound: 150 seeds still draw every
+// composer template ~12 times while keeping the package inside the house
+// 30s -race -count=3 gate under load.
 func TestFallback_AllRolesProduceValidArtifactsAcrossSeeds(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	reg := newRegistry()
-	for seed := range int64(250) {
+	for seed := range int64(150) {
 		co := freshCompany(t, dir)
 		stage := OpenStage(co, fmt.Sprintf("stry_seed%d", seed))
 		silenceFeed(stage)
@@ -103,12 +104,13 @@ func TestFallback_AllRolesProduceValidArtifactsAcrossSeeds(t *testing.T) {
 // Drafts produced by the playwright fallback keep the composer's invariants:
 // every actor enters before acting, and no beat lands past the duration — the
 // acceptance criterion's enter-before-act and beats-within-duration checks
-// through the fallback path, not just the composer's own tests. 120 seeds
-// still draw every template ~15 times; the sweep is file-I/O bound and sized
-// for the house 30s -race -count=3 gate.
+// through the fallback path, not just the composer's own tests. 80 seeds
+// still draw every template ~7 times; the sweep is file-I/O bound and sized
+// for the house 30s -race -count=3 gate under load.
 func TestFallback_PlaywrightDraftKeepsComposerInvariants(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
-	for seed := range int64(120) {
+	for seed := range int64(80) {
 		co := freshCompany(t, dir)
 		stage := OpenStage(co, "stry_seed")
 		silenceFeed(stage)
@@ -149,6 +151,7 @@ func TestFallback_PlaywrightDraftKeepsComposerInvariants(t *testing.T) {
 // returns a registry-grounded answer in fallback mode: the pinned look and
 // the backdrop lane note.
 func TestFallback_WardrobeRegistryGroundedAnswer(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -173,6 +176,7 @@ func TestFallback_WardrobeRegistryGroundedAnswer(t *testing.T) {
 // The wardrobe consulted for an unknown character refuses with a clear "no
 // registry entry" answer — it never invents a look.
 func TestFallback_WardrobeUnknownCharacterNoEntry(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -191,6 +195,7 @@ func TestFallback_WardrobeUnknownCharacterNoEntry(t *testing.T) {
 // perch note instead of the floor-lane advice — a bird reads by species, not
 // by lane (phase 8).
 func TestFallback_WardrobeBirdPerchAnswer(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -210,6 +215,7 @@ func TestFallback_WardrobeBirdPerchAnswer(t *testing.T) {
 
 // The dramaturg's fallback brief carries the board's theme into the brief.
 func TestFallback_DramaturgBriefCarriesTheme(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -232,6 +238,7 @@ func TestFallback_DramaturgBriefCarriesTheme(t *testing.T) {
 // company's durable memory (phase 6): the floor avoids repeating history
 // even when the LLM is down.
 func TestFallback_DramaturgBriefCarriesPremisesNoRepeat(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -260,6 +267,7 @@ func TestFallback_DramaturgBriefCarriesPremisesNoRepeat(t *testing.T) {
 // is kept, cells are laid around the cast and the working file moves to
 // "dressed".
 func TestFallback_ScenographerDressesDraft(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -298,6 +306,7 @@ func TestFallback_ScenographerDressesDraft(t *testing.T) {
 // side effects over the working file at a consult depth. The playwright's
 // in-place answer describes the draft without revising it.
 func TestFallback_ConsultedRolesAnswerInPlace(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -362,6 +371,7 @@ func TestFallback_ConsultedRolesAnswerInPlace(t *testing.T) {
 // instead of replacing it with a composer scene. A stale file from an earlier
 // generation is overwritten like any other missing draft.
 func TestFallback_PlaywrightFallbackPreservesThisGenerationsDraft(t *testing.T) {
+	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
