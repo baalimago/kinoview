@@ -112,7 +112,9 @@ func TestArtifacts_EmptyReportDropped(t *testing.T) {
 
 // The scene report is repaired at the wrapper boundary: rows and pieces are
 // checked against the model vocabulary, columns are clamped into the grid and
-// prop placements are bounded.
+// prop placements are bounded. An x written as a 0-100 mark (the playwright
+// and scenographer habit, 2026-08-04) normalises to the player's 0-1 space
+// before the clamp.
 func TestArtifacts_SceneReportNormalized(t *testing.T) {
 	t.Parallel()
 	sr := SceneReport{
@@ -123,7 +125,7 @@ func TestArtifacts_SceneReportNormalized(t *testing.T) {
 			{Row: "near", Col: 2, Piece: "dragon"}, // unknown piece dropped
 			{Row: "mid", Col: 3, Piece: "sofa"},    // valid
 		},
-		Props:  []PropPlacement{{ID: "yarn1", X: 5, Lane: 7}},
+		Props:  []PropPlacement{{ID: "yarn1", X: 50, Lane: 7}},
 		Reason: strings.Repeat("r", 500),
 	}
 	normalizeSceneReport(&sr)
@@ -136,8 +138,8 @@ func TestArtifacts_SceneReportNormalized(t *testing.T) {
 	if sr.Cells[0].Col != model.CellCols-1 {
 		t.Errorf("col = %d, want clamped to %d", sr.Cells[0].Col, model.CellCols-1)
 	}
-	if len(sr.Props) != 1 || sr.Props[0].X != 0.95 || sr.Props[0].Lane != model.MaxLanes-1 {
-		t.Errorf("props = %+v, want clamped x/lane", sr.Props)
+	if len(sr.Props) != 1 || sr.Props[0].X != 0.5 || sr.Props[0].Lane != model.MaxLanes-1 {
+		t.Errorf("props = %+v, want x 50%% normalised to 0.5 and lane clamped", sr.Props)
 	}
 	if len(sr.Reason) != MaxReasonLen {
 		t.Errorf("reason = %d runes, want capped at %d", len(sr.Reason), MaxReasonLen)

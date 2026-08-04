@@ -20,7 +20,7 @@ import (
 
 const dramaturgPrompt = `You are the dramaturg. You decide: the production brief — the mood the story should carry, the shape it should take, the 1-3 member cast lineup, and what to avoid repeating. You ask: nothing — you work from the board and the character registry alone; the playwright and the scenographer build on your brief. You stop: when the brief is delivered with write_brief — deliver it once and stop.`
 
-const playwrightPrompt = `You are the playwright. You decide: the full draft — the title, the beats, the cast usage, the props, and 1-2 canon facts the story leaves behind (short past-tense outcomes, at most 120 characters each, carried in the story's "canon" array). Riff on the canon facts you are told; never contradict the pinned registry (a cat stays a cat, a pinned coat stays pinned). You ask: the wardrobe, via consult, when a look needs checking against the set. You stop: when your final answer is the complete story as a single JSON object — it is checked against the story schema, so follow it exactly and never guess. The field rules: "cast" is an array of {"id","character","coat","lane","scale","x"} with character one of cat, dog, mouse, bird; "props" is an array of {"id","prop","lane","x"} with prop one of yarn, box, ball, bone, cushion, bowl; "beats" is an array of {"t","actor","action","x","target","ms","from","piece"} with actor a cast id and action one of enter, exit, walkTo, vocalize, sit, stretch, blink, pounce, chase, greet, stareoff, nap, bat, yawn, sniff, jump, setCell, setBackdrop; "scene" is {"backdrop": one of night, livingroom, garden, theatre, sunset, kitchen, forest, rain, "cells": []}; "durationMs" is 1200-10000. Write the story once and stop.`
+const playwrightPrompt = `You are the playwright. You decide: the full draft — the title, the beats, the cast usage, the props, and 1-2 canon facts the story leaves behind (short past-tense outcomes, at most 120 characters each, carried in the story's "canon" array). Riff on the canon facts you are told; never contradict the pinned registry (a cat stays a cat, a pinned coat stays pinned). You ask: the wardrobe, via consult, when a look needs checking against the set. You stop: when your final answer is the complete story as a single JSON object — it is checked against the story schema, so follow it exactly and never guess. The field rules: "cast" is an array of {"id","character","coat","lane","scale","x"} with character one of cat, dog, mouse, bird; "props" is an array of {"id","prop","lane","x"} with prop one of yarn, box, ball, bone, cushion, bowl; "beats" is an array of {"t","actor","action","x","target","ms","from","piece"} with actor a cast id and action one of enter, exit, walkTo, vocalize, sit, stretch, blink, pounce, chase, greet, stareoff, nap, bat, yawn, sniff, jump, setCell, setBackdrop; "scene" is {"backdrop": one of night, livingroom, garden, theatre, sunset, kitchen, forest, rain, "cells": []}; "durationMs" is 1200-10000. Positions: "x" is the stage position as a fraction 0.0-1.0 — 0.0 is far left, 1.0 is far right, 0.5 is centre — never a 0-100 mark; "lane" is 0-2, 0 nearest the viewer, 2 farthest; "t" is the beat's start time in ms and "ms" its duration. Spread the cast across the stage; never give two performers the same x and lane. Write the story once and stop.`
 
 const scenographerPrompt = `You are the scenographer. You decide: the set around the draft's staging — the backdrop, the cells and the prop placements; never put a piece through a performer. You ask: the wardrobe, via consult, when a coat's contrast against a backdrop needs checking. You stop: when the scene is delivered with write_scene — deliver it once and stop.`
 
@@ -241,17 +241,22 @@ func (r *Runner) validateBrief(text string) (string, bool) {
 func (r *Runner) writeDraft(story, report string) (string, error) {
 	var s model.Story
 	if err := json.Unmarshal([]byte(story), &s); err != nil {
-		return "", fmt.Errorf("draft is not valid JSON: %v — the story must be a JSON object: cast an array of {\"id\",\"character\",\"coat\",\"lane\",\"scale\",\"x\"}, props an array of {\"id\",\"prop\",\"lane\",\"x\"}, beats an array of {\"t\",\"actor\",\"action\",\"x\",\"target\",\"ms\",\"from\",\"piece\"}", err)
+		return "", fmt.Errorf("draft is not valid JSON: %v — the story must be a JSON object: cast an array of {\"id\",\"character\",\"coat\",\"lane\",\"scale\",\"x\"}, props an array of {\"id\",\"prop\",\"lane\",\"x\"}, beats an array of {\"t\",\"actor\",\"action\",\"x\",\"target\",\"ms\",\"from\",\"piece\"} with \"x\" a stage fraction 0.0-1.0 (0.0 far left, 1.0 far right)", err)
 	}
 	s.ID = r.stage.gen
 	s.Origin = "llm"
 	if err := s.Validate(); err != nil {
-		return "", fmt.Errorf("draft rejected: %v — follow the story schema: cast entries are {\"id\",\"character\",\"coat\",\"lane\",\"scale\",\"x\"} with character one of cat/dog/mouse/bird; beats are {\"t\",\"actor\",\"action\",...} with actor a cast id and action one of enter/exit/walkTo/vocalize/sit/stretch/blink/pounce/chase/greet/stareoff/nap/bat/yawn/sniff/jump", err)
+		return "", fmt.Errorf("draft rejected: %v — follow the story schema: cast entries are {\"id\",\"character\",\"coat\",\"lane\",\"scale\",\"x\"} with character one of cat/dog/mouse/bird; beats are {\"t\",\"actor\",\"action\",...} with actor a cast id and action one of enter/exit/walkTo/vocalize/sit/stretch/blink/pounce/chase/greet/stareoff/nap/bat/yawn/sniff/jump; \"x\" is a stage fraction 0.0-1.0 (0.0 far left, 1.0 far right), never a 0-100 mark", err)
 	}
 	w, err := r.company.LoadWorking()
 	if err != nil {
 		w = Working{}
 	}
+	// A fresh draft replaces the previous generation's report: the report is
+	// the playwright's own account of THIS draft, and an old one would
+	// otherwise leak into the repertoire doc — the 09:53 production distilled
+	// "The Office S06E06" (13 beats) beside a draft titled S06E09 (9 beats).
+	w.Report = nil
 	if rep, ok := parseDraftReport(report); ok {
 		w.Report = &rep
 		for _, f := range rep.Canon {

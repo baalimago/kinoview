@@ -286,7 +286,7 @@ func (s *Story) Validate() error {
 		}
 		seen[c.ID] = true
 		c.Lane = clampInt(c.Lane, 0, MaxLanes-1)
-		c.X = clampFloat(c.X, 0.05, 0.95)
+		c.X = clampFloat(normalizeX(c.X), 0.05, 0.95)
 		if c.Scale <= 0 {
 			c.Scale = 1
 		}
@@ -313,7 +313,7 @@ func (s *Story) Validate() error {
 		}
 		seen[p.ID] = true
 		p.Lane = clampInt(p.Lane, 0, MaxLanes-1)
-		p.X = clampFloat(p.X, 0.05, 0.95)
+		p.X = clampFloat(normalizeX(p.X), 0.05, 0.95)
 		props = append(props, p)
 	}
 	s.Props = props
@@ -368,7 +368,7 @@ func (s *Story) Validate() error {
 		b.Piece = ""
 		b.T = clampInt(b.T, 0, s.DurationMs)
 		b.Ms = clampInt(b.Ms, 0, s.DurationMs)
-		b.X = clampFloat(b.X, 0.0, 1.0)
+		b.X = clampFloat(normalizeX(b.X), 0.0, 1.0)
 		if b.From != "left" && b.From != "right" {
 			b.From = ""
 		}
@@ -423,6 +423,19 @@ func clampInt(v, lo, hi int) int {
 	}
 	if v > hi {
 		return hi
+	}
+	return v
+}
+
+// normalizeX maps a stage position into the player's 0-1 space before
+// clamping. The player renders x as a fraction of the stage width, and the
+// composer emits fractions, but LLM playwrights have consistently written
+// 0-100 marks (35/65/50 …) — the 2026-08-04 regression that pinned every
+// actor to the right edge (x=0.95). A value above 1 is treated as a
+// percentage; a normalized value passes through untouched.
+func normalizeX(v float64) float64 {
+	if v > 1 {
+		return v / 100
 	}
 	return v
 }

@@ -1103,6 +1103,80 @@ func TestRunner_PlaywrightInvalidStoryRevision(t *testing.T) {
 	}
 }
 
+// A playwright draft whose x positions are 0-100 marks (the 2026-08-04
+// regression, stry_zuuxkuks: ina=35, freija=65, mouse1=50, beats 0/100)
+// must land in the working file as the player's 0-1 fractions — the trust
+// boundary normalises percentages before clamping, so the cast spreads
+// across the stage instead of piling on the right edge.
+func TestRunner_PlaywrightPercentagePositionsNormalised(t *testing.T) {
+	t.Parallel()
+	co := Open(t.TempDir())
+	stage := OpenStage(co, "stry_ab12")
+	silenceFeed(stage)
+	runner, _ := stubRunner(t, stage, nil)
+
+	draft := `{"title":"The Chalk Outline","durationMs":8000,"scene":{"backdrop":"kitchen"},"cast":[{"id":"ina","character":"cat","coat":"ginger","lane":1,"scale":1,"x":35},{"id":"freija","character":"dog","coat":"tan","lane":1,"scale":1.1,"x":65},{"id":"mouse1","character":"mouse","coat":"field","lane":2,"scale":0.6,"x":50}],"props":[{"id":"p1","prop":"cushion","lane":2,"x":50}],"beats":[{"t":0,"actor":"ina","action":"sit","x":35,"ms":800},{"t":800,"actor":"freija","action":"sit","x":65,"ms":800},{"t":5100,"actor":"mouse1","action":"enter","x":0,"from":"left","ms":700},{"t":5800,"actor":"mouse1","action":"walkTo","x":50,"target":"p1","ms":900},{"t":7700,"actor":"mouse1","action":"exit","x":100,"from":"right","ms":800}]}`
+	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
+		return llmOutcome{text: draft}, nil
+	}
+	if _, err := runner.Run(context.Background(), Invocation{Role: "playwright", Task: "t", Budget: 8}); err != nil {
+		t.Fatal(err)
+	}
+	w, err := co.LoadWorking()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantX := map[string]float64{"ina": 0.35, "freija": 0.65, "mouse1": 0.5}
+	for _, c := range w.Story.Cast {
+		if want, ok := wantX[c.ID]; ok && c.X != want {
+			t.Errorf("%s x = %v, want %v", c.ID, c.X, want)
+		}
+	}
+	if len(w.Story.Props) != 1 || w.Story.Props[0].X != 0.5 {
+		t.Errorf("prop x = %+v, want 0.5", w.Story.Props)
+	}
+	wantBeatX := []float64{0.35, 0.65, 0, 0.5, 1}
+	for i, want := range wantBeatX {
+		if w.Story.Beats[i].X != want {
+			t.Errorf("beat %d x = %v, want %v", i, w.Story.Beats[i].X, want)
+		}
+	}
+}
+
+// A fresh structured draft clears the previous generation's report: the
+// playwright's story JSON is not a draft report, so without the clear the
+// old report would leak into the repertoire doc (the 09:53 production
+// distilled "The Office S06E06" beside a draft titled S06E09).
+func TestRunner_FreshDraftClearsStaleReport(t *testing.T) {
+	t.Parallel()
+	co := Open(t.TempDir())
+	stage := OpenStage(co, "stry_ab12")
+	silenceFeed(stage)
+	// The previous generation left a report behind.
+	stale := DraftReport{Title: "The Office S06E06", Acts: []Act{{Name: "the whole play", Beats: 13}}, BeatsCount: 13}
+	if err := co.SaveWorking(Working{
+		Story: validStory(), Revision: 1, Status: "draft", Report: &stale,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	runner, _ := stubRunner(t, stage, nil)
+	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
+		return llmOutcome{text: storyJSON(t)}, nil
+	}
+	if _, err := runner.Run(context.Background(), Invocation{Role: "playwright", Task: "t", Budget: 8}); err != nil {
+		t.Fatal(err)
+	}
+
+	w, err := co.LoadWorking()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if w.Report != nil {
+		t.Errorf("report = %+v, want nil (the new draft carries no report)", w.Report)
+	}
+}
+
 // storyWithCanon is storyJSON plus a canon array — the structured story the
 // playwright delivers when it leaves canon facts behind (the soft-continuity
 // seam rides on the story's "canon" field, machine fix 2026-08-03).

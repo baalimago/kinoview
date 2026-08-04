@@ -218,7 +218,7 @@ func normalizeSceneReport(sr *SceneReport) {
 		if !artifactIDRe.MatchString(p.ID) {
 			continue
 		}
-		p.X = clampArtifactFloat(p.X, 0.05, 0.95)
+		p.X = clampArtifactFloat(normArtifactX(p.X), 0.05, 0.95)
 		p.Lane = clampArtifactInt(p.Lane, 0, model.MaxLanes-1)
 		props = append(props, p)
 	}
@@ -289,6 +289,16 @@ func clampArtifactFloat(v, lo, hi float64) float64 {
 	}
 	if v > hi {
 		return hi
+	}
+	return v
+}
+
+// normArtifactX mirrors model.normalizeX for artifact positions: the
+// scenographer, like the playwright, writes 0-100 marks, and the player
+// expects 0-1 fractions — a value above 1 is a percentage.
+func normArtifactX(v float64) float64 {
+	if v > 1 {
+		return v / 100
 	}
 	return v
 }

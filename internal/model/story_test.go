@@ -21,6 +21,43 @@ func validStory() Story {
 	}
 }
 
+// The playwright's draft uses 0-100 marks (the 2026-08-04 regression,
+// stry_zuuxkuks: every cast entry x=35/65/50, every beat x=0/50/100).
+// Validate must normalise those to the player's 0-1 stage positions instead
+// of clamping every mark to the right edge — the "everything is a ball on
+// the right" splash.
+func TestValidate_NormalisesPercentagePositions(t *testing.T) {
+	s := validStory()
+	s.Cast[0].X = 35 // ina: left-of-centre
+	s.Cast[1].X = 65 // freija: right-of-centre
+	s.Props = []Prop{{ID: "p1", Prop: "cushion", Lane: 2, X: 50}}
+	s.Beats = []Beat{
+		{T: 0, Actor: "ina", Action: "enter", X: 0, From: "left", Ms: 800},
+		{T: 900, Actor: "ina", Action: "walkTo", X: 35, Ms: 800},
+		{T: 1800, Actor: "freija", Action: "walkTo", X: 65, Ms: 800},
+		{T: 2700, Actor: "ina", Action: "exit", X: 100, From: "right", Ms: 800},
+	}
+
+	if err := s.Validate(); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if s.Cast[0].X != 0.35 {
+		t.Errorf("ina x = %v, want 0.35", s.Cast[0].X)
+	}
+	if s.Cast[1].X != 0.65 {
+		t.Errorf("freija x = %v, want 0.65", s.Cast[1].X)
+	}
+	if len(s.Props) != 1 || s.Props[0].X != 0.5 {
+		t.Errorf("prop x = %+v, want 0.5", s.Props)
+	}
+	wantBeatX := []float64{0, 0.35, 0.65, 1}
+	for i, want := range wantBeatX {
+		if s.Beats[i].X != want {
+			t.Errorf("beat %d x = %v, want %v", i, s.Beats[i].X, want)
+		}
+	}
+}
+
 func TestValidate_AcceptsGoodStory(t *testing.T) {
 	s := validStory()
 	if err := s.Validate(); err != nil {
@@ -64,7 +101,7 @@ func TestValidate_ClampsNumbers(t *testing.T) {
 	s := validStory()
 	s.DurationMs = 999999
 	s.Cast[0].Lane = 99
-	s.Cast[0].X = 12
+	s.Cast[0].X = 120 // 120% normalises to 1.2, then clamps to the upper bound
 	s.Cast[0].Scale = 50
 	s.Beats[0].T = -500
 	s.Beats = append(s.Beats, Beat{T: 999999, Actor: "ina", Action: "sit", Ms: 999999})
