@@ -13,7 +13,8 @@
   var SESSION_END_URL = '/gallery/intro/session-end';
   var FEEDBACK_URL = '/gallery/intro/feedback';
   var FEEDBACK_NOTE_MAX = 240; // mirrors audienceCommentMax in the theatre docs
-  var FETCH_BUDGET_MS = 320;   // how long we'll wait for a story before improvising
+  var FETCH_BUDGET_MS = 3000;  // how long we'll wait for the story before improvising
+  var LOGO_BACKSTOP_MS = 1500; // how long a still-loading logo may delay the reveal
   var MAX_INTRO_MS = 13000;    // hard cap; a story runs ~9.5s
 
   var pageStart = now();
@@ -28,6 +29,7 @@
   var performanceDone = false;
   var started = false;
   var timers = [];
+  var feedbackPending = false; // the audience control blocks dismissal while unsent
 
   function now() {
     return (window.performance && performance.now) ? performance.now() : +new Date();
@@ -916,12 +918,13 @@
 
   /* ══════════════════════════════════════════════════════════════════════
      AUDIENCE FEEDBACK
-     One quick control at the logo reveal: a single-line note and a thumbs
+     One control at the logo reveal: a single-line note and a thumbs
      up/down pair. A tap posts fire-and-forget; failure is silent — feedback
-     must never break the splash. The control rides with the overlay, so the
-     splash schedule bounds its life: an outside click dismisses it with the
-     overlay and the hard cap removes it with the overlay — there is no
-     control-specific timer.
+     must never break the splash. The control is BLOCKING: while it is live
+     (built, not yet sent), no dismissal path — the schedule, the hard cap,
+     an outside click, a keydown — may remove the overlay, so the audience
+     has all the time they need to write the note. A thumb tap hides the
+     control and hands the splash back to the normal dismissal schedule.
      ══════════════════════════════════════════════════════════════════════ */
   // Unicode escapes keep the source ASCII; the old Blink builds on webOS
   // TVs render the glyphs from the platform emoji font.
@@ -934,6 +937,9 @@
     note.type = 'text';
     note.placeholder = 'a note for the director';
     note.maxLength = String(FEEDBACK_NOTE_MAX);
+    // While the control is live the overlay must not dismiss itself or
+    // react to outside clicks/keys — the audience leaves through a thumb.
+    feedbackPending = true;
     var up = el('button', 'intro-feedback-thumb up');
     up.type = 'button';
     up.title = 'Loved it';
@@ -969,6 +975,9 @@
         }));
       } catch (e) {}   // silent: feedback never breaks the splash
       root.classList.add('sent');
+      // Release the block and hand the splash back to the normal schedule.
+      feedbackPending = false;
+      maybeDismiss();
     }
 
     up.addEventListener('click', function() { send(1); }, false);
@@ -1097,7 +1106,7 @@
 
     var storyEnd = Math.max(lastBeat + 800, story.durationMs || 9500);
     at(storyEnd, function() {
-      if (logo) logo.classList.add('reveal');
+      revealLogo();
       // The audience control rides the reveal — a real story only; the
       // local fallback has no id and never asks for feedback.
       if (story && story.id) buildFeedbackControl(story.id);
@@ -1115,8 +1124,25 @@
     at(120, function() { backdropEl.classList.add('lit'); });
   }
 
+  // The reveal must never paint an empty frame: on a slow TV the logo image
+  // may still be loading when the story ends. Wait for it (or its failure),
+  // with a backstop so a dead image never delays the handover indefinitely.
+  function revealLogo() {
+    if (!logo) return;
+    var shown = false;
+    function show() {
+      if (shown) return;
+      shown = true;
+      logo.classList.add('reveal');
+    }
+    if (logo.complete || logo.naturalWidth > 0) { show(); return; }
+    logo.addEventListener('load', show, false);
+    logo.addEventListener('error', show, false);
+    at(LOGO_BACKSTOP_MS, show);
+  }
+
   function logoOnly() {
-    if (logo) logo.classList.add('reveal');
+    revealLogo();
     var bag = openAudio();
     if (bag) queueVocalizations(bag, [{ t: 120, voice: VOICES.cat }]);
     at(900, function() { performanceDone = true; maybeDismiss(); });
@@ -1138,7 +1164,7 @@
     };
   }
 
-  /* ── Fetch the prepared story, but never wait long for it ──────────── */
+  /* ── Fetch the prepared story; the fallback is a last resort only ──── */
   function begin() {
     var settled = false;
     function go(story) {
@@ -1146,12 +1172,15 @@
       settled = true;
       playStory(story);
     }
-    // Whatever happens, the show starts within the budget.
-    setTimeout(function() { go(localStory()); }, FETCH_BUDGET_MS);
-
+    // The real story is the show. A short budget used to let the local
+    // fallback win the race on a slow TV, so the splash played the
+    // placeholder instead of the prepared production. Wait the fetch out
+    // (the server answers in ~200 ms); improvise only on failure or the
+    // backstop below.
     try {
       var xhr = new XMLHttpRequest();
       xhr.open('GET', STORY_URL, true);
+      xhr.timeout = FETCH_BUDGET_MS;
       xhr.onreadystatechange = function() {
         if (xhr.readyState !== 4 || settled) return;
         if (xhr.status >= 200 && xhr.status < 300) {
@@ -1162,10 +1191,14 @@
         }
         go(localStory());
       };
+      xhr.ontimeout = function() { go(localStory()); };
+      xhr.onerror = function() { go(localStory()); };
       xhr.send();
     } catch (e) {
       go(localStory());
     }
+    // Backstop: some TV builds ignore xhr.timeout; a show must still start.
+    setTimeout(function() { go(localStory()); }, FETCH_BUDGET_MS + 500);
   }
 
   /* ── Session end: ask the server to prepare the next story ─────────── */
@@ -1192,6 +1225,9 @@
   /* ── Dismissal ─────────────────────────────────────────────────────── */
   function dismissIntro() {
     if (dismissed || !overlay) return;
+    // The audience control is blocking: while a note is unsent, neither the
+    // schedule nor an outside click/key may take the overlay away.
+    if (feedbackPending) return;
     dismissed = true;
     for (var i = 0; i < timers.length; i++) clearTimeout(timers[i]);
     timers.length = 0;
@@ -1204,6 +1240,8 @@
   // Hand over only once the story has played AND the app is ready.
   function maybeDismiss() {
     if (dismissed || !performanceDone || loadsDone < 3) return;
+    // Never hand over mid-feedback: the audience decides when the show ends.
+    if (feedbackPending) return;
     var elapsed = now() - pageStart;
     var remaining = Math.max(0, Math.min(MAX_INTRO_MS - elapsed, 350));
     setTimeout(dismissIntro, remaining);
@@ -1216,7 +1254,8 @@
   window.__introMarkFailed = function() { window.__introMarkLoaded(); };
 
   // Anyone who has seen it enough can skip; covers the TV remote, whose
-  // OK/Back arrive as ordinary keydowns.
+  // OK/Back arrive as ordinary keydowns. While the audience control is live
+  // these are blocked — the audience leaves through a thumb, not a key.
   document.addEventListener('keydown', dismissIntro, false);
   document.addEventListener('click', dismissIntro, false);
 

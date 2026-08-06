@@ -30,8 +30,10 @@
 // click/keydown listeners, bubbles synthetic events through the element tree
 // (the control's delegated stopPropagation is what keeps a thumb tap or a
 // focus click from reaching the document's dismiss listener), records the
-// feedback POSTs, and records every timer delay so a test can prove the
-// control never extends the splash schedule.
+// feedback POSTs, and records every timer delay plus the timers themselves,
+// so a test can prove the control's blocking behaviour — no dismissal path
+// removes the overlay while a note is unsent — and that the block adds no
+// timers to the splash schedule.
 
 'use strict';
 
@@ -170,6 +172,29 @@ function makeFailingXHR() {
   };
 }
 
+// The story arrives LATE — after the old 320 ms fallback budget would have
+// fired. The player must wait for it and never play the placeholder instead.
+// The test calls deliver() when the story finally arrives.
+function makeLateXHR(storyJSON, ref) {
+  return function() {
+    var xhr = {
+      readyState: 0,
+      status: 200,
+      responseText: storyJSON,
+      onreadystatechange: null,
+      open: function() {},
+      setRequestHeader: function() {},
+      send: function() {},
+      deliver: function() {
+        xhr.readyState = 4;
+        if (xhr.onreadystatechange) xhr.onreadystatechange();
+      }
+    };
+    ref.xhr = xhr;
+    return xhr;
+  };
+}
+
 // ── Harness: one fresh stage + player per fixture ────────────────────────
 // playStory is a singleton, so every fixture must run against its own
 // document/window stubs. The story lands synchronously through the XHR stub,
@@ -178,7 +203,9 @@ function makeFailingXHR() {
 //
 // opts: lowPerf (body carries the low-perf class), reducedMotion (matchMedia
 // agrees to reduce), failFetch (the story request fails → local fallback),
-// failPosts (the feedback POST throws → must be swallowed silently).
+// failPosts (the feedback POST throws → must be swallowed silently),
+// lateStory (the story arrives after the fallback budget — the player must
+// wait for it), logoPending (the logo image is still loading at the reveal).
 function runStory(storyJSON, opts) {
   opts = opts || {};
   var stageEl = makeEl();
@@ -187,9 +214,21 @@ function runStory(storyJSON, opts) {
   if (opts.lowPerf) bodyEl.classList.add('low-perf');
   bodyEl.appendChild(overlayEl);
 
+  // The logo is a real <img> in the page; the reveal waits for its load.
+  // Loaded by default so the fixtures that do not care about the logo see
+  // the reveal exactly when they always did.
+  var logoEl = makeEl();
+  logoEl.complete = true;
+  logoEl.naturalWidth = 640;
+  if (opts.logoPending) { logoEl.complete = false; logoEl.naturalWidth = 0; }
+  overlayEl.querySelector = function(sel) {
+    return sel === '.intro-logo' ? logoEl : null;
+  };
+
   var docListeners = {};
   var posts = [];
   var timerDelays = [];
+  var timerCalls = [];
   var documentStub = {
     body: bodyEl,
     getElementById: function(id) {
@@ -219,17 +258,24 @@ function runStory(storyJSON, opts) {
     src
   );
 
-  // Record every timer delay so a test can prove the control never extends
-  // the splash schedule: the hard cap must stay the longest timer.
+  // Record every timer delay so a test can prove the splash schedule is
+  // undisturbed: the hard cap must stay the longest timer. The calls are
+  // kept so a test can fire a specific timer (the hard cap, the logo
+  // backstop) on demand instead of waiting out real seconds.
   function wrapSetTimeout(fn, delay) {
     timerDelays.push(delay);
-    return setTimeout(fn, delay);
+    var id = setTimeout(fn, delay);
+    timerCalls.push({ fn: fn, delay: delay, id: id });
+    return id;
   }
   function wrapClearTimeout(id) { return clearTimeout(id); }
 
+  var lateRef = {};
   var xhrFactory = opts.failFetch
     ? makeFailingXHR()
-    : makeXHR(storyJSON, posts, opts.failPosts);
+    : opts.lateStory
+      ? makeLateXHR(storyJSON, lateRef)
+      : makeXHR(storyJSON, posts, opts.failPosts);
 
   run(windowStub, documentStub, { sendBeacon: function() {} }, xhrFactory,
     wrapSetTimeout, wrapClearTimeout, { now: function() { return Date.now(); } },
@@ -239,6 +285,7 @@ function runStory(storyJSON, opts) {
     stageEl: stageEl,
     overlay: overlayEl,
     body: bodyEl,
+    logo: logoEl,
     posts: posts,
     timerDelays: timerDelays,
     // The document's click listener (dismissIntro) is registered separately
@@ -247,6 +294,24 @@ function runStory(storyJSON, opts) {
     docClick: function(ev) {
       var ls = docListeners.click || [];
       for (var i = 0; i < ls.length; i++) ls[i](ev);
+    },
+    // Invoke the most recently registered timer with this delay — the hard
+    // cap, the logo backstop, the story backstop — without waiting it out.
+    fireTimer: function(delay) {
+      for (var i = timerCalls.length - 1; i >= 0; i--) {
+        if (timerCalls[i].delay === delay) { timerCalls[i].fn(); return true; }
+      }
+      return false;
+    },
+    // Hand the late story over, as the network finally would.
+    deliverStory: function() {
+      if (lateRef.xhr) lateRef.xhr.deliver();
+    },
+    // Complete the app's three data loads; __introMarkLoaded is the player's
+    // own hook, so windowStub has it after run().
+    markLoaded: function(n) {
+      var i, total = n || 3;
+      for (i = 0; i < total; i++) windowStub.__introMarkLoaded();
     },
     rec: rec,
     findActor: function(cls) {
@@ -419,9 +484,9 @@ function check(name, fn) {
   }
 }
 
-// Ten fixtures, each finishing on its own timer (the reduced-motion fixture
-// finishes synchronously); the last one reports.
-var pending = 10;
+// Twelve fixtures, each finishing on its own timer (the reduced-motion
+// fixture finishes synchronously); the last one reports.
+var pending = 12;
 function finish() {
   pending--;
   if (pending > 0) return;
@@ -608,9 +673,9 @@ setTimeout(function() {
 // ── Fixture 5 assertions: the feedback control ──────────────────────────
 var upRun = runStory(FEEDBACK);
 
-// The hard cap is scheduled at load, before any story timer; the control's
-// presence must never disturb the splash schedule.
-check('the control never extends the splash schedule', function() {
+// The hard cap is scheduled at load, before any story timer; the blocking
+// control must not add timers to the splash schedule.
+check('the blocking control adds no timers; the hard cap stays the longest', function() {
   var maxDelay = Math.max.apply(null, upRun.timerDelays);
   assert.strictEqual(maxDelay, 13500,
     'the hard cap (MAX_INTRO_MS + 500) must stay the longest timer, got ' +
@@ -691,9 +756,10 @@ setTimeout(function() {
   finish();
 }, 850);
 
-// ── Fixture 6 assertions: the ignored control rides with the overlay ─────
-// No tap, no keystroke: the control must not extend the splash, and the
-// overlay's dismissal must take it away with the overlay.
+// ── Fixture 6 assertions: the ignored control BLOCKS dismissal ─────────
+// No tap, no keystroke: while the control is live the overlay must not
+// dismiss — not by the schedule, not by the hard cap, not by an outside
+// click. The only exit is a thumb; once tapped, the handover completes.
 var ignoredRun = runStory(FEEDBACK);
 
 setTimeout(function() {
@@ -703,23 +769,107 @@ setTimeout(function() {
     assert.ok(control, 'no .intro-feedback inside the overlay');
   });
 
-  // Outside click dismisses exactly as before the control existed.
+  // Outside click is blocked while the control is live.
   ignoredRun.docClick({ target: ignoredRun.stageEl });
-  check('outside click dismisses the overlay with the control inside', function() {
-    assert.ok(ignoredRun.overlay.classList.contains('dismiss'),
-      'the overlay must dismiss on an outside click');
+  check('outside click cannot dismiss while the control is live', function() {
+    assert.ok(!ignoredRun.overlay.classList.contains('dismiss'),
+      'the overlay must stay while a note is unsent');
     assert.strictEqual(ignoredRun.posts.length, 0,
       'ignoring the control must not submit');
+  });
+
+  // The hard cap is blocked too: its dismissal attempt is deferred.
+  ignoredRun.fireTimer(13500);
+  check('the hard cap cannot dismiss while the control is live', function() {
+    assert.ok(!ignoredRun.overlay.classList.contains('dismiss'),
+      'the hard cap must not take the overlay away mid-feedback');
+  });
+
+  // A thumb is the exit: it posts and releases the block.
+  var down = control ? findByClass(control, 'down') : null;
+  fireEvent('click', down, control);
+  check('a thumb releases the block and posts', function() {
+    assert.ok(control.classList.contains('sent'), 'control must hide after submit');
+    assert.strictEqual(ignoredRun.posts.length, 1,
+      'want exactly one POST, got ' + ignoredRun.posts.length);
   });
 }, 850);
 
 setTimeout(function() {
-  check('the dismissed overlay is removed with the control', function() {
-    assert.strictEqual(ignoredRun.body.children.indexOf(ignoredRun.overlay), -1,
-      'the overlay must be removed from the document after dismissal');
+  // performanceDone landed at storyEnd+700 (1500 ms); once the app data is
+  // in and the block is released, the handover completes on schedule.
+  ignoredRun.markLoaded(3);
+}, 1600);
+
+setTimeout(function() {
+  check('the overlay hands over once the block is released', function() {
+    assert.ok(ignoredRun.overlay.classList.contains('dismiss'),
+      'the overlay must dismiss after the audience has spoken');
   });
   finish();
-}, 1450);
+}, 2150);
+
+// ── Fixture 10: the story arrives late — the fallback must not win ──────
+// A slow TV can take longer than the old 320 ms budget to fetch the story.
+// The player must wait for the real production, never play the placeholder
+// in its stead. deliverStory() lands the response after the old budget.
+var lateRun = runStory(FEEDBACK, { lateStory: true });
+
+check('the player does not start a placeholder while the story loads', function() {
+  assert.strictEqual(lateRun.stageEl.children.length, 0,
+    'the stage must stay empty until the real story arrives');
+});
+
+setTimeout(function() {
+  check('the fallback never wins the fetch race', function() {
+    assert.strictEqual(lateRun.stageEl.children.length, 0,
+      'past the old 320 ms budget, the local fallback must not have played');
+  });
+
+  lateRun.deliverStory();
+
+  check('the real story plays once it arrives', function() {
+    assert.ok(lateRun.findActor('actor--bird'),
+      'the prepared story must play, not the placeholder cat');
+  });
+
+  finish();
+}, 500);
+
+// ── Fixture 11: a still-loading logo delays the reveal ──────────────────
+// The reveal must never paint an empty frame: when the image is still on
+// the wire at storyEnd, the reveal waits for the load event, so a slow TV
+// gets the full logo.
+var logoRun = runStory(FEEDBACK, { logoPending: true });
+
+setTimeout(function() {
+  check('a still-loading logo delays the reveal', function() {
+    assert.ok(!logoRun.logo.classList.contains('reveal'),
+      'the logo must not reveal while the image is still loading');
+  });
+
+  fireEvent('load', logoRun.logo, logoRun.logo);
+
+  check('the logo reveals once the image loads', function() {
+    assert.ok(logoRun.logo.classList.contains('reveal'),
+      'the load event must trigger the reveal');
+  });
+
+  finish();
+}, 850);
+
+// ── Fixture 12: the logo backstop — a dead image never blocks forever ──
+// The backstop is LOGO_BACKSTOP_MS after the reveal moment (storyEnd 800 +
+// 1500 = 2300), not after page start.
+var logoDeadRun = runStory(FEEDBACK, { logoPending: true });
+
+setTimeout(function() {
+  check('the logo backstop reveals even if the image never loads', function() {
+    assert.ok(logoDeadRun.logo.classList.contains('reveal'),
+      'the backstop must reveal the logo after LOGO_BACKSTOP_MS');
+  });
+  finish();
+}, 2400);
 
 // ── Fixture 7 assertions: the local fallback story ───────────────────────
 // The server is down (500), so the player falls back to the local cat,
