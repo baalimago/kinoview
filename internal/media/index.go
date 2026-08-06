@@ -627,6 +627,7 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/shows", i.showsHandler())
 	mux.HandleFunc("/intro/story", i.introStoryHandler())
 	mux.HandleFunc("/intro/session-end", i.introSessionEndHandler())
+	mux.HandleFunc("/intro/feedback", i.introFeedbackHandler())
 	mux.HandleFunc("/log", loghandler.Func())
 	mux.HandleFunc("/ws", i.eventStream())
 	return mux

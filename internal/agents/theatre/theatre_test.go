@@ -1208,3 +1208,112 @@ func TestTheatre_SubmitCanonizesApprovedCharacter(t *testing.T) {
 		t.Errorf("submit = %q, want the refusal", submitOut)
 	}
 }
+
+// Feedback (the agents.Feedbacker contract) appends through the facade's
+// persistent company: notes land in audience.json newest first, and a fresh
+// theatre over the same cache dir reads them back.
+func TestTheatre_FeedbackAppendsToAudienceDoc(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	th := New(models.Configurations{}, dir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
+	ctx := context.Background()
+
+	if err := th.Feedback(ctx, "stry_first", 1, "more dog"); err != nil {
+		t.Fatal(err)
+	}
+	if err := th.Feedback(ctx, "stry_second", -1, "too slow"); err != nil {
+		t.Fatal(err)
+	}
+
+	doc := Open(dir).LoadAudience()
+	if len(doc) != 2 {
+		t.Fatalf("audience = %d notes, want 2", len(doc))
+	}
+	if doc[0].StoryID != "stry_second" || doc[0].Rating != -1 || doc[0].Comment != "too slow" {
+		t.Errorf("newest note = %+v, want the second note first", doc[0])
+	}
+	first := doc[1]
+	if first.StoryID != "stry_first" || first.Rating != 1 || first.Comment != "more dog" {
+		t.Errorf("older note = %+v, want the first note", first)
+	}
+	if got, want := first.Date, dateStamp(time.Now()); got != want {
+		t.Errorf("note date = %q, want today's %q", got, want)
+	}
+}
+
+// The facade is the trust boundary, like submit_story: a rating outside
+// {+1, -1} is rejected with an error and nothing is written.
+func TestTheatre_FeedbackRejectsBadRating(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	th := New(models.Configurations{}, dir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
+	ctx := context.Background()
+
+	for _, rating := range []int{0, 5, -2} {
+		if err := th.Feedback(ctx, "stry_ok01", rating, "nope"); err == nil {
+			t.Errorf("rating %d: Feedback accepted it", rating)
+		}
+	}
+	if doc := Open(dir).LoadAudience(); len(doc) != 0 {
+		t.Errorf("rejected ratings still wrote %d notes", len(doc))
+	}
+}
+
+// A story id that could never have come from a validated story is rejected
+// before the note is written.
+func TestTheatre_FeedbackRejectsBadStoryID(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	th := New(models.Configurations{}, dir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
+	ctx := context.Background()
+
+	for _, id := range []string{"", "../etc", "stry_ABC", "stry_" + strings.Repeat("x", 25)} {
+		if err := th.Feedback(ctx, id, 1, ""); err == nil {
+			t.Errorf("story id %q: Feedback accepted it", id)
+		}
+	}
+	if doc := Open(dir).LoadAudience(); len(doc) != 0 {
+		t.Errorf("bad story ids still wrote %d notes", len(doc))
+	}
+}
+
+// A long comment is clipped to the cap, never rejected (decision D-3).
+func TestTheatre_FeedbackTruncatesLongComment(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	th := New(models.Configurations{}, dir, time.Hour)
+	t.Cleanup(th.writeWG.Wait)
+	ctx := context.Background()
+
+	long := strings.Repeat("è", 1000)
+	if err := th.Feedback(ctx, "stry_ok01", 1, long); err != nil {
+		t.Fatal(err)
+	}
+	doc := Open(dir).LoadAudience()
+	if len(doc) != 1 {
+		t.Fatalf("audience = %d notes, want 1", len(doc))
+	}
+	if got, want := doc[0].Comment, string([]rune(long)[:audienceCommentMax]); got != want {
+		t.Errorf("comment = %d runes, want the first %d", len([]rune(got)), audienceCommentMax)
+	}
+}
+
+// A note the disk cannot hold returns the error instead of being swallowed.
+func TestTheatre_FeedbackWriteFailureReturnsError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// The cache dir itself is a file, so every mkdir/write fails — the same
+	// shape as the SaveStory write-failure test.
+	cacheDir := filepath.Join(dir, "cache")
+	if err := os.WriteFile(cacheDir, []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	th := New(models.Configurations{}, cacheDir, time.Hour)
+
+	if err := th.Feedback(context.Background(), "stry_ok01", 1, ""); err == nil {
+		t.Fatal("Feedback accepted a note it could not persist")
+	}
+}

@@ -134,3 +134,13 @@ type Teller interface {
 	// arrives.
 	Warm(ctx context.Context)
 }
+
+// Feedbacker records what the audience thought of a show, so the next
+// production can improve. The theatre implements it; the indexer type-asserts
+// it in the feedback handler.
+type Feedbacker interface {
+	// Feedback stores one audience note about a story. rating is +1 (thumbs
+	// up) or -1 (thumbs down); comment is optional and capped by the
+	// implementation.
+	Feedback(ctx context.Context, storyID string, rating int, comment string) error
+}

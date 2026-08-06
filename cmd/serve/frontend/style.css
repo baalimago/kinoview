@@ -988,6 +988,73 @@ body {
   60% { transform: scale(0.992); }
 }
 
+/* ── Intro feedback control ─────────────────────────────────────────────
+   One note + a thumbs pair, built at the logo reveal (intro.js). It rides
+   with the overlay: dismissal removes it, and the splash schedule bounds
+   its life — no control-specific timer. Only opacity/transform animate,
+   like the logo. The control is clickable by default (no pointer-events
+   rule); its delegated stopPropagation keeps its clicks away from the
+   document's dismiss listener. */
+.intro-feedback {
+  position: absolute; left: 0; right: 0;
+  bottom: 18%;
+  z-index: 50;
+  display: -webkit-flex; display: flex;
+  -webkit-align-items: center; align-items: center;
+  -webkit-justify-content: center; justify-content: center;
+  opacity: 0;
+  -webkit-transform: translate3d(0, 10px, 0); transform: translate3d(0, 10px, 0);
+  -webkit-transition: opacity 0.45s ease-out, -webkit-transform 0.45s ease-out;
+  transition: opacity 0.45s ease-out, transform 0.45s ease-out;
+}
+.intro-feedback.show {
+  opacity: 1;
+  -webkit-transform: translate3d(0, 0, 0); transform: translate3d(0, 0, 0);
+}
+/* .sent comes after .show so the hide wins on opacity. */
+.intro-feedback.sent {
+  opacity: 0;
+  pointer-events: none;
+}
+.low-perf .intro-feedback { transition: opacity 0.5s ease-out; }
+.intro-feedback-note {
+  width: 260px; max-width: 34vw;
+  margin-right: 0.6rem;
+  padding: 0.5em 0.9em;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.78);
+  color: #fff;
+  font-family: var(--font-family);
+  font-size: 0.95rem;
+  outline: none;
+}
+.intro-feedback-note::-webkit-input-placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+.intro-feedback-thumb {
+  width: 2.6rem; height: 2.6rem;
+  margin-right: 0.5rem;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(15, 23, 42, 0.78);
+  color: #fff;
+  font-size: 1.2rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.intro-feedback-thumb:last-child { margin-right: 0; }
+/* The TV remote navigates by focus; keep the ring visible. */
+.intro-feedback-note:focus,
+.intro-feedback-thumb:focus {
+  border-color: #fff;
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.4);
+}
+@media (max-width: 640px) {
+  .intro-feedback-note { width: 170px; max-width: 46vw; }
+}
+
 /* ══════════════════════════════════════════════════════════════════════
    Intro stage — the walk-on cast
    Built from divs + border-radius on purpose: CSS transforms applied to

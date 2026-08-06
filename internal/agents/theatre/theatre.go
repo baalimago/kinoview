@@ -48,6 +48,13 @@ type Theatre struct {
 	configDir string
 	cacheDir  string
 
+	// company is the theatre's persistent paperwork (the board, the working
+	// file, the ledger, the transcript and the seven company docs). The facade
+	// owns it — New opens it once and every subsystem reads and writes through
+	// it (R2-01): a fresh Company per call would not serialize its
+	// load-modify-save paths across calls.
+	company *Company
+
 	directorMax int
 	globalMax   int
 	wallClock   time.Duration
@@ -150,6 +157,7 @@ func New(c models.Configurations, cacheDir string, cooldown time.Duration, opts 
 	for _, o := range opts {
 		o(t)
 	}
+	t.company = Open(cacheDir)
 	t.loadFromDisk()
 	t.loadLibrary()
 	return t
@@ -161,7 +169,7 @@ func New(c models.Configurations, cacheDir string, cooldown time.Duration, opts 
 // and degrades to the empty one — the server starts (the acceptance
 // criterion).
 func (t *Theatre) loadLibrary() {
-	lib := Open(t.cacheDir).LoadLibrary()
+	lib := t.company.LoadLibrary()
 	t.registry.LoadDoc(lib.Registry)
 }
 
@@ -406,3 +414,32 @@ func newID(r *rand.Rand) string {
 // Compile-time proof that the theatre satisfies the house Teller contract
 // (internal/agents/interfaces.go) — the index wires it as agents.Teller.
 var _ agents.Teller = (*Theatre)(nil)
+
+// Compile-time proof that the theatre satisfies the house Feedbacker
+// contract (internal/agents/interfaces.go) — the index type-asserts it in
+// the intro feedback handler.
+var _ agents.Feedbacker = (*Theatre)(nil)
+
+// Feedback records one audience note about a story (the agents.Feedbacker
+// contract). The note is appended through the facade's persistent company —
+// the audience doc's single write path (decision D-5) — so the
+// load-modify-save holds the company's mutex and two concurrent posts lose
+// no note (R2-01). The facade is the trust boundary, like submit_story: it
+// re-checks the rating and the story id even though the handler already
+// validated them. The comment is truncated to its cap by the doc trim, never
+// rejected (decision D-3).
+func (t *Theatre) Feedback(_ context.Context, storyID string, rating int, comment string) error {
+	if rating != 1 && rating != -1 {
+		return fmt.Errorf("theatre: feedback rating %d out of {+1, -1}", rating)
+	}
+	storyID = strings.TrimSpace(storyID)
+	if !artifactIDRe.MatchString(storyID) {
+		return fmt.Errorf("theatre: feedback story id %q does not match %v", storyID, artifactIDRe)
+	}
+	return t.company.AppendAudience(AudienceNote{
+		StoryID: storyID,
+		Rating:  rating,
+		Comment: comment,
+		Date:    dateStamp(time.Now()),
+	})
+}

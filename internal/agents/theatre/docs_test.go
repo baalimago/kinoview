@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 )
 
 // Every company document round-trips through its file: write → load → same
-// semantics, and the library loads all six as one unit.
+// semantics, and the library loads all seven as one unit.
 func TestDocs_RoundTrip(t *testing.T) {
 	co := Open(t.TempDir())
 	want := Library{
@@ -28,6 +29,7 @@ func TestDocs_RoundTrip(t *testing.T) {
 		Registry: RegistryDoc{{ID: "mouse2", Species: "mouse", Coat: "white", Variants: []string{"field", "white"}}},
 		Director: DirectorDoc{{Text: "two stares in a row is dead air"}},
 		Bulletin: BulletinDoc{{Author: "director", Kind: "decision", Body: "the mouse gets away"}},
+		Audience: AudienceDoc{{StoryID: "stry_ab12", Rating: 1, Comment: "more dog", Date: "2026-08-05"}},
 	}
 	if err := co.SaveLibrary(want); err != nil {
 		t.Fatal(err)
@@ -55,10 +57,32 @@ func TestDocs_RoundTrip(t *testing.T) {
 		t.Errorf("bulletin = %+v", got.Bulletin)
 	}
 
+	// The audience doc round-trips through its own accessors: SaveLibrary
+	// never persists it (decision D-5), so the write path is SaveAudience,
+	// not the library save.
+	if err := co.SaveAudience(want.Audience); err != nil {
+		t.Fatal(err)
+	}
+	aud := co.LoadAudience()
+	if len(aud) != 1 || aud[0].StoryID != "stry_ab12" || aud[0].Rating != 1 || aud[0].Comment != "more dog" || aud[0].Date != "2026-08-05" {
+		t.Errorf("audience = %+v", aud)
+	}
+
+	// SaveLibrary leaves audience.json untouched: a submit's distillation can
+	// never clobber a fresh note with a stale in-memory copy (decision D-5).
+	stale := want
+	stale.Audience = nil
+	if err := co.SaveLibrary(stale); err != nil {
+		t.Fatal(err)
+	}
+	if got := co.LoadAudience(); len(got) != 1 || got[0].Comment != "more dog" {
+		t.Errorf("audience after SaveLibrary = %+v, want the note untouched", got)
+	}
+
 	// Every file landed in the company dir.
 	for _, name := range []string{
 		premisesFileName, repertoireFileName, setsFileName, registryFileName,
-		directorFileName, bulletinFileName,
+		directorFileName, bulletinFileName, audienceFileName,
 	} {
 		if _, err := os.Stat(filepath.Join(co.dir, name)); err != nil {
 			t.Errorf("missing doc file %s: %v", name, err)
@@ -97,6 +121,17 @@ func TestDocs_CorruptFileDegradesToEmpty(t *testing.T) {
 				// said.
 				if look, ok := th.registry.Lookup("ina"); !ok || look.Coat != "ginger" {
 					t.Errorf("ina = %+v, want the canonical default after a corrupt registry file", look)
+				}
+			},
+		},
+		{
+			name: "audience", file: audienceFileName, wantLog: "audience unreadable",
+			check: func(t *testing.T, th *Theatre, lib Library) {
+				if len(lib.Audience) != 0 {
+					t.Errorf("audience = %+v, want the empty doc", lib.Audience)
+				}
+				if len(lib.Premises) != 1 {
+					t.Errorf("premises = %+v, want the healthy doc untouched", lib.Premises)
 				}
 			},
 		},
@@ -178,6 +213,20 @@ func TestDocs_TrimmedToCapOldestFirst(t *testing.T) {
 	if got := co.LoadBulletin(); len(got) != bulletinCap {
 		t.Errorf("bulletin = %d, want %d", len(got), bulletinCap)
 	}
+
+	// The audience cap holds too: trimmed to the cap, newest entries kept (the
+	// fixture is newest-first, the order AppendAudience maintains).
+	notes := make(AudienceDoc, 0, audienceCap+5)
+	for i := audienceCap + 4; i >= 0; i-- {
+		notes = append(notes, AudienceNote{StoryID: fmt.Sprintf("stry_ab%02d", i), Rating: 1, Date: "2026-08-05"})
+	}
+	if err := co.SaveAudience(notes); err != nil {
+		t.Fatal(err)
+	}
+	if got := co.LoadAudience(); len(got) != audienceCap || got[0].StoryID != "stry_ab44" {
+		t.Errorf("audience = %d entries, first %q, want %d starting at stry_ab44",
+			len(got), got[0].StoryID, audienceCap)
+	}
 }
 
 // The trim gates repair hostile content: unknown vocabularies are dropped,
@@ -222,6 +271,23 @@ func TestDocs_TrimGatesRepairHostileContent(t *testing.T) {
 	if len(got.Bulletin) != 0 {
 		t.Errorf("bulletin = %+v, want empty (all entries hostile)", got.Bulletin)
 	}
+
+	// The audience gate: bad story ids and ratings drop, comments truncate
+	// (never reject), duplicates collapse.
+	aud := AudienceDoc{
+		{StoryID: "../x", Rating: 1, Comment: "bad id"},
+		{StoryID: "stry_ab12", Rating: 0, Comment: "bad rating"},
+		{StoryID: "stry_ab12", Rating: 1, Comment: strings.Repeat("c", 300)},
+		{StoryID: "stry_ab12", Rating: 1, Comment: strings.Repeat("c", 300)}, // duplicate
+		{StoryID: "stry_ab12", Rating: -1, Comment: "the mouse wins"},
+	}
+	if err := co.SaveAudience(aud); err != nil {
+		t.Fatal(err)
+	}
+	gotAud := co.LoadAudience()
+	if len(gotAud) != 2 || gotAud[0].Rating != 1 || gotAud[0].Comment != strings.Repeat("c", audienceCommentMax) || gotAud[1].Rating != -1 {
+		t.Errorf("audience = %+v, want the truncated +1 note and the -1 note", gotAud)
+	}
 }
 
 // The doc context excerpts reach their roles: each role reads its own doc,
@@ -234,8 +300,14 @@ func TestDocs_ContextExcerptsPerRole(t *testing.T) {
 		Sets:       SetsDoc{{Backdrop: "garden", Count: 3}},
 		Director:   DirectorDoc{{Text: "two stares in a row is dead air"}},
 		Bulletin:   BulletinDoc{{Author: "director", Kind: "decision", Body: "the mouse gets away"}},
+		Audience:   AudienceDoc{{StoryID: "stry_ab12", Rating: 1, Comment: "more dog", Date: "2026-08-05"}},
 	}
 	if err := co.SaveLibrary(lib); err != nil {
+		t.Fatal(err)
+	}
+	// SaveLibrary never writes audience.json (decision D-5); the excerpt test
+	// needs the note on disk, so it goes through the doc's own write path.
+	if err := co.SaveAudience(lib.Audience); err != nil {
 		t.Fatal(err)
 	}
 	stage := OpenStage(co, "stry_ab12")
@@ -247,10 +319,11 @@ func TestDocs_ContextExcerptsPerRole(t *testing.T) {
 		have    []string
 		notHave []string
 	}{
-		{"dramaturg", []string{"Premises already used", "Solaris 1972"}, []string{"the mouse got away", "two stares in a row"}},
-		{"playwright", []string{"Canon facts from earlier productions", "the mouse got away", "Earlier productions", "The Test Night"}, []string{"Premises already used", "two stares in a row"}},
-		{"scenographer", []string{"Set recipes already used", "garden (0 cells"}, []string{"the mouse got away", "two stares in a row"}},
-		{"director", []string{"Directing lessons from earlier productions", "two stares in a row is dead air"}, []string{"the mouse got away", "Premises already used"}},
+		{"dramaturg", []string{"Premises already used", "Solaris 1972", "Audience feedback from recent shows", "more dog", "[+1]"}, []string{"the mouse got away", "two stares in a row"}},
+		{"playwright", []string{"Canon facts from earlier productions", "the mouse got away", "Earlier productions", "The Test Night"}, []string{"Premises already used", "two stares in a row", "Audience feedback"}},
+		{"scenographer", []string{"Set recipes already used", "garden (0 cells"}, []string{"the mouse got away", "two stares in a row", "Audience feedback"}},
+		{"director", []string{"Directing lessons from earlier productions", "two stares in a row is dead air", "Audience feedback from recent shows", "more dog"}, []string{"the mouse got away", "Premises already used"}},
+		{"wardrobe", nil, []string{"Audience feedback", "Premises already used", "the mouse got away"}},
 	}
 	for _, tt := range cases {
 		ctx := runner.withDocsContext("base", tt.role)
@@ -268,5 +341,62 @@ func TestDocs_ContextExcerptsPerRole(t *testing.T) {
 		if !strings.Contains(ctx, "the mouse gets away") {
 			t.Errorf("%s context lacks the bulletin", tt.role)
 		}
+	}
+}
+
+// AppendAudience is the doc's single write path (decision D-5): notes are
+// prepended newest-first, the cap holds, and two concurrent appends lose no
+// note — the load-modify-save holds the company's mutex (R2-01).
+func TestDocs_AppendAudience(t *testing.T) {
+	co := Open(t.TempDir())
+
+	// Seed past the cap, newest first — the order AppendAudience maintains.
+	seed := make(AudienceDoc, 0, audienceCap+5)
+	for i := audienceCap + 4; i >= 0; i-- {
+		seed = append(seed, AudienceNote{StoryID: fmt.Sprintf("stry_ab%02d", i), Rating: 1, Date: "2026-08-05"})
+	}
+	if err := co.SaveAudience(seed); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := co.AppendAudience(AudienceNote{StoryID: "stry_new", Rating: -1, Comment: "too slow"}); err != nil {
+		t.Fatal(err)
+	}
+	got := co.LoadAudience()
+	if len(got) != audienceCap {
+		t.Fatalf("audience = %d, want the cap %d", len(got), audienceCap)
+	}
+	if got[0].StoryID != "stry_new" || got[0].Rating != -1 || got[0].Comment != "too slow" {
+		t.Errorf("newest note = %+v, want the appended note first", got[0])
+	}
+	for _, n := range got {
+		if n.StoryID == "stry_ab00" {
+			t.Errorf("oldest seeded note survived the cap")
+		}
+	}
+
+	// Two concurrent appends lose no note.
+	var wg sync.WaitGroup
+	for _, id := range []string{"stry_conc1", "stry_conc2"} {
+		wg.Add(1)
+		go func(id string) {
+			defer wg.Done()
+			if err := co.AppendAudience(AudienceNote{StoryID: id, Rating: 1}); err != nil {
+				t.Errorf("append %s: %v", id, err)
+			}
+		}(id)
+	}
+	wg.Wait()
+
+	got = co.LoadAudience()
+	seen := map[string]bool{}
+	for _, n := range got {
+		seen[n.StoryID] = true
+	}
+	if !seen["stry_conc1"] || !seen["stry_conc2"] {
+		t.Errorf("concurrent append lost a note: %v", seen)
+	}
+	if len(got) != audienceCap {
+		t.Errorf("audience = %d, want the cap %d", len(got), audienceCap)
 	}
 }

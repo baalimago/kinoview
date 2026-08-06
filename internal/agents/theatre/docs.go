@@ -12,13 +12,14 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-// The company's durable memory (phase 6): six documents under
+// The company's durable memory (phase 6): seven documents under
 // intro/company/, each atomic-written, validated on load and trimmed to its
 // cap. They grow across generations — distillation at submit appends the
 // current generation's work — and they are injected back into the relevant
 // role's context, so the company develops itself. The deterministic floor
 // stands under them: a corrupt document degrades to the empty one, never a
-// crash.
+// crash. The audience doc is the exception to the distillation rule: only
+// the audience writes it (decision D-5).
 
 // Premise records one production brief's theme and shape, dated.
 type Premise struct {
@@ -101,8 +102,21 @@ type Notice struct {
 // contribute to — through the board; the LLM never writes the docs directly.
 type BulletinDoc []Notice
 
-// Library is the company's six durable documents as one loadable, savable
-// unit.
+// AudienceNote is one piece of audience feedback on a story.
+type AudienceNote struct {
+	StoryID string `json:"storyId"`
+	Rating  int    `json:"rating"` // +1 thumbs up, -1 thumbs down
+	Comment string `json:"comment,omitempty"`
+	Date    string `json:"date,omitempty"`
+}
+
+// AudienceDoc is the audience's memory: what viewers thought of recent
+// productions, so the next generation can improve. Newest note first.
+type AudienceDoc []AudienceNote
+
+// Library is the company's seven durable documents as one loadable, savable
+// unit. The audience doc is read here like the rest; only SaveLibrary never
+// writes it (decision D-5).
 type Library struct {
 	Premises   PremisesDoc
 	Repertoire RepertoireDoc
@@ -110,6 +124,7 @@ type Library struct {
 	Registry   RegistryDoc
 	Director   DirectorDoc
 	Bulletin   BulletinDoc
+	Audience   AudienceDoc
 }
 
 // The trim functions repair a document and trim it to its cap, oldest first.
@@ -275,6 +290,34 @@ func trimNotices(d BulletinDoc) BulletinDoc {
 	return out
 }
 
+// trimAudience repairs the audience doc: a note needs a valid story id and a
+// +1/-1 rating; the comment is truncated to its cap (never rejected — a long
+// comment is clipped, not lost), the date is trimmed to YYYY-MM-DD, and
+// duplicates (same story, rating and comment) collapse. The doc is kept
+// newest first, so the cap drops the oldest notes (decision D-3).
+func trimAudience(d AudienceDoc) AudienceDoc {
+	out := make(AudienceDoc, 0, audienceCap)
+	seen := map[string]bool{}
+	for _, n := range d {
+		n.StoryID = strings.TrimSpace(n.StoryID)
+		n.Comment = truncateRunes(strings.TrimSpace(n.Comment), audienceCommentMax)
+		n.Date = trimDate(n.Date)
+		if !artifactIDRe.MatchString(n.StoryID) || (n.Rating != 1 && n.Rating != -1) {
+			continue
+		}
+		key := fmt.Sprintf("%s\x00%d\x00%s", n.StoryID, n.Rating, n.Comment)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		if len(out) >= audienceCap {
+			break
+		}
+		out = append(out, n)
+	}
+	return out
+}
+
 // normalizeCells and normalizeProps bound a recipe's layout — the same gates
 // the scene report's own normalization applies.
 func normalizeCells(cells []CellPlacement) []CellPlacement {
@@ -337,6 +380,12 @@ func dateStamp(now time.Time) string { return now.Format("2006-01-02") }
 func loadDoc[T any](c *Company, path, name string, repair func(T) T) T {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return loadDocLocked(c, path, name, repair)
+}
+
+// loadDocLocked is loadDoc with the company mutex already held — the
+// compound append path runs its read-modify-write under one lock.
+func loadDocLocked[T any](c *Company, path, name string, repair func(T) T) T {
 	var d T
 	if err := readJSON(path, &d); err != nil {
 		logLoadFailure(name, err)
@@ -351,6 +400,11 @@ func loadDoc[T any](c *Company, path, name string, repair func(T) T) T {
 func saveDoc[T any](c *Company, path, name string, d T, repair func(T) T) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return saveDocLocked(c, path, name, d, repair)
+}
+
+// saveDocLocked is saveDoc with the company mutex already held.
+func saveDocLocked[T any](c *Company, path, name string, d T, repair func(T) T) error {
 	d = repair(d)
 	data, err := json.MarshalIndent(d, "", "  ")
 	if err != nil {
@@ -367,8 +421,9 @@ func (c *Company) registryDocPath() string {
 }
 func (c *Company) directorPath() string { return filepath.Join(c.dir, directorFileName) }
 func (c *Company) bulletinPath() string { return filepath.Join(c.dir, bulletinFileName) }
+func (c *Company) audiencePath() string { return filepath.Join(c.dir, audienceFileName) }
 
-// The six document accessors. Each loads independently: a corrupt document
+// The seven document accessors. Each loads independently: a corrupt document
 // degrades to the empty one with an error log, and the rest stand.
 
 func (c *Company) LoadPremises() PremisesDoc {
@@ -419,9 +474,31 @@ func (c *Company) SaveBulletin(d BulletinDoc) error {
 	return saveDoc(c, c.bulletinPath(), "bulletin", d, trimNotices)
 }
 
-// LoadLibrary reads the six durable documents as one unit. Each document
+func (c *Company) LoadAudience() AudienceDoc {
+	return loadDoc(c, c.audiencePath(), "audience", trimAudience)
+}
+
+func (c *Company) SaveAudience(d AudienceDoc) error {
+	return saveDoc(c, c.audiencePath(), "audience", d, trimAudience)
+}
+
+// AppendAudience records one audience note — the doc's single write path
+// (decision D-5): the load, prepend, trim and save run under the company's
+// single mutex, so two concurrent appends lose no note. Distillation never
+// writes audience.json, so a submit can never overwrite a fresh note with a
+// stale in-memory copy.
+func (c *Company) AppendAudience(note AudienceNote) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	doc := loadDocLocked(c, c.audiencePath(), "audience", trimAudience)
+	doc = append(AudienceDoc{note}, doc...)
+	return saveDocLocked(c, c.audiencePath(), "audience", doc, trimAudience)
+}
+
+// LoadLibrary reads the seven durable documents as one unit. Each document
 // loads independently — a corrupt one degrades to the empty document with an
-// error log, and the rest stand.
+// error log, and the rest stand. The audience doc is read like the rest;
+// only SaveLibrary never writes it (decision D-5).
 func (c *Company) LoadLibrary() Library {
 	return Library{
 		Premises:   c.LoadPremises(),
@@ -430,13 +507,17 @@ func (c *Company) LoadLibrary() Library {
 		Registry:   c.LoadRegistryDoc(),
 		Director:   c.LoadDirector(),
 		Bulletin:   c.LoadBulletin(),
+		Audience:   c.LoadAudience(),
 	}
 }
 
-// SaveLibrary writes the six durable documents. Every document is attempted
-// — a write failure on one never skips the others — and the joined error
-// reports what failed. The caller logs it: the story is already persisted by
-// the time distillation runs, so a failed doc never loses the show.
+// SaveLibrary writes the six distilled documents. It deliberately never
+// persists the audience doc (decision D-5): audience.json is single-writer —
+// only Theatre.Feedback appends it — so distillation cannot overwrite a
+// fresh note with a stale in-memory copy. Every document is attempted — a
+// write failure on one never skips the others — and the joined error reports
+// what failed. The caller logs it: the story is already persisted by the time
+// distillation runs, so a failed doc never loses the show.
 func (c *Company) SaveLibrary(l Library) error {
 	var errs []error
 	if err := c.SavePremises(l.Premises); err != nil {
@@ -553,6 +634,33 @@ func (d BulletinDoc) context() string {
 	b.WriteString("\nCompany bulletin:\n")
 	for _, n := range excerpt {
 		fmt.Fprintf(&b, "  - [%s] %s: %s\n", n.Kind, n.Author, n.Body)
+	}
+	return b.String()
+}
+
+// The audience excerpt reaches the director and the dramaturg (decision Q2):
+// the most recent notes, so the next generation adapts to what the audience
+// said — never the whole history.
+func (d AudienceDoc) context() string {
+	excerpt := d
+	if len(excerpt) > audienceExcerpt {
+		excerpt = excerpt[:audienceExcerpt]
+	}
+	if len(excerpt) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nAudience feedback from recent shows:\n")
+	for _, n := range excerpt {
+		fmt.Fprintf(&b, "  - [+%d] ", n.Rating)
+		if n.Comment != "" {
+			fmt.Fprintf(&b, "%q ", n.Comment)
+		}
+		fmt.Fprintf(&b, "(%s", n.StoryID)
+		if n.Date != "" {
+			fmt.Fprintf(&b, ", %s", n.Date)
+		}
+		b.WriteString(")\n")
 	}
 	return b.String()
 }

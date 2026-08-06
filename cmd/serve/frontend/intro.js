@@ -11,6 +11,8 @@
 ;(function() {
   var STORY_URL = '/gallery/intro/story';
   var SESSION_END_URL = '/gallery/intro/session-end';
+  var FEEDBACK_URL = '/gallery/intro/feedback';
+  var FEEDBACK_NOTE_MAX = 240; // mirrors audienceCommentMax in the theatre docs
   var FETCH_BUDGET_MS = 320;   // how long we'll wait for a story before improvising
   var MAX_INTRO_MS = 13000;    // hard cap; a story runs ~9.5s
 
@@ -593,7 +595,8 @@
     // Nearer lanes paint in front.
     a.el.style.zIndex = String(20 - lane);
 
-    // Start hidden and off to the side; `enter` reveals it.
+    // Start hidden and off to the side; `enter` reveals it (a cast member
+    // that never enters is staged at its cast mark by stageNeverEntered).
     anchor(a, -offStagePx(a));
     return a;
   }
@@ -912,8 +915,104 @@
   }
 
   /* ══════════════════════════════════════════════════════════════════════
+     AUDIENCE FEEDBACK
+     One quick control at the logo reveal: a single-line note and a thumbs
+     up/down pair. A tap posts fire-and-forget; failure is silent — feedback
+     must never break the splash. The control rides with the overlay, so the
+     splash schedule bounds its life: an outside click dismisses it with the
+     overlay and the hard cap removes it with the overlay — there is no
+     control-specific timer.
+     ══════════════════════════════════════════════════════════════════════ */
+  // Unicode escapes keep the source ASCII; the old Blink builds on webOS
+  // TVs render the glyphs from the platform emoji font.
+  var THUMBS_UP = '\uD83D\uDC4D';
+  var THUMBS_DOWN = '\uD83D\uDC4E';
+
+  function buildFeedbackControl(storyId) {
+    var root = el('div', 'intro-feedback');
+    var note = el('input', 'intro-feedback-note');
+    note.type = 'text';
+    note.placeholder = 'a note for the director';
+    note.maxLength = String(FEEDBACK_NOTE_MAX);
+    var up = el('button', 'intro-feedback-thumb up');
+    up.type = 'button';
+    up.title = 'Loved it';
+    up.textContent = THUMBS_UP;
+    var down = el('button', 'intro-feedback-thumb down');
+    down.type = 'button';
+    down.title = 'Not for me';
+    down.textContent = THUMBS_DOWN;
+
+    root.appendChild(note);
+    root.appendChild(up);
+    root.appendChild(down);
+
+    // One delegated listener per event type: any click inside the control —
+    // focusing the note, tapping a thumb — is the control's business, never
+    // the document's outside-click dismissal. Keydowns stop too, so typing
+    // a note or pressing OK on a focused thumb cannot trip the document's
+    // keydown dismissal either (the TV remote's OK arrives as a keydown).
+    root.addEventListener('click', function(e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+    }, false);
+    root.addEventListener('keydown', function(e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+    }, false);
+
+    function send(rating) {
+      try {
+        var xhr = new XMLHttpRequest();
+        xhr.open('POST', FEEDBACK_URL, true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.send(JSON.stringify({
+          storyId: storyId, rating: rating, comment: note.value
+        }));
+      } catch (e) {}   // silent: feedback never breaks the splash
+      root.classList.add('sent');
+    }
+
+    up.addEventListener('click', function() { send(1); }, false);
+    down.addEventListener('click', function() { send(-1); }, false);
+
+    // Let it arrive rather than pop (a setTimeout 0 crosses a frame).
+    at(0, function() { root.classList.add('show'); });
+    if (overlay) overlay.appendChild(root);
+    return root;
+  }
+
+  /* ══════════════════════════════════════════════════════════════════════
      PLAYER
      ══════════════════════════════════════════════════════════════════════ */
+  // A cast member that has beats but never receives an `enter` beat misses
+  // its entrance: it stands at its cast mark from the first frame instead of
+  // lingering invisible off-stage for the whole show. The staging runs while
+  // building, before any timer is scheduled, so it never races a t=0 beat.
+  //
+  // The maps are null-prototype: a validator-legal cast id may collide with
+  // Object.prototype (constructor, hasOwnProperty, ...). A plain object would
+  // resolve those as inherited members — a never-entered `constructor` would
+  // look entered, and an own `hasOwnProperty` key would throw the guard.
+  // for...in on a null-prototype object yields only own keys, and an absent
+  // id reads undefined (falsy).
+  function stageNeverEntered(sc, beats) {
+    var acted = Object.create(null);
+    var entered = Object.create(null);
+    for (var i = 0; i < beats.length; i++) {
+      var beat = beats[i];
+      if (!beat || !beat.actor) continue;
+      if (beat.action === 'enter') entered[beat.actor] = true;
+      else acted[beat.actor] = true;
+    }
+    for (var id in acted) {
+      if (entered[id]) continue;
+      var a = sc.actors[id];
+      if (!a || a.onStage) continue;
+      anchor(a, markPx(a, a.spec.x));
+      a.el.classList.add('staged');
+      a.onStage = true;
+    }
+  }
+
   function playStory(story) {
     if (started) return;
     started = true;
@@ -955,6 +1054,10 @@
 
     // Queue all audio before the first beat fires.
     var beats = story.beats || [];
+
+    // A cast member that has beats but never receives an `enter` beat misses
+    // its entrance: stage it at its cast mark now, while building.
+    stageNeverEntered(sc, beats);
     var plan = [];
     for (var v = 0; v < beats.length; v++) {
       if (beats[v].action !== 'vocalize') continue;
@@ -993,7 +1096,12 @@
     }
 
     var storyEnd = Math.max(lastBeat + 800, story.durationMs || 9500);
-    at(storyEnd, function() { if (logo) logo.classList.add('reveal'); });
+    at(storyEnd, function() {
+      if (logo) logo.classList.add('reveal');
+      // The audience control rides the reveal — a real story only; the
+      // local fallback has no id and never asks for feedback.
+      if (story && story.id) buildFeedbackControl(story.id);
+    });
     at(storyEnd + 700, function() { performanceDone = true; maybeDismiss(); });
   }
 

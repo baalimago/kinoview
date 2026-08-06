@@ -131,8 +131,16 @@ const (
 	bulletinCap       = 40
 	registryMax       = 16
 
+	// audienceCap bounds the audience doc, newest first; older notes drop on
+	// trim (decision D-3).
+	audienceCap = 40
+
 	// lessonMaxLen bounds one critique lesson's text, in runes.
 	lessonMaxLen = 240
+
+	// audienceCommentMax bounds one audience note's comment, in runes — the
+	// same bound as a board entry body (decision D-3).
+	audienceCommentMax = 240
 
 	// variantCap bounds one registry entry's variant list, in entries — a
 	// defensive bound against hostile files; every species palette is smaller.
@@ -149,6 +157,10 @@ const (
 	setsExcerpt      = 6
 	lessonsExcerpt   = 6
 	bulletinExcerpt  = 8
+
+	// audienceExcerpt caps how many notes a working context shows (decision
+	// D-3): the audience's most recent words, never the whole history.
+	audienceExcerpt = 8
 )
 
 // truncateRunes caps a string at n runes. Bodies are LLM text, so cutting on

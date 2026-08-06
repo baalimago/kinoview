@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/debug"
+	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/butler"
 	"github.com/baalimago/kinoview/internal/model"
 	"golang.org/x/net/websocket"
@@ -360,6 +362,67 @@ func (i *Indexer) introSessionEndHandler() http.HandlerFunc {
 		// sendBeacon does not read the response; answer immediately and work after.
 		w.WriteHeader(http.StatusNoContent)
 		i.prepareNextStory("session ended")
+	}
+}
+
+// storyIDRe mirrors model.Story's id pattern (^[a-z0-9_]{1,24}$), the same
+// way the theatre's artifactIDRe does: the feedback handler rejects a story
+// id that could never have come from a validated story before it reaches the
+// theatre.
+var storyIDRe = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
+
+// introFeedbackRequest is the POST body of /intro/feedback: one audience note
+// about a story.
+type introFeedbackRequest struct {
+	StoryID string `json:"storyId"`
+	Rating  int    `json:"rating"` // +1 thumbs up, -1 thumbs down
+	Comment string `json:"comment,omitempty"`
+}
+
+// introFeedbackHandler records what the audience thought of the story, so the
+// next production can improve. It never triggers preparation (decision Q3): a
+// thumbs-down does not bypass the cooldown — the note lands in the audience
+// doc and the cooldown decides when the next production reads it. The theatre
+// is the trust boundary and re-checks the rating and the story id; the
+// handler's own checks exist so a bad request fails fast with a 400.
+func (i *Indexer) introFeedbackHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			w.Header().Set("Allow", http.MethodPost)
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if i.theatre == nil {
+			http.Error(w, "theatre not configured", http.StatusNotFound)
+			return
+		}
+		fb, ok := i.theatre.(agents.Feedbacker)
+		if !ok {
+			http.Error(w, "theatre does not support audience feedback", http.StatusNotImplemented)
+			return
+		}
+		defer r.Body.Close()
+		dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+		dec.DisallowUnknownFields()
+		var req introFeedbackRequest
+		if err := dec.Decode(&req); err != nil {
+			http.Error(w, "malformed feedback body", http.StatusBadRequest)
+			return
+		}
+		if req.Rating != 1 && req.Rating != -1 {
+			http.Error(w, "rating must be +1 or -1", http.StatusBadRequest)
+			return
+		}
+		if !storyIDRe.MatchString(req.StoryID) {
+			http.Error(w, "invalid story id", http.StatusBadRequest)
+			return
+		}
+		if err := fb.Feedback(r.Context(), req.StoryID, req.Rating, req.Comment); err != nil {
+			ancli.Errf("intro feedback: %v", err)
+			http.Error(w, "failed to record feedback", http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
 	}
 }
 

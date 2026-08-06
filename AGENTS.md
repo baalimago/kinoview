@@ -30,9 +30,9 @@ cmd/
 
 internal/
 ├── agents/              # Agent contracts + implementations (LLM-driven, all opt-in)
-│   ├── interfaces.go    # Classifier, Recommender, Butler, Concierge, Teller, ItemGetter,
-│   │                    #   ItemLister, MetadataManager, SuggestionManager, StreamManager,
-│   │                    #   SubtitleSelector, ClientContextManager, OutputSetter
+│   ├── interfaces.go    # Classifier, Recommender, Butler, Concierge, Teller, Feedbacker,
+│   │                    #   ItemGetter, ItemLister, MetadataManager, SuggestionManager,
+│   │                    #   StreamManager, SubtitleSelector, ClientContextManager, OutputSetter
 │   ├── item_updater.go  # Shared helper: updates item metadata with retry + rate-limit awareness
 │   ├── classifier/      # LLM classifier: inspects media files, writes title/genre/year/plot tags
 │   ├── recommender/     # LLM recommender: semantic media discovery from user query
@@ -62,10 +62,10 @@ internal/
 │   │   ├── staging.go    # Stage layouts: marks, entry sides, lanes (stage/solo/plan)
 │   │   ├── muse.go       # LatestTheme: most-recently-watched title across sessions
 │   │   ├── registry.go   # Costumer registry: canonical coat/species pins, director-approved canonize, registry.json (D7)
-│   │   ├── docs.go       # Company library: six durable docs (premises, repertoire, sets, registry, director, bulletin), caps + validation
+│   │   ├── docs.go       # Company library: seven durable docs (premises, repertoire, sets, registry, director, bulletin, audience), caps + validation
 │   │   ├── distill.go    # Submit-time distillation: board + artifacts → library docs (deterministic, no LLM)
 │   │   ├── director.go   # Director superagent: production-flow prompt, 9-tool set, submit gate
-│   │   ├── theatre.go    # Teller facade: Next/Prepare/Warm, cooldown, single-flight, RunProduction
+│   │   ├── theatre.go    # Teller facade + Feedbacker: Next/Prepare/Warm, cooldown, single-flight, RunProduction, Feedback
 │   │   ├── tools/        # Mini-agent + director tools: post_to_board, consult, writers, gates
 │   │   └── (board/working/ledger/transcript/docs files, floor/staging/muse, role/kinds vocab, atomic write helper)
 │   └── tools/           # Concierge tool implementations (all satisfy clai's LLMTool interface)
@@ -166,7 +166,8 @@ fallback) so the intro splash works offline and without an API key.
 - **The theatre's library is self-developing.** At submit, one deterministic
   pass distills the generation's board and artifacts into six durable company
   docs (premises, repertoire, sets, registry, director lessons, bulletin);
-  each doc is injected back into the relevant role's context next generation,
+  the seventh, the audience doc, is written only by the audience. Each doc is
+  injected back into the relevant role's context next generation,
   so the company remembers across generations without the LLM ever writing
   the docs directly. Identity never drifts: the registry pins canonical coats
   per id, and a new character enters only by explicit director approval at
@@ -228,6 +229,13 @@ fallback) so the intro splash works offline and without an API key.
   the author's act structure, which supersedes the derived count.
 - **The frontend uses SSE for live updates.** The `index_handlers_eventStream.go`
   broadcasts item changes, suggestions, and logs to connected browsers.
+- **Audience feedback is a durable doc, not an event.** A text + thumbs
+  control in the intro splash posts to `POST /gallery/intro/feedback`; the
+  indexer type-asserts `agents.Feedbacker` on the theatre and the facade
+  appends the note to `audience.json` — the doc's single write path, so a
+  submit's distillation never overwrites it. The director and the dramaturg
+  read the recent excerpt next generation; feedback never bypasses the
+  cooldown.
 
 ---
 

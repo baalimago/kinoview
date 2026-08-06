@@ -35,6 +35,7 @@ const (
 	registryFileName   = "registry.json"
 	directorFileName   = "director.json"
 	bulletinFileName   = "bulletin.json"
+	audienceFileName   = "audience.json"
 )
 
 // Company is the persistent paperwork of a theatre production. Every file

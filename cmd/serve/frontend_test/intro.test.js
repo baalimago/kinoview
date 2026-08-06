@@ -15,8 +15,23 @@
 //
 // Why these assertions are safe headless: they inspect DATA the player sets
 // (style.bottom, the scale transform, the scheduled oscillator frequencies,
-// the gait class), never painted pixels. Motion itself stays unverified, as
-// documented in the agent notebook — CSS keyframes are not executed here.
+// the gait class, the staged class), never painted pixels. Motion itself stays
+// unverified, as documented in the agent notebook — CSS keyframes are not
+// executed here.
+//
+// Phase 1: the harness grew from one fixture to three. Each fixture gets its
+// own stage/DOM/AudioContext via runStory, because playStory is a singleton —
+// the player refuses a second story once started. The guard fixture
+// reproduces the production shape (actors with beats but no `enter` beat) and
+// asserts the player stages them at their cast marks; the exit-first fixture
+// covers an actor whose only beat is `exit`.
+//
+// Phase 4: the audience feedback control. The harness records the document's
+// click/keydown listeners, bubbles synthetic events through the element tree
+// (the control's delegated stopPropagation is what keeps a thumb tap or a
+// focus click from reaching the document's dismiss listener), records the
+// feedback POSTs, and records every timer delay so a test can prove the
+// control never extends the splash schedule.
 
 'use strict';
 
@@ -44,9 +59,12 @@ function makeEl() {
     },
     children: [],
     firstChild: null,
+    parentNode: null,
     offsetWidth: 640,
+    listeners: {},
     appendChild: function(c) {
       this.children.push(c);
+      c.parentNode = this;
       if (!this.firstChild) this.firstChild = c;
       return c;
     },
@@ -55,6 +73,9 @@ function makeEl() {
       if (i >= 0) this.children.splice(i, 1);
       if (this.firstChild === c) this.firstChild = this.children[0] || null;
       return c;
+    },
+    addEventListener: function(type, fn) {
+      (this.listeners[type] = this.listeners[type] || []).push(fn);
     },
     classList: {
       add: function(c) { if (classes.indexOf(c) < 0) classes.push(c); },
@@ -66,16 +87,6 @@ function makeEl() {
   };
   return el;
 }
-
-var stageEl = makeEl();
-var documentStub = {
-  body: { classList: { contains: function() { return false; } } },
-  // The player captures the stage element at load; hand it the same node the
-  // assertions inspect.
-  getElementById: function(id) { return id === 'intro-stage' ? stageEl : makeEl(); },
-  createElement: function() { return makeEl(); },
-  addEventListener: function() {}
-};
 
 // ── Recording AudioContext ───────────────────────────────────────────────
 // Every createOscillator returns an object whose frequency parameter records
@@ -117,23 +128,178 @@ function makeAudioContext(rec) {
 }
 
 // The XHR hands the fixture story over synchronously, so playStory has run
-// by the time the script returns.
-function makeXHR(storyJSON) {
+// by the time the script returns. POSTs (the feedback control) are recorded
+// in `posts`; with failPosts a POST throws instead — a dead network, which
+// the player must swallow silently.
+function makeXHR(storyJSON, posts, failPosts) {
   return function() {
-    return {
-      open: function() {},
-      send: function() { if (this.onreadystatechange) this.onreadystatechange(); },
+    var xhr = {
       readyState: 4,
       status: 200,
       responseText: storyJSON,
-      onreadystatechange: null
+      onreadystatechange: null,
+      method: '',
+      url: '',
+      open: function(method, url) { xhr.method = method; xhr.url = url; },
+      setRequestHeader: function() {},
+      send: function(body) {
+        if (xhr.method === 'POST' && posts) {
+          if (failPosts) throw new Error('network down');
+          posts.push({ url: xhr.url, body: body });
+        }
+        if (xhr.onreadystatechange) xhr.onreadystatechange();
+      }
+    };
+    return xhr;
+  };
+}
+
+// The server is unreachable: the story fetch fails, so the player must fall
+// back to its local story.
+function makeFailingXHR() {
+  return function() {
+    return {
+      readyState: 4,
+      status: 500,
+      responseText: '',
+      onreadystatechange: null,
+      open: function() {},
+      setRequestHeader: function() {},
+      send: function() { if (this.onreadystatechange) this.onreadystatechange(); }
     };
   };
 }
 
-// ── Fixture: the bird visits, hops, and chirps ──────────────────────────
+// ── Harness: one fresh stage + player per fixture ────────────────────────
+// playStory is a singleton, so every fixture must run against its own
+// document/window stubs. The story lands synchronously through the XHR stub,
+// so by the time runStory returns the whole build path — cast loop, staging,
+// beat scheduling — has executed and no timer has fired yet.
+//
+// opts: lowPerf (body carries the low-perf class), reducedMotion (matchMedia
+// agrees to reduce), failFetch (the story request fails → local fallback),
+// failPosts (the feedback POST throws → must be swallowed silently).
+function runStory(storyJSON, opts) {
+  opts = opts || {};
+  var stageEl = makeEl();
+  var overlayEl = makeEl();
+  var bodyEl = makeEl();
+  if (opts.lowPerf) bodyEl.classList.add('low-perf');
+  bodyEl.appendChild(overlayEl);
+
+  var docListeners = {};
+  var posts = [];
+  var timerDelays = [];
+  var documentStub = {
+    body: bodyEl,
+    getElementById: function(id) {
+      if (id === 'intro-stage') return stageEl;
+      if (id === 'intro-overlay') return overlayEl;
+      return makeEl();
+    },
+    createElement: function() { return makeEl(); },
+    addEventListener: function(type, fn) {
+      (docListeners[type] = docListeners[type] || []).push(fn);
+    }
+  };
+
+  var rec = { oscs: [] };
+  var windowStub = {
+    innerWidth: 640,
+    performance: { now: function() { return Date.now(); } },
+    matchMedia: function() { return { matches: !!opts.reducedMotion }; },
+    AudioContext: function() { return makeAudioContext(rec); },
+    addEventListener: function() {}
+  };
+
+  var src = fs.readFileSync(INTRO, 'utf8');
+  var run = new Function(
+    'window', 'document', 'navigator', 'XMLHttpRequest', 'setTimeout', 'clearTimeout',
+    'performance', 'Math', 'Date', 'console',
+    src
+  );
+
+  // Record every timer delay so a test can prove the control never extends
+  // the splash schedule: the hard cap must stay the longest timer.
+  function wrapSetTimeout(fn, delay) {
+    timerDelays.push(delay);
+    return setTimeout(fn, delay);
+  }
+  function wrapClearTimeout(id) { return clearTimeout(id); }
+
+  var xhrFactory = opts.failFetch
+    ? makeFailingXHR()
+    : makeXHR(storyJSON, posts, opts.failPosts);
+
+  run(windowStub, documentStub, { sendBeacon: function() {} }, xhrFactory,
+    wrapSetTimeout, wrapClearTimeout, { now: function() { return Date.now(); } },
+    stubMath, Date, console);
+
+  return {
+    stageEl: stageEl,
+    overlay: overlayEl,
+    body: bodyEl,
+    posts: posts,
+    timerDelays: timerDelays,
+    // The document's click listener (dismissIntro) is registered separately
+    // from the element tree; this invokes it the way a browser would when a
+    // click bubbles all the way to the document.
+    docClick: function(ev) {
+      var ls = docListeners.click || [];
+      for (var i = 0; i < ls.length; i++) ls[i](ev);
+    },
+    rec: rec,
+    findActor: function(cls) {
+      for (var i = 0; i < stageEl.children.length; i++) {
+        if (stageEl.children[i].className.indexOf(cls) !== -1) return stageEl.children[i];
+      }
+      return null;
+    },
+    findActors: function(cls) {
+      var out = [];
+      for (var i = 0; i < stageEl.children.length; i++) {
+        if (stageEl.children[i].className.indexOf(cls) !== -1) out.push(stageEl.children[i]);
+      }
+      return out;
+    }
+  };
+}
+
+// First child of `el` whose class carries `cls`.
+function findByClass(el, cls) {
+  for (var i = 0; i < el.children.length; i++) {
+    if (el.children[i].className.indexOf(cls) !== -1) return el.children[i];
+  }
+  return null;
+}
+
+function findControl(run) {
+  return findByClass(run.overlay, 'intro-feedback');
+}
+
+// Simulate a browser event bubbling from `target` up through the control
+// `root`. The control's delegated listeners stop the bubble; the returned
+// event records whether they did — a stopped event never reaches the
+// document's dismiss listeners.
+function fireEvent(type, target, root) {
+  var ev = { target: target, stopped: false };
+  ev.stopPropagation = function() { ev.stopped = true; };
+  var node = target;
+  while (node && !ev.stopped) {
+    var ls = node.listeners && node.listeners[type];
+    if (ls) {
+      for (var i = 0; i < ls.length && !ev.stopped; i++) ls[i](ev);
+    }
+    node = node.parentNode;
+  }
+  return ev;
+}
+
+// ── Fixture 1: the bird visits, hops, and chirps ─────────────────────────
 // Keys are the wire format (Go marshals lowercase). The walkTo at t=800 with
-// ms=600 ends at t=1400, so a check at t≈1200 catches the bird mid-hop.
+// ms=600 ends at t=1400, so a check at t≈1200 catches the bird mid-hop. The
+// cat (ina) is a zero-beat cast member — the phase-1 guard: it must stay
+// hidden, never forced on stage.
 var STORY = JSON.stringify({
   title: 'Pip Calls By',
   durationMs: 2500,
@@ -149,32 +315,97 @@ var STORY = JSON.stringify({
   ]
 });
 
-function findActor(cls) {
-  for (var i = 0; i < stageEl.children.length; i++) {
-    if (stageEl.children[i].className.indexOf(cls) !== -1) return stageEl.children[i];
-  }
-  return null;
-}
+// ── Fixture 2: the production shape that broke the splash ────────────────
+// The guards (freija, ina) only sit, stareoff, nap and blink — never `enter`.
+// Pre-fix the player hid them off-stage for the whole show. Post-fix they are
+// anchored at their cast marks the moment the build runs. Expected lefts,
+// derived from markPx: stage 640px; cat depth = base * fitScale * (1 - lane
+// * 0.12) → freija (lane 1) 0.88, half 70.4, x=0.15 → 25.6 → '26px'; ina
+// (lane 2) 0.76, half 60.8, x=0.85 → 483.2 → '483px'.
+var GUARDS = JSON.stringify({
+  title: 'The Night Watch',
+  durationMs: 2500,
+  scene: { backdrop: 'night' },
+  cast: [
+    { id: 'mouse1', character: 'mouse', coat: 'field', lane: 0, x: 0.5, scale: 1 },
+    { id: 'freija', character: 'cat', coat: 'char', lane: 1, x: 0.15, scale: 1 },
+    { id: 'ina', character: 'cat', coat: 'grey', lane: 2, x: 0.85, scale: 1 }
+  ],
+  beats: [
+    { t: 0, actor: 'mouse1', action: 'enter', from: 'left', ms: 300 },
+    { t: 400, actor: 'freija', action: 'sit', ms: 800 },
+    { t: 500, actor: 'ina', action: 'nap', ms: 1000 },
+    { t: 900, actor: 'freija', action: 'stareoff', ms: 600 },
+    { t: 1300, actor: 'ina', action: 'blink' },
+    { t: 1600, actor: 'mouse1', action: 'vocalize' }
+  ]
+});
 
-var rec = { oscs: [] };
-var windowStub = {
-  innerWidth: 640,
-  performance: { now: function() { return Date.now(); } },
-  matchMedia: function() { return { matches: false }; },
-  AudioContext: function() { return makeAudioContext(rec); },
-  addEventListener: function() {}
-};
+// ── Fixture 3: an actor whose only beat is `exit` ────────────────────────
+// Never entered, but it has a beat — the player must stage it at its cast
+// mark so the exit is visible, then take it off again. Bird depth 0.30, half
+// 9.6, x=0.5 → markPx 310.4 → '310px'; exit to the right lands at
+// 640 + (64+60)*0.30 = 677.2 → '677px'. The dragon is an unknown character:
+// makeActor must return null and the staging pass must skip it, no panic.
+var EXIT_FIRST = JSON.stringify({
+  title: 'Walk-On, Walk-Off',
+  durationMs: 2000,
+  scene: { backdrop: 'theatre' },
+  cast: [
+    { id: 'ina', character: 'cat', coat: 'tuxedo', lane: 0, x: 0.4, scale: 1 },
+    { id: 'pip', character: 'bird', coat: 'chaffinch', lane: 0, x: 0.5, scale: 1 },
+    { id: 'drake', character: 'dragon', lane: 0, x: 0.5, scale: 1 }
+  ],
+  beats: [
+    { t: 0, actor: 'ina', action: 'enter', from: 'left', ms: 300 },
+    { t: 100, actor: 'drake', action: 'sit', ms: 200 },
+    { t: 300, actor: 'pip', action: 'exit', from: 'right', ms: 400 }
+  ]
+});
 
-var src = fs.readFileSync(INTRO, 'utf8');
-var run = new Function(
-  'window', 'document', 'navigator', 'XMLHttpRequest', 'setTimeout', 'clearTimeout',
-  'performance', 'Math', 'Date', 'console',
-  src
-);
+// ── Fixture 4: prototype-name cast ids ───────────────────────────────────
+// A cast id may be validator-legal yet collide with Object.prototype
+// (constructor, hasOwnProperty, ...). Pre-fix (review 3, R3-01) the staging
+// pass used plain object maps: id `constructor` resolved the inherited
+// member and was silently left hidden, and id `hasOwnProperty` shadowed the
+// guard method, so the build threw and the show silently never played.
+// Post-fix both are staged at their cast marks and the story still plays.
+// Cat depth (lane 0) = 1.0, half 80px; x=0.25 → markPx 80 → '80px'; x=0.75
+// → 400 → '400px'. Pip enters via its own beat, proving beats still
+// schedule after the staging pass.
+var PROTOTYPE = JSON.stringify({
+  title: 'Name Collisions',
+  durationMs: 2000,
+  scene: { backdrop: 'theatre' },
+  cast: [
+    { id: 'pip', character: 'bird', coat: 'chaffinch', lane: 0, x: 0.5, scale: 1 },
+    { id: 'constructor', character: 'cat', coat: 'grey', lane: 0, x: 0.25, scale: 1 },
+    { id: 'hasOwnProperty', character: 'cat', coat: 'tuxedo', lane: 0, x: 0.75, scale: 1 }
+  ],
+  beats: [
+    { t: 0, actor: 'pip', action: 'enter', from: 'left', ms: 300 },
+    { t: 400, actor: 'constructor', action: 'sit', ms: 800 },
+    { t: 500, actor: 'hasOwnProperty', action: 'nap', ms: 1000 }
+  ]
+});
 
-run(windowStub, documentStub, { sendBeacon: function() {} }, makeXHR(STORY),
-  setTimeout, clearTimeout, { now: function() { return Date.now(); } },
-  stubMath, Date, console);
+// ── Fixture 5: the audience feedback control ────────────────────────────
+// A real story (has an id, matching the server's story id pattern) with a
+// short duration: one enter beat at t=0 gives lastBeat 0, so storyEnd =
+// max(0 + 800, 600) = 800ms — the control appears at 800ms and the
+// assertions settle just after.
+var FEEDBACK = JSON.stringify({
+  id: 'stry_abc12345',
+  title: 'A Note for the Director',
+  durationMs: 600,
+  scene: { backdrop: 'night' },
+  cast: [
+    { id: 'pip', character: 'bird', coat: 'chaffinch', lane: 0, x: 0.5, scale: 1 }
+  ],
+  beats: [
+    { t: 0, actor: 'pip', action: 'enter', from: 'left', ms: 300 }
+  ]
+});
 
 var failures = [];
 
@@ -188,11 +419,28 @@ function check(name, fn) {
   }
 }
 
+// Ten fixtures, each finishing on its own timer (the reduced-motion fixture
+// finishes synchronously); the last one reports.
+var pending = 10;
+function finish() {
+  pending--;
+  if (pending > 0) return;
+  if (failures.length) {
+    console.error('\n' + failures.length + ' assertion(s) failed');
+    process.exit(1);
+  }
+  console.log('\nall intro player assertions passed');
+  process.exit(0);
+}
+
+// ── Fixture 1 assertions ─────────────────────────────────────────────────
+var birdRun = runStory(STORY);
+
 // The beats fire on real timers; the walkTo ends at t=1400, so 1250ms is
 // mid-hop and every assertion is settled.
 setTimeout(function() {
-  var bird = findActor('actor--bird');
-  var cat = findActor('actor--cat');
+  var bird = birdRun.findActor('actor--bird');
+  var cat = birdRun.findActor('actor--cat');
 
   check('bird actor built and staged', function() {
     assert.ok(bird, 'no actor--bird element on stage');
@@ -218,20 +466,305 @@ setTimeout(function() {
     assert.ok(!bird.classList.contains('walking'), 'bird must never get the walking class');
   });
 
+  check('zero-beat cast member stays hidden', function() {
+    assert.ok(cat, 'no actor--cat element on stage');
+    assert.ok(!cat.classList.contains('staged'),
+      'a cast member with no beats must not be forced on stage');
+  });
+
   check('chirp schedules three notes with a rising middle', function() {
     var notes = [];
-    for (var i = 0; i < rec.oscs.length; i++) {
-      if (rec.oscs[i].type === 'sawtooth') notes.push(rec.oscs[i].freq[0]);
+    for (var i = 0; i < birdRun.rec.oscs.length; i++) {
+      if (birdRun.rec.oscs[i].type === 'sawtooth') notes.push(birdRun.rec.oscs[i].freq[0]);
     }
     assert.strictEqual(notes.length, 3, 'sawtooth notes = ' + JSON.stringify(notes));
     assert.ok(notes[1] > notes[0] && notes[0] > notes[2],
       'want middle note above the first and the last below it, got ' + JSON.stringify(notes));
   });
 
-  if (failures.length) {
-    console.error('\n' + failures.length + ' assertion(s) failed');
-    process.exit(1);
-  }
-  console.log('\nall intro player assertions passed');
-  process.exit(0);
+  finish();
 }, 1250);
+
+// ── Fixture 2 assertions ─────────────────────────────────────────────────
+var guardsRun = runStory(GUARDS);
+
+// The story landed synchronously: the build ran, so the guards are already
+// staged — no beat timer has fired yet (the t=0 mouse enter included).
+check('never-entered guards are staged at their cast marks before any beat fires', function() {
+  var cats = guardsRun.findActors('actor--cat');
+  assert.strictEqual(cats.length, 2, 'want the two guard cats on stage, got ' + cats.length);
+  var lefts = [];
+  for (var i = 0; i < cats.length; i++) {
+    assert.ok(cats[i].classList.contains('staged'),
+      'guard ' + i + ' must carry the staged class');
+    lefts.push(cats[i].style.left);
+  }
+  lefts.sort();
+  assert.deepStrictEqual(lefts, ['26px', '483px'],
+    'guards must sit at their cast marks, got ' + JSON.stringify(lefts));
+});
+
+// Mid-show: the mouse entered via its own beat and the guards are still on
+// stage, doing their beatwork (freija sits at t=400, ina naps at t=500).
+setTimeout(function() {
+  var mouse = guardsRun.findActor('actor--mouse');
+  var cats = guardsRun.findActors('actor--cat');
+
+  check('entering actor still enters via its own beat', function() {
+    assert.ok(mouse, 'no actor--mouse element on stage');
+    assert.ok(mouse.classList.contains('staged'), 'mouse must be staged by its enter beat');
+  });
+
+  check('guards stay staged through their beats', function() {
+    assert.strictEqual(cats.length, 2, 'want the two guard cats, got ' + cats.length);
+    for (var i = 0; i < cats.length; i++) {
+      assert.ok(cats[i].classList.contains('staged'),
+        'guard ' + i + ' must stay staged while it sits and naps');
+    }
+  });
+
+  finish();
+}, 600);
+
+// ── Fixture 3 assertions ─────────────────────────────────────────────────
+var exitRun = runStory(EXIT_FIRST);
+
+// The exit-first bird is staged at its cast mark from the build; its exit
+// fires at t=300 and completes at t=700, so 100ms catches it visible and
+// 900ms catches it gone.
+setTimeout(function() {
+  var pip = exitRun.findActor('actor--bird');
+
+  check('exit-first actor is staged at its cast mark', function() {
+    assert.ok(pip, 'no actor--bird element on stage');
+    assert.ok(pip.classList.contains('staged'),
+      'an actor whose first beat is exit must still be staged');
+    assert.strictEqual(pip.style.left, '310px',
+      'exit-first actor must stand at its cast mark, left = ' + pip.style.left);
+  });
+}, 100);
+
+setTimeout(function() {
+  var pip = exitRun.findActor('actor--bird');
+
+  check('exit-first actor leaves the stage after its exit', function() {
+    assert.ok(pip, 'no actor--bird element on stage');
+    assert.ok(!pip.classList.contains('staged'),
+      'the staged class must be removed once the exit beat completes');
+    assert.strictEqual(pip.style.left, '677px',
+      'exit must glide the actor off-stage, left = ' + pip.style.left);
+  });
+
+  check('unknown cast member is skipped, never staged', function() {
+    assert.strictEqual(exitRun.findActor('actor--dragon'), null,
+      'makeActor must return null for an unknown character — no element, no crash');
+  });
+
+  finish();
+}, 900);
+
+// ── Fixture 4 assertions: prototype-name cast ids ───────────────────────
+var protoRun = runStory(PROTOTYPE);
+
+// The story landed synchronously: the build ran. If the staging pass threw
+// (pre-fix), nothing on stage carries the staged class — the show silently
+// never plays.
+check('prototype-name cast ids are staged at their cast marks without throwing', function() {
+  var cats = protoRun.findActors('actor--cat');
+  assert.strictEqual(cats.length, 2,
+    'want the two prototype-name cats, got ' + cats.length);
+  var lefts = [];
+  for (var i = 0; i < cats.length; i++) {
+    assert.ok(cats[i].classList.contains('staged'),
+      'prototype-name cat ' + i + ' must carry the staged class');
+    lefts.push(cats[i].style.left);
+  }
+  lefts.sort();
+  assert.deepStrictEqual(lefts, ['400px', '80px'],
+    'prototype-name cats must sit at their cast marks, got ' + JSON.stringify(lefts));
+});
+
+// Mid-show: the story is still alive — pip entered via its own beat, so
+// beats were scheduled after the staging pass, and the prototype-name actors
+// stayed staged through their beats.
+setTimeout(function() {
+  var pip = protoRun.findActor('actor--bird');
+  var cats = protoRun.findActors('actor--cat');
+
+  check('the story still plays with prototype-name cast ids', function() {
+    assert.ok(pip, 'no actor--bird element on stage');
+    assert.ok(pip.classList.contains('staged'),
+      'pip must be staged by its enter beat — beats must still be scheduled');
+    assert.strictEqual(cats.length, 2, 'want the two prototype-name cats, got ' + cats.length);
+    for (var i = 0; i < cats.length; i++) {
+      assert.ok(cats[i].classList.contains('staged'),
+        'prototype-name cat ' + i + ' must stay staged through its beat');
+    }
+  });
+
+  finish();
+}, 700);
+
+// ── Fixture 5 assertions: the feedback control ──────────────────────────
+var upRun = runStory(FEEDBACK);
+
+// The hard cap is scheduled at load, before any story timer; the control's
+// presence must never disturb the splash schedule.
+check('the control never extends the splash schedule', function() {
+  var maxDelay = Math.max.apply(null, upRun.timerDelays);
+  assert.strictEqual(maxDelay, 13500,
+    'the hard cap (MAX_INTRO_MS + 500) must stay the longest timer, got ' +
+    JSON.stringify(upRun.timerDelays));
+});
+
+setTimeout(function() {
+  var control = findControl(upRun);
+
+  check('feedback control appears at the logo reveal for a real story', function() {
+    assert.ok(control, 'no .intro-feedback inside the overlay');
+    assert.ok(findByClass(control, 'intro-feedback-note'),
+      'control must carry the note input');
+    assert.ok(findByClass(control, 'up'), 'control must carry the thumbs-up button');
+    assert.ok(findByClass(control, 'down'), 'control must carry the thumbs-down button');
+  });
+
+  var note = control ? findByClass(control, 'intro-feedback-note') : null;
+  var up = control ? findByClass(control, 'up') : null;
+
+  check('clicking into the note does not dismiss the intro', function() {
+    var ev = fireEvent('click', note, control);
+    assert.ok(ev.stopped, 'the control must stop the click before the document sees it');
+    assert.ok(!upRun.overlay.classList.contains('dismiss'), 'overlay must not dismiss');
+    assert.strictEqual(upRun.posts.length, 0, 'focusing the note must not submit');
+  });
+
+  check('typing in the note does not dismiss the intro', function() {
+    var ev = fireEvent('keydown', note, control);
+    assert.ok(ev.stopped, 'the control must stop keydowns before the document sees them');
+    assert.ok(!upRun.overlay.classList.contains('dismiss'), 'overlay must not dismiss');
+  });
+
+  check('thumbs up posts the note verbatim and hides the control', function() {
+    note.value = 'more dog';
+    var ev = fireEvent('click', up, control);
+    assert.ok(ev.stopped, 'a thumb tap must not reach the document dismiss listener');
+    assert.strictEqual(upRun.posts.length, 1,
+      'want exactly one POST, got ' + upRun.posts.length);
+    assert.strictEqual(upRun.posts[0].url, '/gallery/intro/feedback',
+      'post url = ' + upRun.posts[0].url);
+    assert.deepStrictEqual(JSON.parse(upRun.posts[0].body),
+      { storyId: 'stry_abc12345', rating: 1, comment: 'more dog' },
+      'body = ' + upRun.posts[0].body);
+    assert.ok(control.classList.contains('sent'), 'control must hide after submit');
+    assert.ok(!upRun.overlay.classList.contains('dismiss'), 'the tap itself must not dismiss');
+  });
+
+  finish();
+}, 850);
+
+// ── Fixture 5 assertions: thumbs down, and the low-perf path ─────────────
+// The same story on a low-perf body: the control still appears (low-perf
+// only trims animation, never the build), and the down thumb posts -1.
+var downRun = runStory(FEEDBACK, { lowPerf: true });
+
+setTimeout(function() {
+  var control = findControl(downRun);
+
+  check('feedback control still appears under low-perf', function() {
+    assert.ok(control, 'low-perf must not suppress the control');
+  });
+
+  var note = control ? findByClass(control, 'intro-feedback-note') : null;
+  var down = control ? findByClass(control, 'down') : null;
+  if (note) note.value = '';
+
+  check('thumbs down posts rating -1 with an empty comment', function() {
+    var ev = fireEvent('click', down, control);
+    assert.ok(ev.stopped, 'a thumb tap must not reach the document dismiss listener');
+    assert.strictEqual(downRun.posts.length, 1,
+      'want exactly one POST, got ' + downRun.posts.length);
+    assert.deepStrictEqual(JSON.parse(downRun.posts[0].body),
+      { storyId: 'stry_abc12345', rating: -1, comment: '' },
+      'body = ' + downRun.posts[0].body);
+  });
+
+  finish();
+}, 850);
+
+// ── Fixture 6 assertions: the ignored control rides with the overlay ─────
+// No tap, no keystroke: the control must not extend the splash, and the
+// overlay's dismissal must take it away with the overlay.
+var ignoredRun = runStory(FEEDBACK);
+
+setTimeout(function() {
+  var control = findControl(ignoredRun);
+
+  check('an ignored control still sits in the overlay at the reveal', function() {
+    assert.ok(control, 'no .intro-feedback inside the overlay');
+  });
+
+  // Outside click dismisses exactly as before the control existed.
+  ignoredRun.docClick({ target: ignoredRun.stageEl });
+  check('outside click dismisses the overlay with the control inside', function() {
+    assert.ok(ignoredRun.overlay.classList.contains('dismiss'),
+      'the overlay must dismiss on an outside click');
+    assert.strictEqual(ignoredRun.posts.length, 0,
+      'ignoring the control must not submit');
+  });
+}, 850);
+
+setTimeout(function() {
+  check('the dismissed overlay is removed with the control', function() {
+    assert.strictEqual(ignoredRun.body.children.indexOf(ignoredRun.overlay), -1,
+      'the overlay must be removed from the document after dismissal');
+  });
+  finish();
+}, 1450);
+
+// ── Fixture 7 assertions: the local fallback story ───────────────────────
+// The server is down (500), so the player falls back to the local cat,
+// which has no id — the control must never appear for it. The fallback
+// story ends at 3550ms; the assertion waits just past that.
+var fallbackRun = runStory(null, { failFetch: true });
+
+setTimeout(function() {
+  check('no feedback control for the local fallback story', function() {
+    assert.strictEqual(findControl(fallbackRun), null,
+      'the id-less fallback must never build the control');
+  });
+  finish();
+}, 3650);
+
+// ── Fixture 8 assertions: reduced motion ─────────────────────────────────
+// The player takes the logoOnly path: no story, no storyEnd, no reveal
+// moment — and no feedback control.
+var reducedRun = runStory(FEEDBACK, { reducedMotion: true });
+
+check('no feedback control under reduced motion', function() {
+  assert.strictEqual(findControl(reducedRun), null,
+    'logoOnly must never build the control');
+});
+finish();
+
+// ── Fixture 9 assertions: the POST fails ─────────────────────────────────
+// A dead network must be silent: the control hides, the splash plays on,
+// and nothing escapes the player's try/catch.
+var failRun = runStory(FEEDBACK, { failPosts: true });
+
+setTimeout(function() {
+  var control = findControl(failRun);
+  var up = control ? findByClass(control, 'up') : null;
+
+  check('a failed feedback POST is silent and the control still hides', function() {
+    var ev = fireEvent('click', up, control);
+    assert.ok(ev.stopped, 'a thumb tap must not reach the document dismiss listener');
+    assert.strictEqual(failRun.posts.length, 0,
+      'the throwing POST must not be recorded');
+    assert.ok(control.classList.contains('sent'),
+      'control must hide even when the POST fails');
+    assert.ok(!failRun.overlay.classList.contains('dismiss'),
+      'the splash must be unaffected by a failed POST');
+  });
+
+  finish();
+}, 850);

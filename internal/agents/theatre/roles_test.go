@@ -77,6 +77,7 @@ func TestRolePrompts_ScopeTextPinned(t *testing.T) {
 		{"playwright", "action one of enter, exit, walkTo, vocalize, sit, stretch, blink, pounce, chase, greet, stareoff, nap, bat, yawn, sniff, jump"},
 		{"playwright", "one of night, livingroom, garden, theatre, sunset, kitchen, forest, rain"},
 		{"playwright", "1-2 canon facts"},
+		{"playwright", "cast member must enter with an enter beat"},
 		{"scenographer", "delivered with write_scene"},
 		{"scenographer", "never put a piece through a performer"},
 		{"wardrobe", "grounded in the character registry"},

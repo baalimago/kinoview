@@ -477,10 +477,10 @@ func (r *Runner) withRegistryContext(prompt string) string {
 
 // withDocsContext appends the company's durable memory to the working
 // context (phase 6): the bulletin reaches every role, and each role reads
-// its own document — the premises no-repeat list for the dramaturg, the
-// repertoire and canon facts for the playwright, the set recipes for the
-// scenographer, the directing lessons for the director. A missing or empty
-// library adds nothing.
+// its own document — the premises no-repeat list and the audience feedback
+// for the dramaturg, the repertoire and canon facts for the playwright, the
+// set recipes for the scenographer, the directing lessons and the audience
+// feedback for the director. A missing or empty library adds nothing.
 func (r *Runner) withDocsContext(prompt, role string) string {
 	lib := r.company.LoadLibrary()
 	var b strings.Builder
@@ -490,12 +490,14 @@ func (r *Runner) withDocsContext(prompt, role string) string {
 	switch role {
 	case "dramaturg":
 		b.WriteString(lib.Premises.context())
+		b.WriteString(lib.Audience.context())
 	case "playwright":
 		b.WriteString(lib.Repertoire.context())
 	case "scenographer":
 		b.WriteString(lib.Sets.context())
 	case "director":
 		b.WriteString(lib.Director.context())
+		b.WriteString(lib.Audience.context())
 	}
 	if b.Len() == 0 {
 		return prompt
