@@ -39,10 +39,17 @@ context next generation so the company improves from what the audience said.
 6. **Feedback does not bypass the cooldown.** A thumbs-down does not trigger an
    instant regeneration; the note lands in the doc, and the cooldown decides
    when the next production reads it. (Decision Q3, settled: no bypass.)
-7. **The splash control is quick and non-blocking.** Text field + thumbs
-   up/down, appearing during the logo reveal; submits in one tap; the intro
-   never waits for it — the control rides with the overlay (outside click
-   dismisses as today; the hard cap removes it with the overlay).
+7. **The splash control is quick and blocking (decision reversed
+   2026-08-06, commit fe2d1a5).** Text field + thumbs up/down, appearing
+   during the logo reveal; submits in one tap. While the control is live
+   (built, not yet sent), every dismissal path is suspended — the
+   auto-schedule, the hard cap, an outside click, a keydown — so the
+   audience has all the time they need to write the note. A thumb tap
+   hides the control, releases the block, and hands the splash back to the
+   normal dismissal schedule (≤350 ms once the story and the three
+   app-data loads are done). The reversal was driven by the prod symptom:
+   on a slow TV the note faded away with the overlay before the audience
+   could write it. (Original: non-blocking, rode with the overlay.)
 8. **Story-data maps in the player are null-prototype.** Any map keyed by
    story ids (`actors`, `props`, `cells` in `playStory`, and the staging
    maps) must be built with `Object.create(null)`: a validator-legal id can

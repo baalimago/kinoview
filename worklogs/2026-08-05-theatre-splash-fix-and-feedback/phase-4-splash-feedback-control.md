@@ -2,11 +2,24 @@
 
 **Status:** ✅ Done | [README](./README.md)
 
+> **Decision reversed 2026-08-06 (commit fe2d1a5).** The control is now
+> **blocking**. While it is live (built, not yet sent), no dismissal path may
+> remove the overlay — not the schedule, not the hard cap, not an outside
+> click, not a keydown. The audience leaves through a thumb; `send()` hides
+> the control, releases the block, and the handover completes ≤350 ms later.
+> Passages below that say the control "rides with the overlay", "never
+> extends the splash duration", or that an outside click / the hard cap
+> dismisses it describe the superseded design; see Review findings (review 7)
+> at the end of this file.
+
 ## Goal
 
-Show a quick feedback control in the intro splash — a text field and a thumbs
-up/down pair that submit in one tap to `POST /gallery/intro/feedback` — during
-the logo reveal, without ever holding the app hostage.
+Show a blocking feedback control in the intro splash — a text field and a
+thumbs up/down pair that submit in one tap to `POST /gallery/intro/feedback`
+— during the logo reveal. While the control is live the overlay holds: on a
+slow TV the note used to fade away with the overlay before the audience
+could write it, so the control now suspends every dismissal path until a
+thumb is tapped.
 
 ## Specification
 
@@ -17,9 +30,9 @@ logo reveal (`storyEnd`), build a small feedback control inside the overlay:
   `maxlength` 240, ES5)
 - a thumbs-up button and a thumbs-down button (SVG or unicode, matching the
   existing ES5/no-innerHTML-LLM-text style of the player)
-- a dismiss affordance is NOT needed — outside click dismisses the control
-  with the overlay, exactly as today; the hard cap removes it with the overlay
-  too
+- a dismiss affordance is NOT needed — the control is the only exit while it
+  is live: outside click and keydown dismissal are suspended, and the hard
+  cap cannot take the overlay away until a thumb is tapped
 
 **Behaviour.**
 
@@ -35,12 +48,14 @@ logo reveal (`storyEnd`), build a small feedback control inside the overlay:
   splash.
 - After submit the control hides (class toggle) and the intro continues to
   dismiss on its normal schedule.
-- If the user ignores it, the control rides with the overlay: the overlay's
-  existing `MAX_INTRO_MS + 500` hard dismiss removes it, and outside click
-  dismisses as today. No control-specific timeout — the splash schedule
-  already bounds the control's life, and a fixed timeout would fire only for
-  short stories, mid-reveal, or never for long ones. The control never
-  extends the splash duration.
+- If the user ignores it, the control BLOCKS dismissal: while
+  `feedbackPending` is true (control built, no thumb tapped), `dismissIntro`
+  returns early, so the schedule, the `MAX_INTRO_MS + 500` hard cap, outside
+  clicks and keydowns all no-op. The only exit is a thumb: `send()` hides the
+  control (`.sent`), clears `feedbackPending`, and calls `maybeDismiss()`,
+  which completes the handover on the normal schedule (≤350 ms once the
+  story and the three app-data loads are done). No control-specific timeout
+  — the block is a suspension, never a new timer.
 - ONE delegated `click` listener on the control root calls `stopPropagation`
   for every click inside the control — focusing the input AND tapping either
   thumb — so neither trips the document-level `click → dismissIntro` listener
@@ -66,8 +81,8 @@ the player like the cast/props), `cmd/serve/frontend_test/intro.test.js`.
 | Real story plays to `storyEnd` | node harness, real player, stubbed DOM/XHR | control visible inside the overlay at logo reveal | — | control never shown for the local fallback story |
 | Tap thumbs up with comment "more dog" | harness XHR records the POST | one POST to `/gallery/intro/feedback` with `{"storyId":<id>,"rating":1,"comment":"more dog"}` | control hides | intro not dismissed by the tap itself |
 | Tap thumbs down, empty comment | harness | POST with `rating:-1`, `comment:""` | control hides | — |
-| User ignores the control | harness | control rides with the overlay; overlay dismisses on schedule | — | splash duration never extended |
-| Click/keydown outside the control | harness | overlay dismisses as today | — | — |
+| User ignores the control | harness | overlay stays: schedule, hard cap, outside click and keydown are all blocked while the note is unsent | — | splash duration not extended by timers (the block is a suspension, not a new timer) |
+| Click/keydown outside the control | harness | blocked while the control is live; overlay dismisses only after a thumb releases the block | — | — |
 | XHR fails / 500 | harness stub returns error | silent; control hides; splash unaffected | — | no console spam, no retry storm |
 
 ## Acceptance criteria
@@ -80,8 +95,9 @@ the player like the cast/props), `cmd/serve/frontend_test/intro.test.js`.
       input's text; thumbs-down POSTs `rating:-1`.
 - [ ] Harness asserts tapping a thumb AND clicking to focus the input do not
       dismiss the overlay (the document click listener is not tripped).
-- [ ] Harness asserts an ignored control is removed when the overlay dismisses,
-      and the overlay still dismisses at its normal hard cap.
+- [ ] Harness asserts an ignored control BLOCKS dismissal: outside click and
+      the hard cap cannot remove the overlay while the note is unsent; a
+      thumb releases the block and the handover completes on schedule.
 - [ ] The existing intro player assertions (bird geometry, chirp schedule)
       still pass unchanged.
 - [ ] `node cmd/serve/frontend_test/intro.test.js` green.
@@ -93,7 +109,7 @@ the player like the cast/props), `cmd/serve/frontend_test/intro.test.js`.
 | XHR error / non-2xx | silent; control hides; splash continues | harness stub |
 | Story without id (local fallback) | no control | harness |
 | User types then taps thumb | comment included verbatim (truncated client-side to 240) | harness |
-| User ignores the control | control stays until the overlay removes it on dismissal | harness |
+| User ignores the control | the overlay stays — every dismissal path is blocked until a thumb is tapped | harness |
 | Low-perf (story still plays) | control shows as usual; no extra animation | harness + existing low-perf path |
 | Reduced motion (`matchMedia` → `matches: true`) | no control — the player takes the `logoOnly` path (intro.js:924) and the overlay is dismissed ~1.3 s after load; there is no reveal moment to attach to | harness with a reduced-motion matchMedia stub |
 
@@ -144,9 +160,10 @@ appended to the overlay, clickable by default, with no `pointer-events` rule
   listener calls `stopPropagation` — the headless equivalent of "the click
   never reaches the document's dismiss listener", which is what the AC
   asserts.
-- The "never extends the splash schedule" AC is pinned by recording every
+- The "blocking control adds no timers" AC is pinned by recording every
   timer delay: the harness asserts the hard cap (`MAX_INTRO_MS + 500` =
-  13500) is still the longest timer with the control present.
+  13500) is still the longest timer with the control present — the block is
+  a boolean check in `dismissIntro`, never a new timer.
 
 **Tests (before: all green; after: all green).**
 
@@ -230,3 +247,42 @@ failing POST is silent and still hides the control; `.intro-feedback` is
 absolute against the `position: fixed` overlay with no `pointer-events` rule
 on the live state (R2-02); the note's `maxLength` is 240, matching
 `audienceCommentMax`; only `.intro-stage` is `pointer-events: none`.
+
+## Review findings (review 7, 2026-08-06) — decision reversal: the control blocks
+
+The prod symptom drove the reversal: on the TV the note-to-director control
+faded away with the overlay before the audience could write it. The player
+now suspends every dismissal path while the control is live. This reverses
+decision 7 in the README ("quick and non-blocking") and supersedes every
+passage above that describes the ride-with-the-overlay design (Goal, UI
+bullet, Behaviour, Integration contract rows, Acceptance criteria, Error
+coverage, review 3 "Verified good").
+
+**Changed (commit fe2d1a5, `cmd/serve/frontend/intro.js`).**
+
+- A `feedbackPending` flag, set when the control is built and cleared by
+  `send()`. `dismissIntro` returns early while it is set — the schedule, the
+  hard cap, outside clicks and keydowns all funnel through `dismissIntro`,
+  so one check blocks them all — and `maybeDismiss` defers the handover
+  until the block is released; `send()` calls `maybeDismiss()` after
+  clearing it.
+- The story fetch budget grew from 320 ms to 3 s, and the local fallback is
+  now a failure-only last resort (`onerror`/`ontimeout`/backstop) instead
+  of a race winner, so a slow TV waits for the real production instead of
+  the placeholder.
+- A still-loading logo delays `.reveal` until its `load`/`error` event, with
+  a 1.5 s backstop (`LOGO_BACKSTOP_MS`, `revealLogo`), on both the
+  `storyEnd` and the reduced-motion `logoOnly` paths.
+
+**Tests (review 7).** `intro.test.js` grew from 9 to 12 fixtures; the
+harness gained `fireTimer`, `deliverStory`, `markLoaded` and a
+still-loading-logo stub. Pre-fix, the new fixtures fail exactly the
+assertions encoding the new behavior (fallback race, outside-click block,
+hard-cap block, logo delay); post-fix all green:
+
+```
+node cmd/serve/frontend_test/intro.test.js   # 35 ok, 0 fail (12 fixtures)
+go test ./... -race -count=3 -cover -timeout=30s   # exit 0
+go vet ./...                                # clean
+node --check cmd/serve/frontend/intro.js     # clean
+```
