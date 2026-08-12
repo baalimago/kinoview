@@ -79,3 +79,18 @@ func TestAssembleContext_EmptyBoard(t *testing.T) {
 		t.Errorf("empty board rendered entries:\n%s", out)
 	}
 }
+
+// A fresh generation has no draft: the working summary is empty and the
+// context says so plainly instead of rendering an empty title, a phantom
+// "Acts: 1" and a blank backdrop — the previous generation's story must not
+// prime the new one (the same-play loop).
+func TestAssembleContext_NoDraftYet(t *testing.T) {
+	t.Parallel()
+	out := AssembleContext("g", "Solaris 1972", Board{}, Summary{}, "role", "task")
+	if !strings.Contains(out, "(no draft yet — this generation starts fresh)") {
+		t.Errorf("fresh generation not marked:\n%s", out)
+	}
+	if strings.Contains(out, "Title: ") {
+		t.Errorf("empty working summary rendered a title:\n%s", out)
+	}
+}

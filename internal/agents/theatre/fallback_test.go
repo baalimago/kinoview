@@ -366,6 +366,45 @@ func TestFallback_ConsultedRolesAnswerInPlace(t *testing.T) {
 	}
 }
 
+// The composer floor keeps the company's canon across the working-file reset:
+// a fresh generation starts with no draft (ResetWorking removed it), so the
+// playwright fallback re-seeds the working file's canon from the repertoire
+// doc — the same facts the playwright's context carries — instead of starting
+// from an empty continuity. The facts ride in the draft report too, so they
+// distill back into the repertoire doc next submit.
+func TestFallback_ComposerReseedsCanonAfterReset(t *testing.T) {
+	t.Parallel()
+	co := Open(t.TempDir())
+	repFacts := []string{"the mouse got away", "ina pinned her coat", strings.Repeat("x", CanonMaxFact*2)}
+	if err := co.SaveRepertoire(RepertoireDoc{Facts: repFacts}); err != nil {
+		t.Fatal(err)
+	}
+	stage := OpenStage(co, "stry_ab12")
+	silenceFeed(stage)
+	runner := NewRunner(co, stage)
+	runner.rnd = rand.New(rand.NewSource(11))
+
+	if _, err := runner.roleFallback("playwright", "t", 0); err != nil {
+		t.Fatal(err)
+	}
+	w, err := co.LoadWorking()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(w.Canon) != len(repFacts) {
+		t.Fatalf("working canon = %v, want all %d repertoire facts re-seeded", w.Canon, len(repFacts))
+	}
+	if w.Canon[0] != "the mouse got away" || w.Canon[1] != "ina pinned her coat" {
+		t.Errorf("working canon = %v, want the repertoire facts kept verbatim", w.Canon)
+	}
+	if len(w.Canon[2]) != CanonMaxFact {
+		t.Errorf("long fact not truncated to %d runes: %d", CanonMaxFact, len(w.Canon[2]))
+	}
+	if w.Report == nil || len(w.Report.Canon) != len(repFacts) {
+		t.Errorf("report canon = %v, want the re-seeded facts carried in the draft report", w.Report)
+	}
+}
+
 // A playwright fallback never clobbers the playwright's own draft: a failed
 // revision (the working file holds this generation's draft) reports the draft
 // instead of replacing it with a composer scene. A stale file from an earlier

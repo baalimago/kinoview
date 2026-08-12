@@ -161,6 +161,13 @@ const (
 	// audienceExcerpt caps how many notes a working context shows (decision
 	// D-3): the audience's most recent words, never the whole history.
 	audienceExcerpt = 8
+
+	// bulletinFreshDays is how long a bulletin notice stays in the working
+	// context: a directive ages out of the company's attention once it is
+	// stale, so an old commandment cannot keep commanding every generation
+	// forever (the Aug 4 "reuse the cold-case skeleton" notice ran the
+	// company for a week). Undated legacy entries are exempt.
+	bulletinFreshDays = 7
 )
 
 // truncateRunes caps a string at n runes. Bodies are LLM text, so cutting on

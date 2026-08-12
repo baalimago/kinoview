@@ -577,15 +577,26 @@ func (d RepertoireDoc) context() string {
 			fmt.Fprintf(&b, "  - %s\n", f)
 		}
 	}
+	b.WriteString(d.summariesContext())
+	return b.String()
+}
+
+// summariesContext renders the earlier-production list. The playwright reads
+// it as part of the repertoire; the director reads it too, so the company's
+// head knows what has already been staged — the first line of defence
+// against repeating a title or a beat skeleton generation after generation.
+func (d RepertoireDoc) summariesContext() string {
 	summaries := d.Summaries
 	if len(summaries) > summariesExcerpt {
 		summaries = summaries[:summariesExcerpt]
 	}
-	if len(summaries) > 0 {
-		b.WriteString("\nEarlier productions:\n")
-		for _, s := range summaries {
-			fmt.Fprintf(&b, "  - %q (%d acts, %d beats)\n", s.Title, s.Acts, s.Beats)
-		}
+	if len(summaries) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("\nEarlier productions (do not repeat their titles or beat skeletons):\n")
+	for _, s := range summaries {
+		fmt.Fprintf(&b, "  - %q (%d acts, %d beats)\n", s.Title, s.Acts, s.Beats)
 	}
 	return b.String()
 }
@@ -615,7 +626,7 @@ func (d DirectorDoc) context() string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString("\nDirecting lessons from earlier productions:\n")
+	b.WriteString("\nDirecting lessons from earlier productions (apply what still fits; never use them to restage an earlier production):\n")
 	for _, l := range excerpt {
 		fmt.Fprintf(&b, "  - %s\n", l.Text)
 	}
@@ -623,7 +634,25 @@ func (d DirectorDoc) context() string {
 }
 
 func (d BulletinDoc) context() string {
-	excerpt := d
+	// Entries older than bulletinFreshDays have aged out of the company's
+	// attention. Without the window, one stale directive — the Aug 4 "reuse
+	// the proven cold-case skeleton" notice — kept commanding every role for
+	// a week, generation after generation. Undated legacy entries stay
+	// visible: they predate dating, and hiding them would hide the only
+	// memory of that era.
+	cutoff := time.Now().AddDate(0, 0, -bulletinFreshDays)
+	fresh := make(BulletinDoc, 0, len(d))
+	for _, n := range d {
+		if n.Date == "" {
+			fresh = append(fresh, n)
+			continue
+		}
+		if ts, err := time.Parse("2006-01-02", n.Date); err == nil && ts.Before(cutoff) {
+			continue
+		}
+		fresh = append(fresh, n)
+	}
+	excerpt := fresh
 	if len(excerpt) > bulletinExcerpt {
 		excerpt = excerpt[:bulletinExcerpt]
 	}
@@ -651,8 +680,29 @@ func (d AudienceDoc) context() string {
 	}
 	var b strings.Builder
 	b.WriteString("\nAudience feedback from recent shows:\n")
+	// The mood line turns the raw notes into a signal the company can act on:
+	// five notes buried at the end of a long context read as noise, a "3 of
+	// the last 5 were thumbs-down" line reads as a verdict. When the notes
+	// are dissatisfied, the directive is explicit — feedback must shape the
+	// next production, not decorate its prompt.
+	down, up := 0, 0
 	for _, n := range excerpt {
-		fmt.Fprintf(&b, "  - [+%d] ", n.Rating)
+		if n.Rating < 0 {
+			down++
+		} else {
+			up++
+		}
+	}
+	if down > 0 {
+		fmt.Fprintf(&b, "  (mood: %d of the last %d notes were thumbs-down)\n", down, len(excerpt))
+		if down >= up && down >= 2 {
+			b.WriteString("  (the audience is dissatisfied — change the shape, the cast or the backdrop; do not restage the previous play)\n")
+		}
+	}
+	for _, n := range excerpt {
+		// [%+d] renders +1 as "[+1]" and -1 as "[-1]" — the old [+%d] verb
+		// turned a thumbs-down into the unreadable "[+-1]" (review 5, R5-01).
+		fmt.Fprintf(&b, "  - [%+d] ", n.Rating)
 		if n.Comment != "" {
 			fmt.Fprintf(&b, "%q ", n.Comment)
 		}

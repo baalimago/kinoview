@@ -115,6 +115,17 @@ func (r *Runner) fallbackDraft() (string, error) {
 	w, err := r.company.LoadWorking()
 	if err != nil {
 		w = Working{}
+		// The working file is reset at generation start; the composer floor
+		// still riffs on the company's canon facts, which the playwright's
+		// context carries via the repertoire doc.
+		if lib := r.company.LoadLibrary(); len(lib.Repertoire.Facts) > 0 {
+			for _, f := range lib.Repertoire.Facts {
+				if len(w.Canon) >= CanonMaxFacts {
+					break
+				}
+				w.Canon = append(w.Canon, truncateRunes(f, CanonMaxFact))
+			}
+		}
 	}
 	rep := draftReportFrom(s, w.Canon)
 	w.Story = s

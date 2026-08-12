@@ -29,19 +29,26 @@ func AssembleContext(gen, theme string, board Board, working Summary, rolePrompt
 		fmt.Fprintf(&b, "[%d] %s (%s) → %s: %s\n", e.Seq, e.Author, e.Kind, to, e.Body)
 	}
 	b.WriteString("\nWorking file:\n")
-	fmt.Fprintf(&b, "Title: %s\n", working.Title)
-	if len(working.Cast) == 0 {
-		b.WriteString("Cast: (none yet)\n")
+	if working.Title == "" && len(working.Cast) == 0 && working.Beats == 0 && working.Backdrop == "" {
+		// A fresh generation starts with no draft (the working file is reset
+		// at openProduction): the previous generation's story must not prime
+		// the new one, and an empty summary must not render as noise.
+		b.WriteString("(no draft yet — this generation starts fresh)\n")
 	} else {
-		fmt.Fprintf(&b, "Cast: %s\n", strings.Join(working.Cast, ", "))
-	}
-	fmt.Fprintf(&b, "Beats: %d\nActs: %d\n", working.Beats, working.Acts)
-	fmt.Fprintf(&b, "Backdrop: %s\nStatus: %s\n", working.Backdrop, working.Status)
-	if len(working.Canon) > 0 {
-		// The canon facts are the soft-continuity seam (D6): the playwright
-		// is told them and riffs on them; phase 6 seeds them from the
-		// repertoire doc.
-		fmt.Fprintf(&b, "Canon: %s\n", strings.Join(working.Canon, "; "))
+		fmt.Fprintf(&b, "Title: %s\n", working.Title)
+		if len(working.Cast) == 0 {
+			b.WriteString("Cast: (none yet)\n")
+		} else {
+			fmt.Fprintf(&b, "Cast: %s\n", strings.Join(working.Cast, ", "))
+		}
+		fmt.Fprintf(&b, "Beats: %d\nActs: %d\n", working.Beats, working.Acts)
+		fmt.Fprintf(&b, "Backdrop: %s\nStatus: %s\n", working.Backdrop, working.Status)
+		if len(working.Canon) > 0 {
+			// The canon facts are the soft-continuity seam (D6): the playwright
+			// is told them and riffs on them; phase 6 seeds them from the
+			// repertoire doc.
+			fmt.Fprintf(&b, "Canon: %s\n", strings.Join(working.Canon, "; "))
+		}
 	}
 	b.WriteString("\nYour role:\n")
 	b.WriteString(rolePrompt)

@@ -57,8 +57,22 @@ func Open(cacheDir string) *Company {
 	return &Company{dir: filepath.Join(cacheDir, CompanyDir)}
 }
 
-func (c *Company) boardPath() string      { return filepath.Join(c.dir, boardFileName) }
-func (c *Company) workingPath() string    { return filepath.Join(c.dir, workingFileName) }
+func (c *Company) boardPath() string   { return filepath.Join(c.dir, boardFileName) }
+func (c *Company) workingPath() string { return filepath.Join(c.dir, workingFileName) }
+
+// ResetWorking clears the draft for a fresh generation. A generation starts
+// with no draft: the previous generation's submitted story must not leak into
+// the new one's working-context, where its title, cast and set primed every
+// role and anchored the whole company on the same play. A missing file is the
+// normal state ("no draft yet") and not an error.
+func (c *Company) ResetWorking() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if err := os.Remove(c.workingPath()); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
 func (c *Company) ledgerPath() string     { return filepath.Join(c.dir, ledgerFileName) }
 func (c *Company) transcriptPath() string { return filepath.Join(c.dir, transcriptFileName) }
 

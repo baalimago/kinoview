@@ -2243,6 +2243,29 @@ body {
 /* On a weak TV, drop the multi-stop radial stacks — they are fill-rate heavy */
 .low-perf .backdrop-scenery { background-image: none; }
 
+/* Stage lighting — a vignette over the backdrop and a warm pool of light on
+   the floor: the cast stands in the light, the set falls away at the edges.
+   Both are single radial gradients on one composite layer, so the TV GPU
+   blends them cheaply; the vignette lives on the backdrop, under the actors
+   in the stage above it. */
+.intro-backdrop::after {
+  content: '';
+  position: absolute; top: 0; right: 0; bottom: 0; left: 0;
+  background: -webkit-radial-gradient(ellipse at 50% 38%, transparent 52%, rgba(0,0,0,0.38) 100%);
+  background: radial-gradient(ellipse at 50% 38%, transparent 52%, rgba(0,0,0,0.38) 100%);
+  pointer-events: none;
+}
+.backdrop-ground::after {
+  content: '';
+  position: absolute;
+  left: 10%; right: 10%; top: -40%; bottom: -80%;
+  background: -webkit-radial-gradient(50% 50%, ellipse, rgba(255, 236, 190, 0.30) 0%, rgba(255, 236, 190, 0.10) 45%, transparent 72%);
+  background: radial-gradient(ellipse at 50% 50%, rgba(255, 236, 190, 0.30) 0%, rgba(255, 236, 190, 0.10) 45%, transparent 72%);
+  pointer-events: none;
+}
+.low-perf .intro-backdrop::after,
+.low-perf .backdrop-ground::after { display: none; }
+
 /* Contact shadow — this is what makes a character look like it is STANDING on
    the set rather than pasted over it. It lives on .actor-walk, not .actor,
    because .actor is the anchor pinned at the destination: on .actor the shadow

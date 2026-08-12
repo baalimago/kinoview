@@ -388,19 +388,23 @@ func TestTheatre_SubmitTwiceRefused(t *testing.T) {
 func TestTheatre_SubmitRefusesInvalidDraft(t *testing.T) {
 	t.Parallel()
 	th := newTestTheatre(t)
-	// A working file holding an unplayable story, written around SaveWorking's
-	// gate the way a hostile or hand-edited file would appear.
-	workingPath := filepath.Join(th.cacheDir, CompanyDir, workingFileName)
-	if err := os.MkdirAll(filepath.Dir(workingPath), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(workingPath, []byte(`{"story":{"id":"bad","title":"no cast"},"revision":1,"status":"draft"}`), 0o644); err != nil {
-		t.Fatal(err)
-	}
 
 	var submitOut, validateOut string
 	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		if strings.Contains(p.prompt, "You are the director of") {
+			// A working file holding an unplayable story, written around
+			// SaveWorking's gate the way a hostile or hand-edited file would
+			// appear mid-generation. It is written here, inside the
+			// production: openProduction resets the working file at
+			// generation start, so a file planted between generations no
+			// longer survives into the new one.
+			workingPath := filepath.Join(th.cacheDir, CompanyDir, workingFileName)
+			if err := os.MkdirAll(filepath.Dir(workingPath), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(workingPath, []byte(`{"story":{"id":"bad","title":"no cast"},"revision":1,"status":"draft"}`), 0o644); err != nil {
+				t.Fatal(err)
+			}
 			validateOut = callTool(t, p, "validate_story", models.Input{})
 			submitOut = callTool(t, p, "submit_story", models.Input{})
 			return llmOutcome{text: submitOut}, nil
@@ -1040,6 +1044,25 @@ func TestTheatre_NextNeverEmpty(t *testing.T) {
 	}
 }
 
+// openProduction starts a generation with no draft: the previous
+// generation's submitted story must not prime the new one's working-context
+// (the same-play loop). A working file written between generations is
+// cleared at the next generation's start.
+func TestTheatre_OpenProductionResetsWorkingFile(t *testing.T) {
+	t.Parallel()
+	th := newTestTheatre(t)
+	co := Open(th.cacheDir)
+	if err := co.SaveWorking(Working{Story: validStory(), Revision: 1, Status: "submitted"}); err != nil {
+		t.Fatal(err)
+	}
+	if p := th.openProduction(""); p == nil {
+		t.Fatal("openProduction returned nil")
+	}
+	if _, err := co.LoadWorking(); err == nil {
+		t.Fatal("working file survived openProduction")
+	}
+}
+
 // Two sequential generations (acceptance criterion): generation 2's
 // playwright context carries generation 1's canon facts, the dramaturg
 // context carries generation 1's premise in the no-repeat list, and the
@@ -1114,8 +1137,22 @@ func TestTheatre_SecondGenerationReadsFirstLibrary(t *testing.T) {
 	if !strings.Contains(dramaturg, "Solaris 1972") {
 		t.Errorf("generation 2 dramaturg context lacks generation 1's premise (no-repeat list)")
 	}
+	// The working file is reset at generation start: generation 2's dramaturg
+	// must not see generation 1's submitted title in its working summary (the
+	// same-play anchor), and the fresh state is marked plainly.
+	if strings.Contains(dramaturg, "The Test Night") {
+		t.Errorf("generation 2 dramaturg context carries generation 1's working-file title — the working file must reset per generation")
+	}
+	if !strings.Contains(dramaturg, "no draft yet") {
+		t.Errorf("generation 2 dramaturg context lacks the fresh-generation marker")
+	}
 	if !strings.Contains(director, "two stares in a row is dead air") {
 		t.Errorf("generation 2 director context lacks generation 1's lesson")
+	}
+	// The director reads the earlier-production list too, so the company's
+	// head can see a repeated shape coming.
+	if !strings.Contains(director, "Earlier productions") || !strings.Contains(director, "The Test Night") {
+		t.Errorf("generation 2 director context lacks the earlier-productions list")
 	}
 
 	// The bulletins and canon facts are durable on disk too.

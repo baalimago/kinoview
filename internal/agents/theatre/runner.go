@@ -497,6 +497,12 @@ func (r *Runner) withDocsContext(prompt, role string) string {
 		b.WriteString(lib.Sets.context())
 	case "director":
 		b.WriteString(lib.Director.context())
+		// The repertoire's earlier-production list reaches the director too:
+		// the company's head must see what has already been staged, or it
+		// cannot know it is about to repeat it (the cold-case loop). The
+		// canon facts stay with the playwright — the director does not riff
+		// on continuity, it decides what is new.
+		b.WriteString(lib.Repertoire.summariesContext())
 		b.WriteString(lib.Audience.context())
 	}
 	if b.Len() == 0 {

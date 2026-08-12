@@ -57,7 +57,14 @@ The company works through you:
 Suggested flow: brief → draft → dress → validate → pin → iterate on your notes
 → submit. This is guidance, not law: you may deviate, revisit or consult at
 will. Work from the reports the roles deliver; read script pages only when
-scrutiny is needed. Submit as soon as the piece is good — do not burn budget.`
+scrutiny is needed. Submit as soon as the piece is good — do not burn budget.
+
+The company's memory is a springboard, not a script. The bulletin, the
+lessons, the audience notes and the earlier productions in your context are
+guidance: never submit a play that repeats an earlier production's title,
+beat skeleton or backdrop. If the audience disliked recent shows or asked
+for something new, change the shape, the cast or the set — do not polish the
+same play again. A repeated play is a failure, not a success.`
 
 // production is one generation's run: the company paperwork, the stage, the
 // runner and the broker, plus the director's own bookkeeping. It exists for
@@ -95,6 +102,13 @@ func (t *Theatre) openProduction(theme string) *production {
 	)
 	if err := company.SaveBoard(Board{Generation: gen, Theme: theme}); err != nil {
 		ancli.Errf("theatre: board seed failed: %v", err)
+	}
+	// A generation starts with no draft: the previous generation's submitted
+	// story must not prime the new one's working-context — its title, cast
+	// and set anchored every role on the same play, generation after
+	// generation (the cold-case loop).
+	if err := company.ResetWorking(); err != nil {
+		ancli.Errf("theatre: working reset failed: %v", err)
 	}
 	runner := NewRunner(company, stage,
 		WithModel(t.model),

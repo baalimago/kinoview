@@ -322,7 +322,7 @@ func TestDocs_ContextExcerptsPerRole(t *testing.T) {
 		{"dramaturg", []string{"Premises already used", "Solaris 1972", "Audience feedback from recent shows", "more dog", "[+1]"}, []string{"the mouse got away", "two stares in a row"}},
 		{"playwright", []string{"Canon facts from earlier productions", "the mouse got away", "Earlier productions", "The Test Night"}, []string{"Premises already used", "two stares in a row", "Audience feedback"}},
 		{"scenographer", []string{"Set recipes already used", "garden (0 cells"}, []string{"the mouse got away", "two stares in a row", "Audience feedback"}},
-		{"director", []string{"Directing lessons from earlier productions", "two stares in a row is dead air", "Audience feedback from recent shows", "more dog"}, []string{"the mouse got away", "Premises already used"}},
+		{"director", []string{"Directing lessons from earlier productions", "two stares in a row is dead air", "Audience feedback from recent shows", "more dog", "Earlier productions", "The Test Night"}, []string{"the mouse got away", "Premises already used"}},
 		{"wardrobe", nil, []string{"Audience feedback", "Premises already used", "the mouse got away"}},
 	}
 	for _, tt := range cases {
@@ -341,6 +341,76 @@ func TestDocs_ContextExcerptsPerRole(t *testing.T) {
 		if !strings.Contains(ctx, "the mouse gets away") {
 			t.Errorf("%s context lacks the bulletin", tt.role)
 		}
+	}
+}
+
+// Bulletin notices age out of the working context: a directive from before
+// the freshness window must stop commanding every generation, while a fresh
+// notice (and an undated legacy one) stays visible.
+func TestDocs_BulletinContextAgesOut(t *testing.T) {
+	co := Open(t.TempDir())
+	fresh := Notice{Author: "director", Kind: "decision", Body: "fresh directive", Date: dateStamp(time.Now())}
+	stale := Notice{Author: "playwright", Kind: "decision", Body: "stale commandment", Date: dateStamp(time.Now().AddDate(0, 0, -bulletinFreshDays-1))}
+	legacy := Notice{Author: "scenographer", Kind: "note", Body: "undated legacy note"}
+	if err := co.SaveBulletin(BulletinDoc{fresh, stale, legacy}); err != nil {
+		t.Fatal(err)
+	}
+	ctx := co.LoadBulletin().context()
+	for _, want := range []string{"fresh directive", "undated legacy note"} {
+		if !strings.Contains(ctx, want) {
+			t.Errorf("bulletin context lacks %q:\n%s", want, ctx)
+		}
+	}
+	if strings.Contains(ctx, "stale commandment") {
+		t.Errorf("stale bulletin entry still in context:\n%s", ctx)
+	}
+}
+
+// The audience context turns the raw notes into a verdict the company can
+// act on: a mood line when there are thumbs-down, an explicit dissatisfaction
+// directive when the down-votes dominate, and a sign-correct rating — the
+// old [+%d] verb rendered a thumbs-down as the unreadable "[+-1]"
+// (review 5, R5-01).
+func TestDocs_AudienceContextMoodAndSign(t *testing.T) {
+	co := Open(t.TempDir())
+	doc := AudienceDoc{
+		{StoryID: "stry_aa01", Rating: -1, Comment: "same play again", Date: "2026-08-11"},
+		{StoryID: "stry_aa02", Rating: -1, Comment: "boring", Date: "2026-08-11"},
+		{StoryID: "stry_aa03", Rating: -1, Date: "2026-08-10"},
+		{StoryID: "stry_aa04", Rating: 1, Comment: "nice", Date: "2026-08-10"},
+		{StoryID: "stry_aa05", Rating: 1, Date: "2026-08-09"},
+	}
+	if err := co.SaveAudience(doc); err != nil {
+		t.Fatal(err)
+	}
+	ctx := co.LoadAudience().context()
+	for _, want := range []string{
+		"Audience feedback from recent shows:",
+		"(mood: 3 of the last 5 notes were thumbs-down)",
+		"the audience is dissatisfied",
+		"[-1]",
+		"[+1]",
+	} {
+		if !strings.Contains(ctx, want) {
+			t.Errorf("audience context lacks %q:\n%s", want, ctx)
+		}
+	}
+	if strings.Contains(ctx, "[+-1]") {
+		t.Errorf("audience context renders the R5-01 [+-1] bug:\n%s", ctx)
+	}
+
+	// A lone thumbs-down among up-votes gets the mood line but no verdict:
+	// the dissatisfaction directive needs a dominating down-vote.
+	happy := AudienceDoc{
+		{StoryID: "stry_bb01", Rating: 1, Comment: "loved it"},
+		{StoryID: "stry_bb02", Rating: -1},
+	}
+	if err := co.SaveAudience(happy); err != nil {
+		t.Fatal(err)
+	}
+	happyCtx := co.LoadAudience().context()
+	if strings.Contains(happyCtx, "the audience is dissatisfied") {
+		t.Errorf("single thumbs-down among up-votes should not render a verdict:\n%s", happyCtx)
 	}
 }
 

@@ -173,13 +173,20 @@ fallback) so the intro splash works offline and without an API key.
   per id, and a new character enters only by explicit director approval at
   submit (the registry is the only place identities are born). Docs are
   atomic-written, validated on load (corrupt degrades to empty, never a
-  crash) and trimmed to caps, oldest first. The distill's board-sourced
-  inputs are carried out of band: the brief and the scenographer's dressed
-  marker ride in the working file (R3-02), so a board overflow past
-  BoardMaxEntries can never silently lose a generation's premise. The
-  registry's load gate runs the same species-palette check as `Canonize`,
-  so a hand-edited registry.json can never surface a coat the player cannot
-  draw (R3-04).
+  crash) and trimmed to caps, oldest first. The memory is a springboard, not
+  a script: the working file is reset at every generation start (the
+  previous play's title/cast/set must not prime the new one), bulletin
+  notices older than 7 days age out of every context, the audience excerpt
+  opens with a mood verdict ("3 of the last 5 notes were thumbs-down — the
+  audience is dissatisfied") plus a sign-correct rating (`[+1]`/`[-1]`), the
+  director reads the earlier-production list, and every role prompt carries
+  the same novelty duty — never restage an earlier production's shape. The
+  distill's board-sourced inputs are carried out of band: the brief and the
+  scenographer's dressed marker ride in the working file (R3-02), so a board
+  overflow past BoardMaxEntries can never silently lose a generation's
+  premise. The registry's load gate runs the same species-palette check as
+  `Canonize`, so a hand-edited registry.json can never surface a coat the
+  player cannot draw (R3-04).
 - **The theatre's observability is single-writer.** Agents never write stdout:
   the stage manager owns the transcript, one feed goroutine prints ancli lines
   (`[theatre <gen>]`), and the ledger keeps the telemetry. A generation is
@@ -234,7 +241,9 @@ fallback) so the intro splash works offline and without an API key.
   indexer type-asserts `agents.Feedbacker` on the theatre and the facade
   appends the note to `audience.json` — the doc's single write path, so a
   submit's distillation never overwrites it. The director and the dramaturg
-  read the recent excerpt next generation; feedback never bypasses the
+  read the recent excerpt next generation — with the mood verdict — and the
+  role prompts make the audience the priority: a dissatisfied audience must
+  change the shape, the cast or the backdrop. Feedback never bypasses the
   cooldown.
 - **clai ≥ v1.10.22-r1 ships the reasoning cap upstream.** A looping model
   can stream reasoning tokens forever; clai ≤ v1.10.21 accumulated them in

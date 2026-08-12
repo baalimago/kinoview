@@ -70,6 +70,29 @@ func TestWorking_RoundTrip(t *testing.T) {
 	}
 }
 
+// ResetWorking clears the draft between generations: a missing file is the
+// normal "no draft yet" state and a second reset is a no-op.
+func TestCompany_ResetWorking(t *testing.T) {
+	t.Parallel()
+	co := Open(t.TempDir())
+	if err := co.SaveWorking(Working{Story: validStory(), Revision: 1, Status: "draft"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := co.LoadWorking(); err != nil {
+		t.Fatalf("seed working file: %v", err)
+	}
+	if err := co.ResetWorking(); err != nil {
+		t.Fatalf("ResetWorking: %v", err)
+	}
+	if _, err := co.LoadWorking(); err == nil {
+		t.Fatal("working file still loads after ResetWorking")
+	}
+	// A missing file is the normal state: resetting again is a no-op.
+	if err := co.ResetWorking(); err != nil {
+		t.Fatalf("second ResetWorking: %v", err)
+	}
+}
+
 func TestLedger_RoundTrip(t *testing.T) {
 	t.Parallel()
 	co := Open(t.TempDir())
