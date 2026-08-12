@@ -236,6 +236,18 @@ fallback) so the intro splash works offline and without an API key.
   submit's distillation never overwrites it. The director and the dramaturg
   read the recent excerpt next generation; feedback never bypasses the
   cooldown.
+- **clai ≥ v1.10.22-r1 ships the reasoning cap upstream.** A looping model
+  can stream reasoning tokens forever; clai ≤ v1.10.21 accumulated them in
+  unbounded O(n²) string builders, which OOMed the server on 2026-08-11
+  (2.53 GB heap, 476 MiB failed allocation). The fix caps both reasoning
+  accumulators (`reasoningContent` in `internal/text/generic/` and
+  `reasoningBuf` in `internal/text/`) at 1 MiB, keeping the tail. Kinoview
+  pins v1.10.22-r1; do not downgrade below it. Two wall-clock guards back the
+  cap up: `-conciergeTimeout` (default 10 min) aborts a stuck concierge run,
+  and `-classifierTimeout` (default 5 min) aborts a stuck classification
+  call (the attempt still counts). Regression proof:
+  `REPRO_OOM=1 go test ./internal/agents/butler -run TestRepro_HeapGrowthPerReasoningByte`
+  must keep heapSys under 256 MiB and return on the 120 s deadline.
 
 ---
 

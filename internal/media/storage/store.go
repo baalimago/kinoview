@@ -45,6 +45,7 @@ type store struct {
 	rateLimiter                    *rateLimiter
 	memoryThreshold                float64
 	classificationMaxAttempts      int
+	classificationTimeout          time.Duration
 
 	// totalMemory returns the machine's total RAM in bytes. Defaults to
 	// totalSystemMemory; tests override it per store so the memory guard is
@@ -139,6 +140,16 @@ func WithClassificationMaxAttempts(n int) StoreOption {
 	}
 }
 
+// WithClassificationTimeout sets the wall-clock cap for one Classify call. A
+// classifier stuck on a looping model (endless reasoning stream, the
+// 2026-08-11 OOM root cause) is aborted after this duration and the attempt
+// counts against the item's max-attempts budget. Zero disables the cap.
+func WithClassificationTimeout(d time.Duration) StoreOption {
+	return func(s *store) {
+		s.classificationTimeout = d
+	}
+}
+
 // WithStartupWriteDelay sets the duration after Start() during which store writes
 // are deferred and batched. After the delay expires (or ctx cancels), all dirty
 // items are flushed to disk in a single batch. Default 30s. Zero or negative
@@ -187,6 +198,7 @@ func NewStore(opts ...StoreOption) *store {
 		classificationLogsOutdir:      classifierLogOut,
 		memoryThreshold:               0.8,
 		classificationMaxAttempts:     5,
+		classificationTimeout:         5 * time.Minute,
 		startupWriteWindow:            30 * time.Second,
 		dirty:                         make(map[string]struct{}),
 		pendingRequeue:                make(map[string]struct{}),

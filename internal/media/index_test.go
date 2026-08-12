@@ -1194,3 +1194,49 @@ func TestConcierge_ContextCancelStopsScheduler(t *testing.T) {
 		t.Fatal("concierge ran after context cancel")
 	}
 }
+
+// TestConcierge_TimeoutAbortsStuckRun verifies that a concierge run stuck on
+// a looping model (endless reasoning stream, the 2026-08-11 OOM root cause)
+// is aborted after WithConciergeTimeout instead of holding the scheduler
+// forever. Before the timeout existed, a stuck Run blocked the loop with no
+// way to abort; the process then OOMed on the unbounded reasoning stream.
+func TestConcierge_TimeoutAbortsStuckRun(t *testing.T) {
+	started := make(chan struct{})
+	mc := &countingConcierge{
+		runFn: func(ctx context.Context) (string, error) {
+			close(started)
+			<-ctx.Done()
+			return "", ctx.Err()
+		},
+	}
+	idx := newTestIndexerForConcierge(t, mc, WithConciergeTimeout(100*time.Millisecond))
+
+	errChan := make(chan error, 1)
+	ctx := t.Context()
+	go idx.runConciergeLoop(ctx, errChan)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("concierge Run did not start")
+	}
+
+	// The stuck run must abort shortly after the 100ms timeout and surface
+	// DeadlineExceeded on the error channel; the scheduler then persists
+	// last-run and moves on.
+	select {
+	case err := <-errChan:
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Fatalf("concierge run error: got %v, want DeadlineExceeded", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("concierge Run still blocked past the timeout — stuck run not aborted")
+	}
+
+	// The loop must survive the aborted run: it persists last-run and returns
+	// to the scheduler (no panic, no permanent block).
+	time.Sleep(100 * time.Millisecond)
+	if _, err := os.Stat(path.Join(idx.conciergeCacheDir, "concierge_last_run")); err != nil {
+		t.Fatalf("last-run not persisted after aborted run: %v", err)
+	}
+}

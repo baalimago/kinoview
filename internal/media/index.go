@@ -97,6 +97,7 @@ type Indexer struct {
 	conciergeStartupDelay time.Duration
 	conciergeInterval     time.Duration
 	conciergeCacheDir     string
+	conciergeTimeout      time.Duration
 	// theatre prepares the intro splash story (the agents.Teller contract).
 	theatre agents.Teller
 
@@ -197,6 +198,16 @@ func WithConciergeCacheDir(dir string) IndexerOption {
 	}
 }
 
+// WithConciergeTimeout sets the wall-clock cap for a single concierge run. A
+// run stuck on a looping model (endless reasoning stream) is aborted after
+// this duration; the next run happens at the next interval. Zero disables the
+// cap.
+func WithConciergeTimeout(d time.Duration) IndexerOption {
+	return func(i *Indexer) {
+		i.conciergeTimeout = d
+	}
+}
+
 func WithSuggestionsManager(s *suggestions.Manager) IndexerOption {
 	return func(i *Indexer) {
 		i.suggestions = s
@@ -269,6 +280,7 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 		clock:             time.Now,
 		pongGrace:         defaultPongGrace,
 		conciergeInterval: 6 * time.Hour,
+		conciergeTimeout:  10 * time.Minute,
 		recommender: recommender.New(models.Configurations{
 			Model:         "gpt-5",
 			ConfigDir:     claiPath,
@@ -450,7 +462,17 @@ func (i *Indexer) runConciergeLoop(ctx context.Context, errChan chan<- error) {
 			}
 		}()
 		ancli.Okf("Running concierge")
-		_, err := i.concierge.Run(ctx)
+		// Bound each run so a looping model (endless reasoning stream, the
+		// 2026-08-11 OOM root cause) cannot hold the loop open forever. The
+		// timeout ctx is derived from the loop ctx, so server shutdown still
+		// cancels promptly.
+		runCtx := ctx
+		cancel := func() {}
+		if i.conciergeTimeout > 0 {
+			runCtx, cancel = context.WithTimeout(ctx, i.conciergeTimeout)
+		}
+		_, err := i.concierge.Run(runCtx)
+		cancel()
 		if err != nil && !errors.Is(err, context.Canceled) {
 			errChan <- err
 		}

@@ -209,7 +209,18 @@ func (s *store) startClassificationRoutine(ctx context.Context, workerID int, wo
 			return
 		case c := <-workChan:
 			ancli.Noticef("[%v] - Worker %v, classifying: %v", c.correlationID, workerID, c.item.Name)
-			i, err := workerClassifier.Classify(ctx, c.item)
+			// Bound each call so a classifier stuck on a looping model (endless
+			// reasoning stream, the 2026-08-11 OOM root cause) cannot hold the
+			// worker forever. The timeout ctx derives from the station ctx, so
+			// shutdown still cancels promptly; a timeout surfaces as a
+			// classification error and counts as an attempt.
+			classifyCtx := ctx
+			cancel := func() {}
+			if s.classificationTimeout > 0 {
+				classifyCtx, cancel = context.WithTimeout(ctx, s.classificationTimeout)
+			}
+			i, err := workerClassifier.Classify(classifyCtx, c.item)
+			cancel()
 			resChan <- classificationResult{
 				correlationID: c.correlationID,
 				classifierErr: err,

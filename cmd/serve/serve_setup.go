@@ -80,6 +80,7 @@ func (c *command) Setup(ctx context.Context) error {
 		storage.WithClassificationRate(*c.classificationRate),
 		storage.WithClassificationBurst(*c.classificationBurst),
 		storage.WithClassificationStartupCooldown(*c.classificationStartupCooldown),
+		storage.WithClassificationTimeout(*c.classificationTimeout),
 		storage.WithStartupWriteDelay(*c.startupWriteDelay),
 	)
 	// Give shutdown a wait point: cancelling the context stops the store's
@@ -229,6 +230,7 @@ func (c *command) Setup(ctx context.Context) error {
 		media.WithButlerCacheTTL(*c.butlerCacheTTL),
 		media.WithPongGrace(*c.pongGrace),
 		media.WithConciergeInterval(*c.conciergeInterval),
+		media.WithConciergeTimeout(*c.conciergeTimeout),
 		media.WithConciergeCacheDir(*c.cacheDir),
 	)
 	if err != nil {

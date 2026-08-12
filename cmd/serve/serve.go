@@ -50,6 +50,7 @@ type command struct {
 	classificationRate            *float64
 	classificationBurst           *int
 	classificationStartupCooldown *time.Duration
+	classificationTimeout         *time.Duration
 	pprof                         *bool
 	butlerModel                   *string
 	recommenderModel              *string
@@ -65,6 +66,7 @@ type command struct {
 	butlerCacheTTL                *time.Duration
 	pongGrace                     *time.Duration
 	conciergeInterval             *time.Duration
+	conciergeTimeout              *time.Duration
 }
 
 func Command() *command {
@@ -81,10 +83,12 @@ func Command() *command {
 		classificationRate:            new(float64),
 		classificationBurst:           new(int),
 		classificationStartupCooldown: &defaultCooldown,
+		classificationTimeout:         new(time.Duration),
 	}
 	*ret.classificationWorkers = 10
 	*ret.classificationRate = 0.2
 	*ret.classificationBurst = 3
+	*ret.classificationTimeout = 5 * time.Minute
 	*ret.conciergeStartupDelay = 60 * time.Second
 	ret.theatreCooldown = new(time.Duration)
 	*ret.theatreCooldown = theatre.DefaultCooldown
@@ -104,6 +108,8 @@ func Command() *command {
 	*ret.butlerCacheTTL = 6 * time.Hour
 	ret.conciergeInterval = new(time.Duration)
 	*ret.conciergeInterval = 6 * time.Hour
+	ret.conciergeTimeout = new(time.Duration)
+	*ret.conciergeTimeout = 10 * time.Minute
 	configDir, err := os.UserConfigDir()
 	if err != nil {
 		ancli.Errf("failed to find user config dir: %v", err)
@@ -254,6 +260,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.classificationRate = fs.Float64("classificationRate", 0.2, "classifications per second (1 every 5s default)")
 	c.classificationBurst = fs.Int("classificationBurst", 3, "max burst before rate limit kicks in")
 	c.classificationStartupCooldown = fs.Duration("classificationStartupCooldown", 10*time.Second, "delay before first classification is admitted")
+	c.classificationTimeout = fs.Duration("classifierTimeout", 5*time.Minute, "wall-clock cap for one classification call; a classifier stuck on a looping model is aborted after this and the attempt counts against the item's max-attempts budget")
 	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
@@ -268,6 +275,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.butlerCacheTTL = fs.Duration("butlerCacheTTL", 6*time.Hour, "how long a cached suggestion set is served before re-querying the butler; 0 disables caching")
 	c.pongGrace = fs.Duration("pongGrace", 10*time.Second, "grace period after a pong timeout before a disconnect cascade fires; 0 disables")
 	c.conciergeInterval = fs.Duration("conciergeInterval", 6*time.Hour, "interval between concierge runs")
+	c.conciergeTimeout = fs.Duration("conciergeTimeout", 10*time.Minute, "wall-clock cap for a single concierge run; a run stuck on a looping model is aborted after this and the next run happens at the next interval")
 
 	c.flagset = fs
 	return fs

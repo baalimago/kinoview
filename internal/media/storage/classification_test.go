@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -256,7 +257,8 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 
 func Test_startClassificationStation_context(t *testing.T) {
 	t.Parallel()
-	ctx := t.Context()
+	type ctxKey struct{}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "station-marker")
 
 	dir := t.TempDir()
 	s := NewStore(WithStorePath(dir), WithClassificationWorkers(1), WithClassificationRate(0), WithClassificationStartupCooldown(0))
@@ -265,10 +267,12 @@ func Test_startClassificationStation_context(t *testing.T) {
 	s.classifierErrors = make(chan error, 10)
 
 	var gotCtx context.Context
+	var ctxErrDuringCall error
 	s.classifier = &mockClassifier{
 		SetupFunc: func(ctx context.Context) error { return nil },
 		ClassifyFunc: func(c context.Context, i model.Item) (model.Item, error) {
 			gotCtx = c
+			ctxErrDuringCall = c.Err()
 			meta := json.RawMessage(`{"ok":true}`)
 			i.Metadata = &meta
 			return i, nil
@@ -293,8 +297,22 @@ func Test_startClassificationStation_context(t *testing.T) {
 		return ok
 	})
 
-	if gotCtx != ctx {
-		t.Fatalf("ctx not propagated to Classify")
+	// The station derives a per-call timeout ctx from the station ctx. The
+	// derivation must carry the parent's values (context chain intact), carry
+	// the timeout deadline, and be live for the duration of the call (the
+	// station cancels it after Classify returns, so only the in-call state is
+	// meaningful).
+	if gotCtx == nil {
+		t.Fatal("Classify never called")
+	}
+	if gotCtx.Value(ctxKey{}) != "station-marker" {
+		t.Fatalf("station ctx values not propagated to Classify ctx")
+	}
+	if _, ok := gotCtx.Deadline(); !ok {
+		t.Fatal("expected Classify ctx to carry the per-call timeout deadline")
+	}
+	if ctxErrDuringCall != nil {
+		t.Fatalf("Classify ctx canceled during the call: %v", ctxErrDuringCall)
 	}
 }
 
@@ -361,6 +379,63 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 		t.Fatalf("cache grew after station shutdown: %d -> %d", settled, after)
 	}
 	close(block)
+}
+
+// Test_startClassificationStation_classifierTimeout verifies that a Classify
+// call stuck on a looping model (endless reasoning stream, the 2026-08-11 OOM
+// root cause) is aborted after WithClassificationTimeout and surfaces as a
+// classification error — the attempt counts against the item's budget instead
+// of holding the worker forever.
+func Test_startClassificationStation_classifierTimeout(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	dir := t.TempDir()
+	s := NewStore(
+		WithStorePath(dir),
+		WithClassificationWorkers(1),
+		WithClassificationRate(0),
+		WithClassificationStartupCooldown(0),
+		WithClassificationTimeout(100*time.Millisecond),
+	)
+
+	s.classificationRequest = make(chan classificationCandidate, 10)
+	s.classifierErrors = make(chan error, 10)
+
+	started := make(chan struct{})
+	s.classifier = &mockClassifier{
+		SetupFunc: func(ctx context.Context) error { return nil },
+		ClassifyFunc: func(c context.Context, i model.Item) (model.Item, error) {
+			close(started)
+			<-c.Done()
+			return model.Item{}, c.Err()
+		},
+	}
+
+	if err := s.StartClassificationStation(ctx); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+
+	it := model.Item{ID: "stuck-1", Name: "stuck-1", MIMEType: "video/mp4"}
+	s.AddToClassificationQueue(it)
+
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Classify did not start")
+	}
+
+	// The stuck call must abort shortly after the 100ms timeout and surface
+	// as a classification error (counts as an attempt), not block the worker.
+	select {
+	case err := <-s.classifierErrors:
+		if !strings.Contains(err.Error(), "context deadline exceeded") {
+			t.Fatalf("classification error: got %v, want deadline exceeded", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Classify still blocked past the timeout — stuck call not aborted")
+	}
 }
 
 func Test_startClassificationStation_backpressure(t *testing.T) {
@@ -769,7 +844,15 @@ func Test_AddToClassificationQueue_queueCap(t *testing.T) {
 	s.classifier = &mockClassifier{
 		SetupFunc: func(ctx context.Context) error { return nil },
 		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
-			<-workerBlock
+			// Unblock on close(workerBlock) or on ctx cancel, so a slow test
+			// (ctx expiring before the unblock) drains cleanly instead of
+			// leaving the worker stuck on a send to a gone delegator — which
+			// hangs the store's Wait() in teardown.
+			select {
+			case <-ctx.Done():
+				return model.Item{}, ctx.Err()
+			case <-workerBlock:
+			}
 			processed.Add(1)
 			meta := json.RawMessage(`{}`)
 			i.Metadata = &meta
