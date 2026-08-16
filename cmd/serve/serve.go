@@ -37,9 +37,8 @@ type command struct {
 	// became ready; nil otherwise (the server runs without the notebook).
 	s3Supervisor *s3embed.Supervisor
 	// slivingdocServer is the MCP callsign for the shared agent notebook,
-	// built during Setup when both the weed and slivingdoc binaries
-	// resolved. A zero value means the notebook is disabled and the agents
-	// run without it.
+	// built during Setup when both the weed binary and npx resolved. A zero
+	// value means the notebook is disabled and the agents run without it.
 	slivingdocServer models.McpServer
 
 	binPath   string
@@ -85,8 +84,8 @@ type command struct {
 	s3MasterPort *int
 	s3VolumePort *int
 	s3FilerPort  *int
-	// Shared agent notebook: the slivingdoc MCP callsign over the S3 backend.
-	slivingdocCommand   *string
+	// Shared agent notebook: the slivingdoc npm package over the S3 backend.
+	npxCommand          *string
 	slivingdocBucket    *string
 	slivingdocRegion    *string
 	slivingdocEndpoint  *string
@@ -144,7 +143,7 @@ func Command() *command {
 	*ret.s3VolumePort = s3embed.DefaultVolumePort
 	ret.s3FilerPort = new(int)
 	*ret.s3FilerPort = s3embed.DefaultFilerPort
-	ret.slivingdocCommand = new(string)
+	ret.npxCommand = new(string)
 	ret.slivingdocBucket = new(string)
 	*ret.slivingdocBucket = s3embed.DefaultBucket
 	ret.slivingdocRegion = new(string)
@@ -343,7 +342,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.s3MasterPort = fs.Int("s3MasterPort", s3embed.DefaultMasterPort, "SeaweedFS master HTTP listen port")
 	c.s3VolumePort = fs.Int("s3VolumePort", s3embed.DefaultVolumePort, "SeaweedFS volume server HTTP listen port")
 	c.s3FilerPort = fs.Int("s3FilerPort", s3embed.DefaultFilerPort, "SeaweedFS filer HTTP listen port")
-	c.slivingdocCommand = fs.String("slivingdocCommand", "", "path to the slivingdoc binary; empty auto-discovers next to the kinoview binary, then slivingdoc on PATH")
+	c.npxCommand = fs.String("npxCommand", "", "path to the npx command that runs the slivingdoc npm package; empty uses npx on PATH")
 	c.slivingdocBucket = fs.String("slivingdocBucket", s3embed.DefaultBucket, "S3 bucket backing the shared agent notebook")
 	c.slivingdocRegion = fs.String("slivingdocRegion", s3embed.DefaultRegion, "AWS region label for the notebook bucket")
 	c.slivingdocEndpoint = fs.String("slivingdocEndpoint", "", "S3 endpoint for the notebook; empty derives http://127.0.0.1:<s3ServerPort> from the supervised SeaweedFS child")

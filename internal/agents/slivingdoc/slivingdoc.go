@@ -3,7 +3,7 @@
 // shared worktree helper.
 //
 // The callsign mirrors the sakfraga harvest_agent pattern with kinoview
-// adaptations: the native slivingdoc binary, the SeaweedFS endpoint and
+// adaptations: npx slivingdoc (the npm package), the SeaweedFS endpoint and
 // path-style addressing. Agents address the notebook through the
 // mcp_slivingdoc_notes_pull and mcp_slivingdoc_notes_commit tools (the
 // mcp_slivingdoc* glob) and read and edit the materialised files with the
@@ -24,6 +24,10 @@ const (
 	// Callsign is the MCP server name agents address the notebook through.
 	Callsign = "slivingdoc"
 
+	// NpmPackage is the npm package npx installs and runs. It ships the
+	// slivingdoc MCP server; kinoview never links or ships a native binary.
+	NpmPackage = "slivingdoc"
+
 	// timeoutSeconds bounds a single MCP tool call: a pull or commit over a
 	// cold S3 gateway must never hang an agent loop forever.
 	timeoutSeconds = 300
@@ -36,18 +40,27 @@ const (
 	seedMessage = "seed bulletin.md"
 )
 
-// Server builds the slivingdoc MCP server. command is the native slivingdoc
-// binary path; endpoint is the SeaweedFS S3 endpoint (empty = real AWS, no
+// cliArgs returns the argv for running one slivingdoc subcommand through npx:
+// -y (--yes) auto-installs the package without prompting, so a headless MCP
+// child or seed child can never hang waiting for an interactive "install?"
+// answer.
+func cliArgs(subcommand string, rest ...string) []string {
+	return append([]string{"-y", NpmPackage, subcommand}, rest...)
+}
+
+// Server builds the slivingdoc MCP server. npx is the npx command path (the
+// resolver returns "npx" on PATH or the explicit -npxCommand override); the
+// package itself is NpmPackage, run through npx so no native binary is
+// shipped. endpoint is the SeaweedFS S3 endpoint (empty = real AWS, no
 // --path-style). workspaceRoot is the single shared worktree every agent
 // materialises the notebook into; privateRoot is slivingdoc's own private
 // state root, kept separate so concurrent slivingdoc users on the host
 // cannot clash on it.
-func Server(command, bucket, region, endpoint, workspaceRoot, privateRoot string) models.McpServer {
-	args := []string{
-		"serve",
+func Server(npx, bucket, region, endpoint, workspaceRoot, privateRoot string) models.McpServer {
+	args := cliArgs("serve",
 		"--bucket", bucket,
 		"--region", region,
-	}
+	)
 	if endpoint != "" {
 		args = append(args, "--endpoint", endpoint, "--path-style")
 	}
@@ -57,7 +70,7 @@ func Server(command, bucket, region, endpoint, workspaceRoot, privateRoot string
 	)
 	return models.McpServer{
 		Name:           Callsign,
-		Command:        command,
+		Command:        npx,
 		Args:           args,
 		TimeoutSeconds: timeoutSeconds,
 	}
@@ -114,15 +127,15 @@ func WorkspaceRoot(server models.McpServer) string {
 
 // Seed materialises the shared notebook into the worktree and ensures a
 // bulletin.md exists for cross-agent notices, committing it when it was
-// created. privateRoot is slivingdoc's private state root (the same value
-// the MCP server uses), passed on the command line because the CLI's
-// workspace and private roots default to the process working directory and
-// the host cache — neither is the shared worktree. envFile is the
-// credentials env file the McpServer's EnvFile references; the same
+// created. npx is the npx command path; privateRoot is slivingdoc's private
+// state root (the same value the MCP server uses), passed on the command line
+// because the CLI's workspace and private roots default to the process working
+// directory and the host cache — neither is the shared worktree. envFile is
+// the credentials env file the McpServer's EnvFile references; the same
 // variables reach the seed child so it can talk to the S3 bucket. A missing
-// binary or an unreachable bucket surfaces as an error for the caller to
-// degrade with.
-func Seed(command, workspaceRoot, privateRoot, envFile string) error {
+// npx or an unreachable bucket surfaces as an error for the caller to degrade
+// with.
+func Seed(npx, workspaceRoot, privateRoot, envFile string) error {
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		return fmt.Errorf("slivingdoc: seed worktree: %w", err)
 	}
@@ -130,9 +143,8 @@ func Seed(command, workspaceRoot, privateRoot, envFile string) error {
 	if err != nil {
 		return fmt.Errorf("slivingdoc: seed env: %w", err)
 	}
-	roots := []string{"--workspace-root", workspaceRoot, "--private-root", privateRoot}
-	pullArgs := append(append([]string{"pull"}, roots...), workspaceRoot)
-	if err := runCLI(command, env, pullArgs...); err != nil {
+	pullArgs := cliArgs("pull", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot)
+	if err := runCLI(npx, env, pullArgs...); err != nil {
 		return fmt.Errorf("slivingdoc: seed pull: %w", err)
 	}
 	created, err := seedBulletin(workspaceRoot)
@@ -142,8 +154,8 @@ func Seed(command, workspaceRoot, privateRoot, envFile string) error {
 	if !created {
 		return nil
 	}
-	commitArgs := append(append([]string{"commit"}, roots...), workspaceRoot, "-m", seedMessage)
-	if err := runCLI(command, env, commitArgs...); err != nil {
+	commitArgs := cliArgs("commit", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot, "-m", seedMessage)
+	if err := runCLI(npx, env, commitArgs...); err != nil {
 		return fmt.Errorf("slivingdoc: seed commit: %w", err)
 	}
 	return nil
@@ -186,7 +198,8 @@ func loadEnvFile(path string) ([]string, error) {
 	return env, nil
 }
 
-// runCLI executes the slivingdoc binary with the given environment. The
+// runCLI executes the slivingdoc npm package through npx with the given
+// environment. The
 // child inherits the parent environment so host logging and proxy
 // configuration reach it; env carries the S3 credentials on top. Tests
 // inject a scripted runner through this seam.

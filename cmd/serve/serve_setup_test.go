@@ -13,25 +13,25 @@ import (
 	"github.com/baalimago/kinoview/internal/s3embed"
 )
 
-// The slivingdoc binary resolves from the explicit -slivingdocCommand flag,
-// next to the current executable, then on PATH. Tests cannot rely on the
-// first two, so the not-found case pins an empty PATH and the found case puts
-// a fake binary on PATH.
-func TestResolveSlivingdocBinary_NotFound(t *testing.T) {
+// The npx command that runs the slivingdoc npm package resolves from the
+// explicit -npxCommand flag, else npx on PATH. Tests cannot rely on the flag,
+// so the not-found case pins an empty PATH and the found case puts a fake npx
+// on PATH.
+func TestResolveNpx_NotFound(t *testing.T) {
 	t.Setenv("PATH", "")
-	if got, err := resolveSlivingdocBinary(""); err == nil {
+	if got, err := resolveNpx(""); err == nil {
 		t.Fatalf("expected error with empty PATH, got %q", got)
 	}
 }
 
-func TestResolveSlivingdocBinary_FoundOnPath(t *testing.T) {
+func TestResolveNpx_FoundOnPath(t *testing.T) {
 	binDir := t.TempDir()
-	fake := filepath.Join(binDir, "slivingdoc")
+	fake := filepath.Join(binDir, "npx")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", binDir)
-	got, err := resolveSlivingdocBinary("")
+	got, err := resolveNpx("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -40,15 +40,15 @@ func TestResolveSlivingdocBinary_FoundOnPath(t *testing.T) {
 	}
 }
 
-// The explicit -slivingdocCommand path wins over PATH, and an explicit
-// missing path fails naming it, so an operator typo is diagnosable.
-func TestResolveSlivingdocBinary_ExplicitFlagWins(t *testing.T) {
+// The explicit -npxCommand path wins over PATH, and an explicit missing path
+// fails naming it, so an operator typo is diagnosable.
+func TestResolveNpx_ExplicitFlagWins(t *testing.T) {
 	t.Setenv("PATH", "")
-	explicit := filepath.Join(t.TempDir(), "slivingdoc")
+	explicit := filepath.Join(t.TempDir(), "npx")
 	if err := os.WriteFile(explicit, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	got, err := resolveSlivingdocBinary(explicit)
+	got, err := resolveNpx(explicit)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -57,10 +57,10 @@ func TestResolveSlivingdocBinary_ExplicitFlagWins(t *testing.T) {
 	}
 }
 
-func TestResolveSlivingdocBinary_ExplicitMissingNamesPath(t *testing.T) {
+func TestResolveNpx_ExplicitMissingNamesPath(t *testing.T) {
 	missing := filepath.Join(t.TempDir(), "nope")
-	if _, err := resolveSlivingdocBinary(missing); err == nil || !strings.Contains(err.Error(), missing) {
-		t.Errorf("resolveSlivingdocBinary(%q) error = %v, want it to name the path", missing, err)
+	if _, err := resolveNpx(missing); err == nil || !strings.Contains(err.Error(), missing) {
+		t.Errorf("resolveNpx(%q) error = %v, want it to name the path", missing, err)
 	}
 }
 
@@ -96,7 +96,7 @@ func TestResolveWeedBinary_Found(t *testing.T) {
 // the agents.
 func TestDisabled_NoWiring(t *testing.T) {
 	binDir := t.TempDir()
-	for _, name := range []string{"weed", "slivingdoc"} {
+	for _, name := range []string{"weed", "npx"} {
 		fake := filepath.Join(binDir, name)
 		if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
 			t.Fatal(err)

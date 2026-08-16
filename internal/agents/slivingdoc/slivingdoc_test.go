@@ -12,9 +12,9 @@ import (
 
 func TestServer_Args(t *testing.T) {
 	t.Run("endpoint sets path-style", func(t *testing.T) {
-		got := Server("slivingdoc", "slivingdoc", "us-east-1", "http://127.0.0.1:8333", "/ws", "/priv")
+		got := Server("npx", "slivingdoc", "us-east-1", "http://127.0.0.1:8333", "/ws", "/priv")
 		want := []string{
-			"serve",
+			"-y", "slivingdoc", "serve",
 			"--bucket", "slivingdoc",
 			"--region", "us-east-1",
 			"--endpoint", "http://127.0.0.1:8333", "--path-style",
@@ -27,15 +27,15 @@ func TestServer_Args(t *testing.T) {
 		if got.Name != Callsign {
 			t.Errorf("Name = %q, want %q", got.Name, Callsign)
 		}
-		if got.Command != "slivingdoc" {
-			t.Errorf("Command = %q, want %q", got.Command, "slivingdoc")
+		if got.Command != "npx" {
+			t.Errorf("Command = %q, want %q", got.Command, "npx")
 		}
 	})
 
 	t.Run("empty endpoint omits path-style", func(t *testing.T) {
-		got := Server("slivingdoc", "b", "r", "", "/ws", "/priv")
+		got := Server("npx", "b", "r", "", "/ws", "/priv")
 		want := []string{
-			"serve",
+			"-y", "slivingdoc", "serve",
 			"--bucket", "b",
 			"--region", "r",
 			"--workspace-root", "/ws",
@@ -48,7 +48,7 @@ func TestServer_Args(t *testing.T) {
 }
 
 func TestServer_Timeout(t *testing.T) {
-	got := Server("slivingdoc", "b", "r", "", "/ws", "/priv")
+	got := Server("npx", "b", "r", "", "/ws", "/priv")
 	if got.TimeoutSeconds != 300 {
 		t.Errorf("TimeoutSeconds = %d, want 300", got.TimeoutSeconds)
 	}
@@ -91,7 +91,7 @@ func TestNotesPartial_SubstitutesWorkspace(t *testing.T) {
 // WorkspaceRoot reads the shared worktree path back from the callsign args,
 // so a prompt names the same path the MCP child materialises into.
 func TestWorkspaceRoot_FromCallsignArgs(t *testing.T) {
-	server := Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := Server("npx", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
 	if got := WorkspaceRoot(server); got != "/cache/slivingdoc" {
 		t.Errorf("WorkspaceRoot = %q, want %q", got, "/cache/slivingdoc")
 	}
@@ -115,10 +115,15 @@ type fakeCLI struct {
 func (f *fakeCLI) run(_ string, env []string, args ...string) error {
 	f.calls = append(f.calls, append([]string(nil), args...))
 	f.envs = append(f.envs, append([]string(nil), env...))
-	if len(args) > 0 && args[0] == f.failOn {
+	// cliArgs places the subcommand at index 2 (["-y", NpmPackage, <sub>]).
+	sub := ""
+	if len(args) > 2 {
+		sub = args[2]
+	}
+	if sub == f.failOn {
 		return os.ErrNotExist
 	}
-	if len(args) > 0 && args[0] == "pull" {
+	if sub == "pull" {
 		root := args[len(args)-1] // the positional worktree path
 		for name, content := range f.pullFiles {
 			if err := os.WriteFile(filepath.Join(root, name), []byte(content), 0o644); err != nil {
@@ -152,8 +157,8 @@ func TestSeed_PullsAndCommitsBulletin(t *testing.T) {
 	}
 
 	// pull, then commit — the bulletin was created.
-	wantPull := []string{"pull", "--workspace-root", workspace, "--private-root", private, workspace}
-	wantCommit := []string{"commit", "--workspace-root", workspace, "--private-root", private, workspace, "-m", seedMessage}
+	wantPull := []string{"-y", "slivingdoc", "pull", "--workspace-root", workspace, "--private-root", private, workspace}
+	wantCommit := []string{"-y", "slivingdoc", "commit", "--workspace-root", workspace, "--private-root", private, workspace, "-m", seedMessage}
 	if len(fake.calls) != 2 {
 		t.Fatalf("expected pull + commit, got %v", fake.calls)
 	}
@@ -187,7 +192,7 @@ func TestSeed_ExistingBulletin_NoCommit(t *testing.T) {
 		t.Fatalf("Seed: %v", err)
 	}
 
-	if len(fake.calls) != 1 || fake.calls[0][0] != "pull" {
+	if len(fake.calls) != 1 || fake.calls[0][2] != "pull" {
 		t.Fatalf("expected a single pull, got %v", fake.calls)
 	}
 	b, err := os.ReadFile(filepath.Join(workspace, bulletinName))

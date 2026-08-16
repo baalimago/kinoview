@@ -39,7 +39,7 @@ func TestFeedbackRecorder_AppendsJSONLLine(t *testing.T) {
 	if len(fake.calls) != 1 {
 		t.Fatalf("expected one commit, got %v", fake.calls)
 	}
-	if fake.calls[0][0] != "commit" {
+	if fake.calls[0][2] != "commit" {
 		t.Errorf("first call = %v, want commit", fake.calls[0])
 	}
 
@@ -128,7 +128,7 @@ func TestNotebook_AppendJSONLDoesNotPull(t *testing.T) {
 	}
 
 	for _, call := range fake.calls {
-		if call[0] == "pull" {
+		if len(call) > 2 && call[2] == "pull" {
 			t.Fatalf("append ran a pull, clobbering the shared copy: %v", fake.calls)
 		}
 	}
@@ -240,7 +240,7 @@ func TestNotebook_CommitArgsCarryRootsAndEnv(t *testing.T) {
 		t.Fatalf("AppendJSONL: %v", err)
 	}
 
-	want := []string{"commit", "--workspace-root", workspace, "--private-root", "/priv", workspace, "-m", "append " + feedbackName}
+	want := []string{"-y", "slivingdoc", "commit", "--workspace-root", workspace, "--private-root", "/priv", workspace, "-m", "append " + feedbackName}
 	if !slices.Equal(fake.calls[0], want) {
 		t.Errorf("commit call = %v, want %v", fake.calls[0], want)
 	}

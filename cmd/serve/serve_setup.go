@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path"
-	"path/filepath"
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
@@ -134,13 +133,13 @@ func (c *command) Setup(ctx context.Context) error {
 	// slivingdoc setup — the shared agent notebook (callsign + worktree)
 	////////////
 	if c.s3Supervisor != nil {
-		command, err := resolveSlivingdocBinary(*c.slivingdocCommand)
+		npx, err := resolveNpx(*c.npxCommand)
 		if err != nil {
 			ancli.Warnf("running without the slivingdoc agent notebook: %v", err)
 		} else {
 			privateRoot := path.Join(*c.cacheDir, "slivingdoc-private")
 			server := slivingdoc.Server(
-				command,
+				npx,
 				*c.slivingdocBucket,
 				*c.slivingdocRegion,
 				// The MCP child talks to the S3 gateway at the explicit
@@ -155,7 +154,7 @@ func (c *command) Setup(ctx context.Context) error {
 			// the env file carries the same region the server advertises.
 			server.EnvFile = c.s3Supervisor.EnvPath()
 			c.slivingdocServer = server
-			if err := slivingdoc.Seed(command, slivingdocWorkspaceRoot, privateRoot, server.EnvFile); err != nil {
+			if err := slivingdoc.Seed(npx, slivingdocWorkspaceRoot, privateRoot, server.EnvFile); err != nil {
 				ancli.Warnf("slivingdoc worktree seed failed, agents run without the shared notebook: %v", err)
 			} else {
 				ancli.Noticef("slivingdoc notebook ready at %s", slivingdocWorkspaceRoot)
@@ -166,7 +165,7 @@ func (c *command) Setup(ctx context.Context) error {
 			// set; a zero callsign leaves the recorder nil and the handler
 			// answers 501.
 			feedbackRecorder = slivingdoc.NewFeedbackRecorder(
-				slivingdoc.NewNotebook(command, slivingdocWorkspaceRoot, privateRoot, server.EnvFile),
+				slivingdoc.NewNotebook(npx, slivingdocWorkspaceRoot, privateRoot, server.EnvFile),
 			)
 		}
 	}
@@ -253,7 +252,7 @@ func (c *command) Setup(ctx context.Context) error {
 			concierge.WithUserContextManager(userContextMgr),
 			concierge.WithModel(*c.conciergeModel),
 			// The shared agent notebook: a zero callsign (no S3 backend or no
-			// slivingdoc binary) keeps the concierge running exactly as before.
+			// npx) keeps the concierge running exactly as before.
 			concierge.WithSlivingdocServer(c.slivingdocServer),
 			concierge.WithSlivingdocWorkspace(slivingdocWorkspaceRoot),
 		)
@@ -355,26 +354,20 @@ func notebookEndpoint(flagEndpoint string, s3 *s3embed.Supervisor) string {
 	return s3.Endpoint()
 }
 
-// resolveSlivingdocBinary finds the slivingdoc binary: the explicit
-// -slivingdocCommand path, then next to the current executable (the rpie
-// deploy layout ships it beside kinoview), then on PATH.
-func resolveSlivingdocBinary(explicit string) (string, error) {
+// resolveNpx finds the npx command that runs the slivingdoc npm package: the
+// explicit -npxCommand path, else npx on PATH. npx ships with Node.js, so a
+// missing npx means no Node.js — the notebook then degrades with one warning.
+func resolveNpx(explicit string) (string, error) {
 	if explicit != "" {
 		if _, err := os.Stat(explicit); err != nil {
-			return "", fmt.Errorf("slivingdoc binary at %q: %w", explicit, err)
+			return "", fmt.Errorf("npx command at %q: %w", explicit, err)
 		}
 		return explicit, nil
 	}
-	if exe, err := os.Executable(); err == nil {
-		next := filepath.Join(filepath.Dir(exe), "slivingdoc")
-		if _, err := os.Stat(next); err == nil {
-			return next, nil
-		}
-	}
-	if p, err := exec.LookPath("slivingdoc"); err == nil {
+	if p, err := exec.LookPath("npx"); err == nil {
 		return p, nil
 	}
-	return "", errors.New("slivingdoc binary not found: looked next to the executable and on PATH")
+	return "", errors.New("npx command not found on PATH (install Node.js to enable the slivingdoc notebook)")
 }
 
 func (c *command) setupMux() (*http.ServeMux, error) {

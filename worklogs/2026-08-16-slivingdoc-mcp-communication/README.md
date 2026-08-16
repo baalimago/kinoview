@@ -37,10 +37,10 @@ what the agents write into slivingdoc themselves.
    plus the `mcp_slivingdoc*` tool glob. clai spawns the MCP server per agent
    `Setup`; the tools surface as `mcp_slivingdoc_notes_pull` and
    `mcp_slivingdoc_notes_commit`.
-3. **The native slivingdoc binary, not `npx`.** rpie has no Node.js. The MCP
-   server command is the compiled `/home/imago/go/bin/slivingdoc` (flag to
-   override). `--endpoint` and `--path-style` point at the local SeaweedFS
-   child.
+3. **`npx slivingdoc`, the npm package.** The MCP server command is `npx`
+   with `-y slivingdoc serve` (the package auto-installs headlessly; the
+   `-npxCommand` flag overrides the npx path). `--endpoint` and `--path-style`
+   point at the local SeaweedFS child.
 4. **Agents get file-edit tools so they can make notes.** `cat`,
    `rows_between`, `ls`, `rg`, `write_file` and `apply_patch` are added to
    concierge and theatre, alongside the MCP glob. The loop is
@@ -144,8 +144,8 @@ chain is 2 → 3 and 2 → 5 and (2 + 4) → 6; 7 spans 1 and 2; 8 gates all.
   `PutObject` (verified in `s3api_object_handlers_put.go`), ships `linux_arm`,
   and supports path-style, multipart and checksum headers.
 - **Q2 — slivingdoc reach = clai MCP plumbing.** The sakfraga callsign
-  pattern: `agent.WithMcpServers` + `mcp_slivingdoc*` tool glob. Native
-  slivingdoc binary, not `npx`.
+  pattern: `agent.WithMcpServers` + `mcp_slivingdoc*` tool glob, running the
+  slivingdoc npm package via `npx` (no native binary is shipped).
 - **Q3 — Scope = concierge + theatre, read+write.** Classifier, recommender
   and butler get nothing in the first cut: the classifier's 10 concurrent
   clones would spawn 10 MCP servers for no communication value, and
