@@ -58,7 +58,7 @@ func parseReport(text string) (string, []Collaboration) {
 // resolveCollaborations resolves the collaborations a deliverable requests
 // (decision D4): at most CollabMaxRounds rounds, each consulting the
 // requested role once through the broker — which posts the question and the
-// answer to the board — and re-invoking the original role once with the
+// answer — and re-invoking the original role once with the
 // answer injected into its task. A failed consult or revision never loses
 // the deliverable: the last good text stands.
 func (r *Runner) resolveCollaborations(ctx context.Context, inv Invocation, prompt string, tools []models.LLMTool, out io.Writer, res Result) (string, error) {

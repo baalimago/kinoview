@@ -100,6 +100,10 @@ type Indexer struct {
 	conciergeTimeout      time.Duration
 	// theatre prepares the intro splash story (the agents.Teller contract).
 	theatre agents.Teller
+	// feedback records audience notes into the shared notebook (the
+	// agents.Feedbacker contract). Nil when the notebook is disabled; the
+	// feedback handler then answers 501.
+	feedback agents.Feedbacker
 
 	// Agent support managers
 	clientContextMgr agents.ClientContextManager
@@ -174,6 +178,14 @@ func WithConcierge(c agents.Concierge) IndexerOption {
 func WithTheatre(t agents.Teller) IndexerOption {
 	return func(i *Indexer) {
 		i.theatre = t
+	}
+}
+
+// WithFeedbacker sets the recorder audience notes land in. Nil disables the
+// feedback endpoint (the handler answers 501).
+func WithFeedbacker(fb agents.Feedbacker) IndexerOption {
+	return func(i *Indexer) {
+		i.feedback = fb
 	}
 }
 

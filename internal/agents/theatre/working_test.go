@@ -89,53 +89,12 @@ func TestLoadWorking_UnknownStatusDefaultsToDraft(t *testing.T) {
 	}
 }
 
-// R3-02: the out-of-band distill inputs — the brief and the dressed marker —
-// round-trip through the working file, and a pre-fix file without them still
-// loads (both fields are omitempty).
-func TestLoadWorking_BriefAndDressedRoundTrip(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	co := Open(dir)
-	w := Working{
-		Story:   validStory(),
-		Status:  "dressed",
-		Brief:   `{"mood":"standoff","shape":"mousehunt"}`,
-		Dressed: true,
-	}
-	if err := co.SaveWorking(w); err != nil {
-		t.Fatal(err)
-	}
-	got, err := co.LoadWorking()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Brief != w.Brief || !got.Dressed {
-		t.Errorf("working = brief %q, dressed %v; want the saved brief and marker", got.Brief, got.Dressed)
-	}
-
-	// A pre-fix file (no brief/dressed keys) loads with both zeroed.
-	b, err := json.Marshal(Working{Story: validStory(), Status: "draft"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, CompanyDir, workingFileName), b, 0o644); err != nil {
-		t.Fatal(err)
-	}
-	got, err = co.LoadWorking()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Brief != "" || got.Dressed {
-		t.Errorf("pre-fix working file loaded with brief %q / dressed %v, want both zeroed", got.Brief, got.Dressed)
-	}
-}
-
 func TestWorking_Summary(t *testing.T) {
 	t.Parallel()
 	s := validStory()
 	// A set change mid-play reads as a second act.
 	s.Beats = append(s.Beats, model.Beat{T: 2000, Action: "setBackdrop", Piece: "sunset"})
-	w := Working{Story: s, Revision: 2, Status: "pinned"}
+	w := Working{Story: s, Revision: 2, Status: "validated"}
 	sum := w.Summary()
 	if sum.Title != "The Test Night" {
 		t.Errorf("title = %q", sum.Title)
@@ -152,7 +111,7 @@ func TestWorking_Summary(t *testing.T) {
 	if sum.Backdrop != "night" {
 		t.Errorf("backdrop = %q", sum.Backdrop)
 	}
-	if sum.Status != "pinned" {
+	if sum.Status != "validated" {
 		t.Errorf("status = %q", sum.Status)
 	}
 }
@@ -166,7 +125,7 @@ func TestWorking_ReportSupersedesDerivedActs(t *testing.T) {
 	// One set change mid-play: two acts by the derived count.
 	s.Beats = append(s.Beats, model.Beat{T: 2000, Action: "setBackdrop", Piece: "sunset"})
 	w := Working{
-		Story: s, Revision: 2, Status: "pinned",
+		Story: s, Revision: 2, Status: "validated",
 		Canon: []string{"the mouse got away"},
 		Report: &DraftReport{Title: "The Test Night", Acts: []Act{
 			{Name: "act one", Beats: 2, OneLine: "the setup"},

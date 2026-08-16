@@ -1,8 +1,8 @@
 // Package tools holds the theatre's mini-agent tools. Each tool is a thin
 // adapter over a callback supplied by the theatre package: the tools
-// themselves know nothing about the board, the broker or the stage, so the
-// import graph stays one-way (theatre → tools) and every tool is testable in
-// isolation with a spy callback.
+// themselves know nothing about the broker or the stage, so the import graph
+// stays one-way (theatre → tools) and every tool is testable in isolation
+// with a spy callback.
 //
 // The Call contract follows internal/agents/tools: Call returns the tool's
 // output as a string. Malformed input and callback failures are returned as
@@ -16,91 +16,6 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 )
-
-// postToBoardTool appends a validated entry to the production board.
-type postToBoardTool struct {
-	post func(kind, to, body string) error
-}
-
-// NewPostToBoard builds the post_to_board tool. The author is pinned by the
-// theatre package at construction, so a role can never post as another role.
-func NewPostToBoard(post func(kind, to, body string) error) models.LLMTool {
-	return &postToBoardTool{post: post}
-}
-
-func (t *postToBoardTool) Call(input models.Input) (string, error) {
-	kind, ok := input["kind"].(string)
-	if !ok {
-		return "post_to_board: 'kind' must be a string", nil
-	}
-	to, ok := input["to"].(string)
-	if !ok {
-		return "post_to_board: 'to' must be a string", nil
-	}
-	body, ok := input["body"].(string)
-	if !ok {
-		return "post_to_board: 'body' must be a string", nil
-	}
-	if err := t.post(kind, to, body); err != nil {
-		return "post_to_board: " + err.Error(), nil
-	}
-	return "posted to board: " + kind, nil
-}
-
-func (t *postToBoardTool) Specification() models.Specification {
-	return models.Specification{
-		Name:        "post_to_board",
-		Description: "Post an entry to the production board, the shared worklog every role reads. Use it to share findings and questions with the company.",
-		Inputs: &models.InputSchema{
-			Type: "object",
-			Properties: map[string]models.ParameterObject{
-				"kind": {
-					Type:        "string",
-					Description: "One of: brief, question, answer, note, decision, deliverable",
-				},
-				"to": {
-					Type:        "string",
-					Description: "The addressee role, or empty to address the company",
-				},
-				"body": {
-					Type:        "string",
-					Description: "The entry body, at most 240 characters",
-				},
-			},
-			Required: []string{"kind", "to", "body"},
-		},
-	}
-}
-
-// readBoardTool returns the current board excerpt.
-type readBoardTool struct {
-	read func() (string, error)
-}
-
-// NewReadBoard builds the read_board tool.
-func NewReadBoard(read func() (string, error)) models.LLMTool {
-	return &readBoardTool{read: read}
-}
-
-func (t *readBoardTool) Call(models.Input) (string, error) {
-	out, err := t.read()
-	if err != nil {
-		return "read_board: " + err.Error(), nil
-	}
-	return out, nil
-}
-
-func (t *readBoardTool) Specification() models.Specification {
-	return models.Specification{
-		Name:        "read_board",
-		Description: "Read the production board's most recent entries, oldest first. Consult it before posting so you do not repeat what is already known.",
-		Inputs: &models.InputSchema{
-			Type:       "object",
-			Required:   []string{},
-			Properties: map[string]models.ParameterObject{},
-		},
-	}
-}
 
 // consultTool asks another production role a question through the
 // consultation broker.
@@ -151,45 +66,6 @@ func (t *consultTool) Specification() models.Specification {
 				},
 			},
 			Required: []string{"role", "question"},
-		},
-	}
-}
-
-// writeBriefTool posts the dramaturg's brief to the board.
-type writeBriefTool struct {
-	write func(brief string) error
-}
-
-// NewWriteBrief builds the write_brief tool, the dramaturg's deliverable
-// writer.
-func NewWriteBrief(write func(brief string) error) models.LLMTool {
-	return &writeBriefTool{write: write}
-}
-
-func (t *writeBriefTool) Call(input models.Input) (string, error) {
-	brief, ok := input["brief"].(string)
-	if !ok {
-		return "write_brief: 'brief' must be a string", nil
-	}
-	if err := t.write(brief); err != nil {
-		return "write_brief: " + err.Error(), nil
-	}
-	return "brief posted to the board", nil
-}
-
-func (t *writeBriefTool) Specification() models.Specification {
-	return models.Specification{
-		Name:        "write_brief",
-		Description: "Deliver the production brief: the mood, shape, cast lineup and what to avoid. This is your final deliverable — call it once, then stop.",
-		Inputs: &models.InputSchema{
-			Type: "object",
-			Properties: map[string]models.ParameterObject{
-				"brief": {
-					Type:        "string",
-					Description: "The brief, at most 240 characters",
-				},
-			},
-			Required: []string{"brief"},
 		},
 	}
 }

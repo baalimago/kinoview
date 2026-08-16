@@ -15,6 +15,7 @@ import (
 	"github.com/baalimago/clai/pkg/agent"
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
+	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -51,11 +52,20 @@ type Runner struct {
 	configDir string
 	cacheDir  string
 
-	// registry is the costumer's book: lineups are validated against it, the
-	// dramaturg's fallback draws its cast from it and the wardrobe's fallback
-	// answers from it. Nil in unit fixtures without a registry; the fallbacks
-	// degrade gracefully.
-	registry *Registry
+	// theme is the generation's subject, carried from the muse so the
+	// working-context standard and the deterministic floor can name it.
+	theme string
+
+	// slivingdocServer is the MCP callsign for the shared agent notebook. A
+	// zero server disables the notebook: mini-agents run exactly as today,
+	// without the callsign, the file-tool globs or the NOTES prompt section.
+	slivingdocServer models.McpServer
+
+	// slivingdocWorkspace is the shared worktree the notebook is materialised
+	// into — the same value the MCP server uses, substituted into the NOTES
+	// prompt section. Optional: when empty, the constructor reads it back
+	// from the callsign args, so the prompt can never name a different path.
+	slivingdocWorkspace string
 
 	// rnd seeds the deterministic fallbacks (the composer path). Tests inject
 	// a fixed source to make the floor reproducible.
@@ -121,17 +131,33 @@ func WithCacheDir(d string) RunnerOption {
 	return func(r *Runner) { r.cacheDir = d }
 }
 
-// WithRegistry gives the runner the costumer's book (decision D7): lineups
-// are validated against it, the dramaturg's fallback draws its cast from it
-// and the wardrobe's fallback answers from it.
-func WithRegistry(reg *Registry) RunnerOption {
-	return func(r *Runner) { r.registry = reg }
+// WithTheme sets the generation's subject, carried from the muse so the
+// working-context standard and the deterministic floor can name it.
+func WithTheme(theme string) RunnerOption {
+	return func(r *Runner) { r.theme = theme }
+}
+
+// WithSlivingdocServer configures the slivingdoc MCP callsign for the shared
+// agent notebook. A zero server (the default) disables the notebook: every
+// mini-agent runs exactly as today, without the callsign, the file-tool globs
+// or the NOTES prompt section.
+func WithSlivingdocServer(s models.McpServer) RunnerOption {
+	return func(r *Runner) { r.slivingdocServer = s }
+}
+
+// WithSlivingdocWorkspace sets the shared worktree the notebook is
+// materialised into — the same value the slivingdoc MCP server uses,
+// substituted into the NOTES prompt section so the model never guesses it.
+// Optional: when empty, the constructor reads --workspace-root back from the
+// callsign args, keeping prompt and server provably consistent.
+func WithSlivingdocWorkspace(ws string) RunnerOption {
+	return func(r *Runner) { r.slivingdocWorkspace = ws }
 }
 
 // WithFallback overrides the deterministic floor under every role (decision
 // D11). Without it the runner routes through the internal per-role
-// dispatcher (fallback.go) — the composer scenes, the registry answers and
-// the working-file side effects.
+// dispatcher (fallback.go) — the composer scenes and the working-file side
+// effects.
 func WithFallback(fn func(role, task string) (string, error)) RunnerOption {
 	return func(r *Runner) { r.fallback = fn }
 }
@@ -155,6 +181,43 @@ func NewRunner(company *Company, stage *Stage, opts ...RunnerOption) *Runner {
 
 // WireBroker attaches the consultation broker.
 func (r *Runner) WireBroker(b *Broker) { r.broker = b }
+
+// notebookEnabled reports whether the slivingdoc callsign is configured.
+func (r *Runner) notebookEnabled() bool {
+	return r.slivingdocServer.Name != ""
+}
+
+// notebookWorkspace is the shared worktree path substituted into the NOTES
+// prompt section: the explicit option, or the path read back from the
+// callsign args.
+func (r *Runner) notebookWorkspace() string {
+	if r.slivingdocWorkspace != "" {
+		return r.slivingdocWorkspace
+	}
+	return slivingdoc.WorkspaceRoot(r.slivingdocServer)
+}
+
+// notebookGlobs are the tool globs applied to the mini-agents when the
+// notebook is enabled: the slivingdoc callsign plus the file tools. nil when
+// disabled.
+func (r *Runner) notebookGlobs() []string {
+	if !r.notebookEnabled() {
+		return nil
+	}
+	return slivingdoc.ToolGlobs()
+}
+
+// rolePromptWithNotes is the role's standing instructions with the shared
+// NOTES partial appended when the notebook is enabled — pull the notebook,
+// read the shared notes, write findings, commit — byte-identical across
+// every agent with only the workspace path substituted.
+func (r *Runner) rolePromptWithNotes(role string) string {
+	prompt := RolePrompt(role)
+	if r.notebookEnabled() {
+		prompt += "\n" + slivingdoc.NotesPartial(r.notebookWorkspace())
+	}
+	return prompt
+}
 
 // Run executes one role invocation and returns its deliverable. It never
 // panics: a panicking agent loop is recovered and reported as an error, so
@@ -190,21 +253,15 @@ func (r *Runner) Run(ctx context.Context, inv Invocation) (res Result, err error
 		return Result{}, fmt.Errorf("%s", msg)
 	}
 
-	// The working-context standard (phase 1): generation, theme, board
-	// excerpt, working summary, role prompt and task. A board read failure
-	// degrades to the empty board — the subagent gets an empty excerpt and
-	// the generation continues.
-	board, err := r.company.LoadBoard()
-	if err != nil {
-		board = Board{}
-	}
+	// The working-context standard (phase 1): generation, theme, working
+	// summary, role prompt and task. A working-file read failure degrades to
+	// the empty summary — the subagent gets an empty summary and the
+	// generation continues.
 	working, err := r.company.LoadWorking()
 	if err != nil {
 		working = Working{}
 	}
-	prompt := AssembleContext(r.stage.gen, board.Theme, board, working.Summary(), RolePrompt(role), inv.Task)
-	prompt = r.withRegistryContext(prompt)
-	prompt = r.withDocsContext(prompt, role)
+	prompt := AssembleContext(r.stage.gen, r.theme, working.Summary(), r.rolePromptWithNotes(role), inv.Task)
 
 	out, closeLog := r.sessionLog(role)
 	defer closeLog()
@@ -367,8 +424,10 @@ func (r *Runner) draftReport(text string) string {
 // runClai builds the clai agent exactly like the concierge and runs one
 // bounded loop: WithModel, WithPrompt, WithTools (already wrapped in the call
 // counter by runOnce), WithMaxToolCalls(budget) and, when a session log
-// exists, WithOutputTo. Tokens come from the returned chat, so the ledger
-// records real usage.
+// exists, WithOutputTo. With the slivingdoc callsign configured, the agent
+// also gets the callsign and the shared file-tool globs, so the director and
+// every role can pull, read, write and commit the shared notebook. Tokens
+// come from the returned chat, so the ledger records real usage.
 func (r *Runner) runClai(ctx context.Context, p llmParams) (llmOutcome, error) {
 	opts := []agent.Option{
 		agent.WithModel(r.model),
@@ -376,6 +435,16 @@ func (r *Runner) runClai(ctx context.Context, p llmParams) (llmOutcome, error) {
 		agent.WithPrompt(p.prompt),
 		agent.WithTools(p.tools),
 		agent.WithMaxToolCalls(p.budget),
+	}
+	// The shared agent notebook: with the callsign configured, every
+	// mini-agent gets the MCP server and the file-tool globs; a zero server
+	// omits the options and the mini-agents run exactly as today (composer-
+	// only mode and unit fixtures).
+	if r.notebookEnabled() {
+		opts = append(opts,
+			agent.WithMcpServers([]models.McpServer{r.slivingdocServer}),
+			agent.WithToolGlobs(r.notebookGlobs()...),
+		)
 	}
 	// Structured output (clai's WithResponseFormat, json_object): the
 	// playwright's final answer must be a single JSON object — the API
@@ -449,64 +518,4 @@ func (r *Runner) sessionLog(role string) (io.Writer, func()) {
 		return io.Discard, func() {}
 	}
 	return f, func() { f.Close() }
-}
-
-// withRegistryContext appends the costumer's book to the working context, so
-// every role reads the canonical looks it must not contradict. A missing or
-// empty registry adds nothing.
-func (r *Runner) withRegistryContext(prompt string) string {
-	if r.registry == nil || r.registry.Size() == 0 {
-		return prompt
-	}
-	var b strings.Builder
-	b.WriteString("\nCharacter registry (canonical looks):\n")
-	for _, id := range r.registry.IDs() {
-		look, _ := r.registry.Lookup(id)
-		coat := look.Coat
-		if coat == "" {
-			coat = "unpinned"
-		}
-		fmt.Fprintf(&b, "  %s: %s (%s)", id, look.Character, coat)
-		if variants := r.registry.Variants(id); len(variants) > 0 {
-			fmt.Fprintf(&b, " — wardrobe: %s", strings.Join(variants, ", "))
-		}
-		b.WriteString("\n")
-	}
-	return prompt + b.String()
-}
-
-// withDocsContext appends the company's durable memory to the working
-// context (phase 6): the bulletin reaches every role, and each role reads
-// its own document — the premises no-repeat list and the audience feedback
-// for the dramaturg, the repertoire and canon facts for the playwright, the
-// set recipes for the scenographer, the directing lessons and the audience
-// feedback for the director. A missing or empty library adds nothing.
-func (r *Runner) withDocsContext(prompt, role string) string {
-	lib := r.company.LoadLibrary()
-	var b strings.Builder
-	if s := lib.Bulletin.context(); s != "" {
-		b.WriteString(s)
-	}
-	switch role {
-	case "dramaturg":
-		b.WriteString(lib.Premises.context())
-		b.WriteString(lib.Audience.context())
-	case "playwright":
-		b.WriteString(lib.Repertoire.context())
-	case "scenographer":
-		b.WriteString(lib.Sets.context())
-	case "director":
-		b.WriteString(lib.Director.context())
-		// The repertoire's earlier-production list reaches the director too:
-		// the company's head must see what has already been staged, or it
-		// cannot know it is about to repeat it (the cold-case loop). The
-		// canon facts stay with the playwright — the director does not riff
-		// on continuity, it decides what is new.
-		b.WriteString(lib.Repertoire.summariesContext())
-		b.WriteString(lib.Audience.context())
-	}
-	if b.Len() == 0 {
-		return prompt
-	}
-	return prompt + b.String()
 }

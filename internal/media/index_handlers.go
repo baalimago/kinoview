@@ -12,7 +12,6 @@ import (
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/debug"
-	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/butler"
 	"github.com/baalimago/kinoview/internal/model"
 	"golang.org/x/net/websocket"
@@ -365,10 +364,9 @@ func (i *Indexer) introSessionEndHandler() http.HandlerFunc {
 	}
 }
 
-// storyIDRe mirrors model.Story's id pattern (^[a-z0-9_]{1,24}$), the same
-// way the theatre's artifactIDRe does: the feedback handler rejects a story
-// id that could never have come from a validated story before it reaches the
-// theatre.
+// storyIDRe mirrors model.Story's id pattern (^[a-z0-9_]{1,24}$): the
+// feedback handler rejects a story id that could never have come from a
+// validated story before the note reaches the recorder.
 var storyIDRe = regexp.MustCompile(`^[a-z0-9_]{1,24}$`)
 
 // introFeedbackRequest is the POST body of /intro/feedback: one audience note
@@ -381,10 +379,13 @@ type introFeedbackRequest struct {
 
 // introFeedbackHandler records what the audience thought of the story, so the
 // next production can improve. It never triggers preparation (decision Q3): a
-// thumbs-down does not bypass the cooldown — the note lands in the audience
-// doc and the cooldown decides when the next production reads it. The theatre
-// is the trust boundary and re-checks the rating and the story id; the
-// handler's own checks exist so a bad request fails fast with a 400.
+// thumbs-down does not bypass the cooldown — the note lands in the shared
+// notebook and the cooldown decides when the next production reads it. The
+// handler is the trust boundary: it rejects a rating or story id that could
+// never have come from a validated story before the note reaches the
+// recorder. A nil recorder (slivingdoc disabled) answers 501 — feedback is
+// not recorded locally, matching the "everything degrades gracefully" rule
+// (no notebook, no audience notes).
 func (i *Indexer) introFeedbackHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
@@ -392,13 +393,8 @@ func (i *Indexer) introFeedbackHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		if i.theatre == nil {
-			http.Error(w, "theatre not configured", http.StatusNotFound)
-			return
-		}
-		fb, ok := i.theatre.(agents.Feedbacker)
-		if !ok {
-			http.Error(w, "theatre does not support audience feedback", http.StatusNotImplemented)
+		if i.feedback == nil {
+			http.Error(w, "feedback not configured", http.StatusNotImplemented)
 			return
 		}
 		defer r.Body.Close()
@@ -417,7 +413,7 @@ func (i *Indexer) introFeedbackHandler() http.HandlerFunc {
 			http.Error(w, "invalid story id", http.StatusBadRequest)
 			return
 		}
-		if err := fb.Feedback(r.Context(), req.StoryID, req.Rating, req.Comment); err != nil {
+		if err := i.feedback.Feedback(r.Context(), req.StoryID, req.Rating, req.Comment); err != nil {
 			ancli.Errf("intro feedback: %v", err)
 			http.Error(w, "failed to record feedback", http.StatusInternalServerError)
 			return

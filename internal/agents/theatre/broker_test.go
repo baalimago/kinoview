@@ -3,6 +3,7 @@ package theatre
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -277,8 +278,7 @@ func TestBroker_WallDeadlineExceededRefusal(t *testing.T) {
 	}
 }
 
-// A consultation posts the question and the answer to the board and records
-// both in the transcript.
+// A consultation records the question and the answer on the transcript.
 func TestBroker_PostsQuestionAndAnswer(t *testing.T) {
 	t.Parallel()
 	co, _, _, broker, _ := wiredProduction(t, nil)
@@ -291,43 +291,43 @@ func TestBroker_PostsQuestionAndAnswer(t *testing.T) {
 		t.Fatalf("answer = %q", answer)
 	}
 
-	board, err := co.LoadBoard()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(board.Entries) != 2 {
-		t.Fatalf("board entries = %d, want question + answer", len(board.Entries))
-	}
-	q, a := board.Entries[0], board.Entries[1]
-	if q.Author != "dramaturg" || q.Kind != "question" || q.To != "wardrobe" || q.Body != "does silver read?" {
-		t.Errorf("question entry = %+v", q)
-	}
-	if a.Author != "wardrobe" || a.Kind != "answer" || a.To != "dramaturg" || a.Body != "ok" {
-		t.Errorf("answer entry = %+v", a)
-	}
-
 	tr, err := co.LoadTranscript()
 	if err != nil {
 		t.Fatal(err)
 	}
 	kinds := map[string]bool{}
-	for _, ev := range tr.Events {
+	var q, a *TranscriptEvent
+	for i := range tr.Events {
+		ev := tr.Events[i]
 		kinds[ev.Kind] = true
+		switch ev.Kind {
+		case "consult":
+			q = &ev
+		case "answer":
+			a = &ev
+		}
 	}
 	for _, want := range []string{"consult", "answer", "deliver"} {
 		if !kinds[want] {
 			t.Errorf("transcript missing a %q event; kinds = %v", want, kinds)
 		}
 	}
+	if q == nil || q.From != "dramaturg" || q.To != "wardrobe" || q.Body != "does silver read?" {
+		t.Errorf("consult event = %+v", q)
+	}
+	if a == nil || a.From != "wardrobe" || a.To != "dramaturg" || a.Body != "ok" {
+		t.Errorf("answer event = %+v", a)
+	}
 }
 
-// A board write failure is logged and the consultation continues: the board
-// is context, not the show — the transcript keeps the authoritative record.
-func TestBroker_BoardWriteFailureContinues(t *testing.T) {
+// A consultation answers even when the transcript is broken: the answer is
+// the show, the transcript is the record.
+func TestBroker_TranscriptWriteFailureContinues(t *testing.T) {
 	t.Parallel()
 	co, _, _, broker, _ := wiredProduction(t, nil)
-	// The board path is a directory, so every board write fails.
-	if err := os.MkdirAll(co.boardPath(), 0o755); err != nil {
+	// A directory where the transcript file should be makes every append fail.
+	badPath := filepath.Join(co.dir, transcriptFileName)
+	if err := os.MkdirAll(badPath, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -336,17 +336,6 @@ func TestBroker_BoardWriteFailureContinues(t *testing.T) {
 		t.Fatalf("consult failed: %v", err)
 	}
 	if answer != "ok" {
-		t.Errorf("answer = %q, want the stub's answer despite the board failure", answer)
-	}
-	tr, err := co.LoadTranscript()
-	if err != nil {
-		t.Fatal(err)
-	}
-	kinds := map[string]bool{}
-	for _, ev := range tr.Events {
-		kinds[ev.Kind] = true
-	}
-	if !kinds["consult"] || !kinds["answer"] {
-		t.Errorf("transcript kinds = %v, want consult + answer even with a broken board", kinds)
+		t.Errorf("answer = %q, want the stub's answer despite the transcript failure", answer)
 	}
 }

@@ -20,13 +20,13 @@ func TestRenderDialog_FixtureGeneration(t *testing.T) {
 	}
 	for _, want := range []string{
 		"── production stry_ab12 ──",
-		"[1] ─ phase 1/6 brief ─ budget 0/50",
+		"[1] ─ phase 1/5 brief ─ budget 0/50",
 		"[2] director→dramaturg: brief (mood=standoff, lineup=3)",
 		`[9] playwright→wardrobe: "does silver read on night?"`,
 		`[11] playwright⇉draft: 16 beats / 3 acts / "The Long Night"`,
-		"[13] ─ phase 3/6 dress ─ scenographer 2/8 calls ─ budget 3/50",
+		"[13] ─ phase 3/5 dress ─ scenographer 2/8 calls ─ budget 3/50",
 		`✓ submitted "The Long Night"`,
-		"ledger: phase submitted (6/6) · director 3/50 calls · global 5/200 calls",
+		"ledger: phase submitted (5/5) · director 3/50 calls · global 5/200 calls",
 		"dramaturg: 0 calls · 0 tokens · 0 consults · hop 0",
 		"playwright: 0 calls · 1234 tokens · 1 consults · hop 2",
 		"scenographer: 2 calls · 0 tokens · 0 consults · hop 0",
@@ -129,7 +129,7 @@ func TestRenderDialog_NeverWrites(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := map[string]bool{boardFileName: false, workingFileName: false, ledgerFileName: true, transcriptFileName: true}
+	want := map[string]bool{workingFileName: false, ledgerFileName: true, transcriptFileName: true}
 	for _, e := range entries {
 		if _, ok := want[e.Name()]; !ok {
 			t.Errorf("RenderDialog created unexpected file %q", e.Name())

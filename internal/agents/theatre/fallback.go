@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -61,40 +60,23 @@ func (r *Runner) roleFallback(role, task string, depth int) (string, error) {
 	}
 }
 
-// fallbackBrief is the dramaturg's floor: a brief built from the board's
-// theme, the registry's cast and the premises ledger (phase 6), posted to
-// the board exactly like write_brief would.
+// fallbackBrief is the dramaturg's floor: a brief built from the generation's
+// theme and the fixed cast, returned as the deliverable text.
 func (r *Runner) fallbackBrief() (string, error) {
 	brief := BriefArtifact{
-		Mood:     pick(r.rnd, briefMoods),
-		Shape:    pick(r.rnd, SceneNames()),
-		Lineup:   r.registryLineup(MaxLineup),
-		Theme:    r.boardTheme(),
-		NoRepeat: r.premisesNoRepeat(MaxNoRepeat),
+		Mood:   pick(r.rnd, briefMoods),
+		Shape:  pick(r.rnd, SceneNames()),
+		Lineup: r.castLineup(MaxLineup),
+		Theme:  r.theme,
 	}
-	text, err := marshalArtifact(brief)
-	if err != nil {
-		return "", err
-	}
-	if err := r.postToBoard("dramaturg", "brief", "director", text); err != nil {
-		return "", fmt.Errorf("dramaturg fallback: post brief: %w", err)
-	}
-	return text, nil
+	return marshalArtifact(brief)
 }
 
-// fallbackDramaturgAnswer answers a consultation in place: the brief on the
-// board, when one is posted.
+// fallbackDramaturgAnswer answers a consultation in place: the brief is
+// written to the working file by the dramaturg_brief tool, so a consulted
+// dramaturg (a consultation, not the brief run) cannot quote it.
 func (r *Runner) fallbackDramaturgAnswer(string) (string, error) {
-	board, err := r.company.LoadBoard()
-	if err != nil {
-		board = Board{}
-	}
-	for _, e := range board.Entries {
-		if e.Kind == "brief" {
-			return fmt.Sprintf("the brief is: %s", e.Body), nil
-		}
-	}
-	return "no brief posted yet — ask again once the dramaturg has delivered", nil
+	return "no brief on file — the dramaturg's brief is delivered in its final answer to the director", nil
 }
 
 // fallbackDraft is the playwright's floor: a composer draft saved into the
@@ -110,22 +92,11 @@ func (r *Runner) fallbackDraft() (string, error) {
 		rep := draftReportFrom(w.Story, w.Canon)
 		return marshalArtifact(rep)
 	}
-	s := ComposeThemed(r.rnd, r.boardTheme())
+	s := ComposeThemed(r.rnd, r.theme)
 	s.ID = r.stage.gen
 	w, err := r.company.LoadWorking()
 	if err != nil {
 		w = Working{}
-		// The working file is reset at generation start; the composer floor
-		// still riffs on the company's canon facts, which the playwright's
-		// context carries via the repertoire doc.
-		if lib := r.company.LoadLibrary(); len(lib.Repertoire.Facts) > 0 {
-			for _, f := range lib.Repertoire.Facts {
-				if len(w.Canon) >= CanonMaxFacts {
-					break
-				}
-				w.Canon = append(w.Canon, truncateRunes(f, CanonMaxFact))
-			}
-		}
 	}
 	rep := draftReportFrom(s, w.Canon)
 	w.Story = s
@@ -134,10 +105,6 @@ func (r *Runner) fallbackDraft() (string, error) {
 	w.Status = "draft"
 	// A rewritten draft loses the validate_story blessing (review 7, R7-01).
 	w.Validated = false
-	// Same out-of-band capture as writeDraft (review 3, R3-02): a composer
-	// draft is still written from the brief, and it is not dressed yet.
-	w.Brief = r.boardBrief()
-	w.Dressed = false
 	if err := r.company.SaveWorking(w); err != nil {
 		return "", fmt.Errorf("playwright fallback: save draft: %w", err)
 	}
@@ -158,7 +125,7 @@ func (r *Runner) fallbackPlaywrightAnswer(string) (string, error) {
 // fallbackScene is the scenographer's floor: the draft's set dressed around
 // its cast — the draft's backdrop kept when valid, pieces laid into the
 // columns nobody occupies (the staging rules from staging_test.go) — plus a
-// valid scene report posted to the board, exactly like write_scene would.
+// valid scene report, exactly like write_scene would.
 func (r *Runner) fallbackScene() (string, error) {
 	w, err := r.company.LoadWorking()
 	if err != nil {
@@ -171,9 +138,6 @@ func (r *Runner) fallbackScene() (string, error) {
 	// Dressing rewrites the draft, so it loses the validate_story blessing
 	// (review 7, R7-01).
 	w.Validated = false
-	// The scenographer ran (review 3, R3-02): the out-of-band marker survives
-	// a board overflow that trims its deliverable copy.
-	w.Dressed = true
 	if err := r.company.SaveWorking(w); err != nil {
 		return "", fmt.Errorf("scenographer fallback: save scene: %w", err)
 	}
@@ -184,14 +148,7 @@ func (r *Runner) fallbackScene() (string, error) {
 	for _, p := range w.Story.Props {
 		rep.Props = append(rep.Props, PropPlacement{ID: p.ID, X: p.X, Lane: p.Lane})
 	}
-	text, err := marshalArtifact(rep)
-	if err != nil {
-		return "", err
-	}
-	if err := r.postToBoard("scenographer", "deliverable", "director", text); err != nil {
-		ancli.Errf("theatre: scene report post failed: %v", err)
-	}
-	return text, nil
+	return marshalArtifact(rep)
 }
 
 // fallbackSceneAnswer answers a consultation in place: the set as dressed.
@@ -204,25 +161,23 @@ func (r *Runner) fallbackSceneAnswer(string) (string, error) {
 		w.Story.Scene.Backdrop, len(w.Story.Scene.Cells)), nil
 }
 
-// fallbackAdvice is the wardrobe's floor: a registry-grounded answer. A
-// question naming a known character gets its pinned look — plus a lane note
-// when a backdrop is mentioned; anything else is a clear "no registry entry"
-// refusal, because the wardrobe never invents a look.
+// fallbackAdvice is the wardrobe's floor: a fixed-cast-grounded answer. A
+// question naming a permanent cast member gets its canonical look (the same
+// looks the composer draws, floor.go) plus a lane note when a backdrop is
+// mentioned; anything else is a clear refusal, because the wardrobe never
+// invents a look.
 func (r *Runner) fallbackAdvice(question string) (string, error) {
-	if r.registry == nil {
-		return "no registry entry: the character registry is not wired", nil
-	}
 	id := r.knownCharacterIn(question)
 	if id == "" {
-		return fmt.Sprintf("no registry entry: the question names no known character (%s)",
-			strings.Join(r.registry.IDs(), ", ")), nil
+		return fmt.Sprintf("no known character in the question (the permanent cast is %s)",
+			strings.Join(permanentCastIDs(), ", ")), nil
 	}
-	look, _ := r.registry.Lookup(id)
+	look := permanentLook(id)
 	coat := look.Coat
 	if coat == "" {
 		coat = "unpinned"
 	}
-	answer := fmt.Sprintf("registry says %s=%s (%s)", id, coat, look.Character)
+	answer := fmt.Sprintf("the canon look for %s is %s (%s)", id, coat, look.Character)
 	if bd := backdropIn(question); bd != "" {
 		if look.Character == "bird" {
 			// A bird reads by species, not by lane: it perches above the
@@ -235,10 +190,10 @@ func (r *Runner) fallbackAdvice(question string) (string, error) {
 	return answer, nil
 }
 
-// knownCharacterIn finds the registered character a question names, if any.
+// knownCharacterIn finds the permanent cast member a question names, if any.
 func (r *Runner) knownCharacterIn(question string) string {
 	q := strings.ToLower(question)
-	for _, id := range r.registry.IDs() {
+	for _, id := range permanentCastIDs() {
 		if strings.Contains(q, id) {
 			return id
 		}
@@ -258,12 +213,9 @@ func backdropIn(question string) string {
 	return ""
 }
 
-// registryLineup picks up to n registered characters for the brief's lineup.
-func (r *Runner) registryLineup(n int) []string {
-	if r.registry == nil {
-		return nil
-	}
-	ids := r.registry.IDs()
+// castLineup picks up to n permanent cast ids for the brief's lineup.
+func (r *Runner) castLineup(n int) []string {
+	ids := permanentCastIDs()
 	if len(ids) <= n {
 		return ids
 	}
@@ -271,32 +223,27 @@ func (r *Runner) registryLineup(n int) []string {
 	return ids[:n]
 }
 
-// premisesNoRepeat lists the themes the company has already worked on, from
-// the premises doc, for the brief's no-repeat list (phase 6): the floor
-// avoids repeating history even when the LLM is down.
-func (r *Runner) premisesNoRepeat(n int) []string {
-	premises := r.company.LoadPremises()
-	out := make([]string, 0, n)
-	for _, p := range premises {
-		if len(out) >= n {
-			break
-		}
-		if p.Theme == "" {
-			continue
-		}
-		out = append(out, truncateRunes(p.Theme, MaxNoRepeatLen))
-	}
-	return out
+// permanentCastIDs lists the fixed cast the player can draw — the same cast
+// the composer (floor.go) draws.
+func permanentCastIDs() []string {
+	return []string{ina, freija, mouse, pip}
 }
 
-// boardTheme reads the generation's theme from the board; a board read
-// failure degrades to the empty theme.
-func (r *Runner) boardTheme() string {
-	board, err := r.company.LoadBoard()
-	if err != nil {
-		return ""
+// permanentLook is the canonical look of a fixed cast member — the same looks
+// the composer draws (floor.go). The wardrobe's floor answers from these,
+// never from a draft.
+func permanentLook(id string) model.Cast {
+	switch id {
+	case ina:
+		return model.Cast{ID: ina, Character: "cat", Coat: "ginger"}
+	case freija:
+		return model.Cast{ID: freija, Character: "dog", Coat: "tan"}
+	case mouse:
+		return model.Cast{ID: mouse, Character: "mouse"}
+	case pip:
+		return model.Cast{ID: pip, Character: "bird", Coat: "chaffinch"}
 	}
-	return board.Theme
+	return model.Cast{}
 }
 
 // draftReportFrom summarises a story into its draft report — the playwright

@@ -136,11 +136,12 @@ type Teller interface {
 }
 
 // Feedbacker records what the audience thought of a show, so the next
-// production can improve. The theatre implements it; the indexer type-asserts
-// it in the feedback handler.
+// production can improve. The slivingdoc package implements it over the
+// shared notebook (feedback.jsonl); the indexer holds the recorder directly
+// and answers 501 when it is nil.
 type Feedbacker interface {
 	// Feedback stores one audience note about a story. rating is +1 (thumbs
-	// up) or -1 (thumbs down); comment is optional and capped by the
-	// implementation.
+	// up) or -1 (thumbs down); comment is optional. Append and commit are
+	// one unit: a commit failure surfaces as an error, never a silent drop.
 	Feedback(ctx context.Context, storyID string, rating int, comment string) error
 }

@@ -9,6 +9,7 @@ import (
 	clai_tools "github.com/baalimago/clai/pkg/tools"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents"
+	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 	"github.com/baalimago/kinoview/internal/agents/tools"
 )
 
@@ -82,6 +83,16 @@ type concierge struct {
 	model     string
 	configDir string
 	cacheDir  string
+
+	// slivingdocServer is the MCP callsign for the shared agent notebook. A
+	// zero server disables the notebook: the concierge runs exactly as today,
+	// without the callsign, the file-tool globs or the NOTES prompt section.
+	slivingdocServer models.McpServer
+	// slivingdocWorkspace is the shared worktree the notebook is materialised
+	// into — the same value the MCP server uses, substituted into the NOTES
+	// prompt section. Optional: when empty, the constructor reads it back from
+	// the callsign args, so the prompt can never name a different path.
+	slivingdocWorkspace string
 }
 
 func WithMetadataManager(m agents.MetadataManager) ConciergeOption {
@@ -150,6 +161,65 @@ func WithModel(m string) ConciergeOption {
 	}
 }
 
+// WithSlivingdocServer configures the slivingdoc MCP callsign for the shared
+// agent notebook. A zero server (the default) disables the notebook: the
+// concierge runs exactly as today, without the callsign, the file-tool globs
+// or the NOTES prompt section.
+func WithSlivingdocServer(s models.McpServer) ConciergeOption {
+	return func(c *concierge) {
+		c.slivingdocServer = s
+	}
+}
+
+// WithSlivingdocWorkspace sets the shared worktree the notebook is
+// materialised into — the same value the slivingdoc MCP server uses,
+// substituted into the NOTES prompt section so the model never guesses it.
+// Optional: when empty, the constructor reads --workspace-root back from the
+// callsign args, keeping prompt and server provably consistent.
+func WithSlivingdocWorkspace(ws string) ConciergeOption {
+	return func(c *concierge) {
+		c.slivingdocWorkspace = ws
+	}
+}
+
+// notebookEnabled reports whether the slivingdoc callsign is configured.
+func (c *concierge) notebookEnabled() bool {
+	return c.slivingdocServer.Name != ""
+}
+
+// notebookWorkspace is the shared worktree path substituted into the NOTES
+// prompt section: the explicit option, or the path read back from the
+// callsign args.
+func (c *concierge) notebookWorkspace() string {
+	if c.slivingdocWorkspace != "" {
+		return c.slivingdocWorkspace
+	}
+	return slivingdoc.WorkspaceRoot(c.slivingdocServer)
+}
+
+// notebookGlobs are the tool globs applied to the agent when the notebook is
+// enabled: the slivingdoc callsign plus the file tools. nil when disabled.
+func (c *concierge) notebookGlobs() []string {
+	if !c.notebookEnabled() {
+		return nil
+	}
+	return slivingdoc.ToolGlobs()
+}
+
+// buildPrompt assembles the system prompt: the base workflow, the
+// OpenSubtitles addendum when the fetch tool is live, and the shared NOTES
+// partial when the notebook is enabled.
+func (c *concierge) buildPrompt(hasOpenSubtitles bool) string {
+	prompt := baseSystemPrompt
+	if hasOpenSubtitles {
+		prompt += openSubtitlesAddendum
+	}
+	if c.notebookEnabled() {
+		prompt += "\n" + slivingdoc.NotesPartial(c.notebookWorkspace())
+	}
+	return prompt
+}
+
 // New Concierge, hosting tools:
 // 1.  ConciergeContextGet
 // 2.  ConciergeContextPush
@@ -169,6 +239,11 @@ func WithModel(m string) ConciergeOption {
 // 16. ffprobe
 // 17. cat
 // 18. rows_between
+// With the slivingdoc callsign configured, the file tools (cat, rows_between,
+// ls, rg, write_file, apply_patch, mkdir) and the notebook tools
+// (mcp_slivingdoc_notes_pull, mcp_slivingdoc_notes_commit) arrive through the
+// shared tool globs instead — one source of truth for the file toolset — and
+// the NOTES prompt section teaches the pull → read/write → commit loop.
 func New(opts ...ConciergeOption) (agents.Concierge, error) {
 	c := concierge{}
 	for _, o := range opts {
@@ -292,21 +367,28 @@ func New(opts ...ConciergeOption) (agents.Concierge, error) {
 		clai_tools.WebsiteText,
 		clai_tools.Date,
 		clai_tools.FFProbe,
-		clai_tools.Cat,
-		clai_tools.RowsBetween,
 	)
 
-	prompt := baseSystemPrompt
-	if fst != nil {
-		prompt += openSubtitlesAddendum
+	// The file tools arrive through the shared globs when the notebook is
+	// enabled; without a notebook they stay on the explicit tool list so the
+	// concierge keeps its subtitle-validation workflow (rows_between) intact.
+	if !c.notebookEnabled() {
+		llmTools = append(llmTools, clai_tools.Cat, clai_tools.RowsBetween)
 	}
 
-	a := agent.New(
+	agentOpts := []agent.Option{
 		agent.WithModel(c.model),
 		agent.WithConfigDir(c.configDir),
-		agent.WithPrompt(prompt),
+		agent.WithPrompt(c.buildPrompt(fst != nil)),
 		agent.WithTools(llmTools),
 		agent.WithMaxToolCalls(20),
-	)
+	}
+	if c.notebookEnabled() {
+		agentOpts = append(agentOpts,
+			agent.WithMcpServers([]models.McpServer{c.slivingdocServer}),
+			agent.WithToolGlobs(c.notebookGlobs()...),
+		)
+	}
+	a := agent.New(agentOpts...)
 	return &a, nil
 }

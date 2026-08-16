@@ -21,10 +21,10 @@ const (
 )
 
 // phaseOrder is the production flow the director moves through. The working
-// file's statuses are the -ed forms of these phases. Validate precedes pin in
-// the flow (phase 4's production prompt: brief → draft → dress → validate →
-// pin → submit), so the phase line reads the flow as it is suggested.
-var phaseOrder = []string{"brief", "draft", "dress", "validate", "pin", "submit"}
+// file's statuses are the -ed forms of these phases. Validate precedes submit
+// in the flow (phase 4's production prompt: brief → draft → dress → validate →
+// submit), so the phase line reads the flow as it is suggested.
+var phaseOrder = []string{"brief", "draft", "dress", "validate", "submit"}
 
 // Stage is the stage-manager wrapper: the single writer of a generation's
 // transcript, the owner of the stdout feed and the keeper of the progress

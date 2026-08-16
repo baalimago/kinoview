@@ -3,13 +3,148 @@ package serve
 import (
 	"context"
 	"flag"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/baalimago/kinoview/internal/agents/theatre"
+	"github.com/baalimago/kinoview/internal/s3embed"
 )
 
+// The slivingdoc binary resolves from the explicit -slivingdocCommand flag,
+// next to the current executable, then on PATH. Tests cannot rely on the
+// first two, so the not-found case pins an empty PATH and the found case puts
+// a fake binary on PATH.
+func TestResolveSlivingdocBinary_NotFound(t *testing.T) {
+	t.Setenv("PATH", "")
+	if got, err := resolveSlivingdocBinary(""); err == nil {
+		t.Fatalf("expected error with empty PATH, got %q", got)
+	}
+}
+
+func TestResolveSlivingdocBinary_FoundOnPath(t *testing.T) {
+	binDir := t.TempDir()
+	fake := filepath.Join(binDir, "slivingdoc")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	got, err := resolveSlivingdocBinary("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != fake {
+		t.Errorf("resolved %q, want %q", got, fake)
+	}
+}
+
+// The explicit -slivingdocCommand path wins over PATH, and an explicit
+// missing path fails naming it, so an operator typo is diagnosable.
+func TestResolveSlivingdocBinary_ExplicitFlagWins(t *testing.T) {
+	t.Setenv("PATH", "")
+	explicit := filepath.Join(t.TempDir(), "slivingdoc")
+	if err := os.WriteFile(explicit, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	got, err := resolveSlivingdocBinary(explicit)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != explicit {
+		t.Errorf("resolved %q, want %q", got, explicit)
+	}
+}
+
+func TestResolveSlivingdocBinary_ExplicitMissingNamesPath(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "nope")
+	if _, err := resolveSlivingdocBinary(missing); err == nil || !strings.Contains(err.Error(), missing) {
+		t.Errorf("resolveSlivingdocBinary(%q) error = %v, want it to name the path", missing, err)
+	}
+}
+
+// The weed binary resolves through s3embed.ResolveBinary — the same call
+// Setup makes before constructing the supervisor. Found/not-found pin the
+// serve-side dependency contract: a missing weed binary disables the
+// notebook.
+func TestResolveWeedBinary_NotFound(t *testing.T) {
+	t.Setenv("PATH", "")
+	if _, err := s3embed.ResolveBinary(""); err == nil {
+		t.Fatal("expected error with empty PATH and no explicit path")
+	}
+}
+
+func TestResolveWeedBinary_Found(t *testing.T) {
+	binDir := t.TempDir()
+	fake := filepath.Join(binDir, "weed")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir)
+	got, err := s3embed.ResolveBinary("")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if got != fake {
+		t.Errorf("resolved %q, want %q", got, fake)
+	}
+}
+
+// TestDisabled_NoWiring asserts -slivingdocDisable wins over resolvable
+// binaries: no supervisor is constructed and no slivingdoc callsign reaches
+// the agents.
+func TestDisabled_NoWiring(t *testing.T) {
+	binDir := t.TempDir()
+	for _, name := range []string{"weed", "slivingdoc"} {
+		fake := filepath.Join(binDir, name)
+		if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", binDir)
+
+	c := Command()
+	fs := c.Flagset()
+	if err := fs.Parse([]string{"-slivingdocDisable"}); err != nil {
+		t.Fatal(err)
+	}
+	empty := ""
+	c.classificationModel = &empty
+	c.recommenderModel = &empty
+	c.butlerModel = &empty
+	c.conciergeModel = &empty
+	c.classificationWorkers = new(int)
+	*c.classificationWorkers = 1
+	c.configDir = new(t.TempDir())
+
+	if err := c.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup with -slivingdocDisable: %v", err)
+	}
+	if c.s3Supervisor != nil {
+		t.Error("expected no S3 supervisor with -slivingdocDisable")
+	}
+	if c.slivingdocServer.Name != "" {
+		t.Errorf("expected no slivingdoc callsign with -slivingdocDisable, got %+v", c.slivingdocServer)
+	}
+}
+
+// TestEndpointDerivedFromSupervisor pins the endpoint derivation (decision
+// D-4): -slivingdocEndpoint empty derives the supervisor's own endpoint in
+// the http://127.0.0.1:<port> form; an explicit value wins.
+func TestEndpointDerivedFromSupervisor(t *testing.T) {
+	s3 := s3embed.New(s3embed.WithS3Port(9444))
+	if got, want := notebookEndpoint("", s3), "http://127.0.0.1:9444"; got != want {
+		t.Errorf("derived endpoint = %q, want %q", got, want)
+	}
+	explicit := "http://s3.example.test:9000"
+	if got := notebookEndpoint(explicit, s3); got != explicit {
+		t.Errorf("explicit endpoint = %q, want %q", got, explicit)
+	}
+}
+
 func TestSetup_ModelsEmptyString_DisablesAgents(t *testing.T) {
+	withoutWeed(t)
 	c := Command()
 	c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
 	c.configDir = new(t.TempDir())
@@ -55,6 +190,7 @@ func TestCommand_TheatreBudgetFlagsDefault(t *testing.T) {
 // The new flags parse from the command line and are honoured by Setup: a
 // small budget still yields a working composer-only indexer.
 func TestSetup_TheatreBudgetFlagsParseAndApply(t *testing.T) {
+	withoutWeed(t)
 	c := Command()
 	fs := c.Flagset()
 	if err := fs.Parse([]string{

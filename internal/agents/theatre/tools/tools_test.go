@@ -17,12 +17,8 @@ func allTools(t *testing.T) map[string]models.LLMTool {
 	spy1 := func(string) (string, error) { return "ok", nil }
 	spy2 := func(string, string) (string, error) { return "ok", nil }
 	spy3 := func() (string, error) { return "ok", nil }
-	spy4 := func(string, string) (string, error) { return "ok", nil }
 	return map[string]models.LLMTool{
-		"post_to_board":   NewPostToBoard(func(kind, to, body string) error { return nil }),
-		"read_board":      NewReadBoard(func() (string, error) { return "[1] stage (note) → company: hi", nil }),
 		"consult":         NewConsult(func(role, question string) (string, error) { return "answer", nil }),
-		"write_brief":     NewWriteBrief(spy),
 		"write_draft":     NewWriteDraft(spy2),
 		"append_canon":    NewAppendCanon(spy),
 		"write_scene":     NewWriteScene(spy2),
@@ -32,8 +28,7 @@ func allTools(t *testing.T) map[string]models.LLMTool {
 		"dress_set":       NewDressSet(spy1),
 		"read_story":      NewReadStory(spy1),
 		"validate_story":  NewValidateStory(spy3),
-		"pin_identity":    NewPinIdentity(spy3),
-		"submit_story":    NewSubmitStory(spy4),
+		"submit_story":    NewSubmitStory(spy3),
 	}
 }
 
@@ -112,9 +107,7 @@ func TestTools_MalformedInputReturnsMessage(t *testing.T) {
 		tool  models.LLMTool
 		input models.Input
 	}{
-		{"post_to_board", NewPostToBoard(func(string, string, string) error { return nil }), models.Input{"kind": 1}},
 		{"consult", NewConsult(func(string, string) (string, error) { return "", nil }), models.Input{"role": "director"}},
-		{"write_brief", NewWriteBrief(func(string) error { return nil }), models.Input{"brief": 42}},
 		{"write_draft", NewWriteDraft(func(string, string) (string, error) { return "", nil }), models.Input{"story": 42}},
 		{"append_canon", NewAppendCanon(func(string) error { return nil }), models.Input{"fact": nil}},
 		{"write_scene", NewWriteScene(func(string, string) (string, error) { return "", nil }), models.Input{"backdrop": true}},
@@ -123,7 +116,6 @@ func TestTools_MalformedInputReturnsMessage(t *testing.T) {
 		{"draft_story", NewDraftStory(func(string) (string, error) { return "", nil }), models.Input{"notes": nil}},
 		{"dress_set", NewDressSet(func(string) (string, error) { return "", nil }), models.Input{"notes": true}},
 		{"read_story", NewReadStory(func(string) (string, error) { return "", nil }), models.Input{"part": 42}},
-		{"submit_story", NewSubmitStory(func(string, string) (string, error) { return "", nil }), models.Input{"notes": 42}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -141,40 +133,6 @@ func TestTools_MalformedInputReturnsMessage(t *testing.T) {
 // Each tool routes its parsed input into its callback and returns the
 // callback's outcome to the agent.
 func TestTools_CallBehavior(t *testing.T) {
-	t.Run("post_to_board forwards kind, to and body", func(t *testing.T) {
-		var gotKind, gotTo, gotBody string
-		tool := NewPostToBoard(func(kind, to, body string) error {
-			gotKind, gotTo, gotBody = kind, to, body
-			return nil
-		})
-		out, err := tool.Call(models.Input{"kind": "note", "to": "director", "body": "hello"})
-		if err != nil || !strings.Contains(out, "posted") {
-			t.Fatalf("out = %q, err = %v", out, err)
-		}
-		if gotKind != "note" || gotTo != "director" || gotBody != "hello" {
-			t.Errorf("callback got (%q, %q, %q)", gotKind, gotTo, gotBody)
-		}
-	})
-
-	t.Run("post_to_board callback error is a message, not a hard error", func(t *testing.T) {
-		tool := NewPostToBoard(func(string, string, string) error { return fmt.Errorf("board write: boom") })
-		out, err := tool.Call(models.Input{"kind": "note", "to": "", "body": "x"})
-		if err != nil {
-			t.Fatalf("want a message string, got hard error %v", err)
-		}
-		if !strings.Contains(out, "boom") {
-			t.Errorf("out = %q, want the callback error surfaced", out)
-		}
-	})
-
-	t.Run("read_board returns the excerpt", func(t *testing.T) {
-		tool := NewReadBoard(func() (string, error) { return "[1] stage (note) → company: hi", nil })
-		out, err := tool.Call(models.Input{})
-		if err != nil || !strings.Contains(out, "[1] stage") {
-			t.Fatalf("out = %q, err = %v", out, err)
-		}
-	})
-
 	t.Run("consult returns the answer", func(t *testing.T) {
 		var gotRole, gotQ string
 		tool := NewConsult(func(role, question string) (string, error) {
@@ -251,27 +209,9 @@ func TestTools_CallBehavior(t *testing.T) {
 		}
 	})
 
-	t.Run("submit_story forwards notes and characters and returns the summary", func(t *testing.T) {
-		var gotNotes, gotChars string
-		tool := NewSubmitStory(func(notes, characters string) (string, error) {
-			gotNotes, gotChars = notes, characters
+	t.Run("submit_story returns the summary", func(t *testing.T) {
+		tool := NewSubmitStory(func() (string, error) {
 			return "submitted \"T\" (12 beats, 3 cast, 1 props)", nil
-		})
-		out, err := tool.Call(models.Input{"notes": "two stares in a row", "characters": `[{"id":"m2"}]`})
-		if err != nil || !strings.Contains(out, "submitted") {
-			t.Fatalf("out = %q, err = %v", out, err)
-		}
-		if gotNotes != "two stares in a row" || gotChars != `[{"id":"m2"}]` {
-			t.Errorf("callback got notes %q, characters %q", gotNotes, gotChars)
-		}
-	})
-
-	t.Run("submit_story tolerates missing optional inputs", func(t *testing.T) {
-		tool := NewSubmitStory(func(notes, characters string) (string, error) {
-			if notes != "" || characters != "" {
-				t.Errorf("got notes %q, characters %q, want empty", notes, characters)
-			}
-			return "submitted", nil
 		})
 		out, err := tool.Call(models.Input{})
 		if err != nil || !strings.Contains(out, "submitted") {
@@ -288,9 +228,7 @@ func TestTools_CallbackErrorIsMessage(t *testing.T) {
 		tool models.LLMTool
 		in   models.Input
 	}{
-		{"read_board", NewReadBoard(func() (string, error) { return "", fmt.Errorf("read boom") }), models.Input{}},
 		{"consult", NewConsult(func(string, string) (string, error) { return "", fmt.Errorf("consult boom") }), models.Input{"role": "wardrobe", "question": "q"}},
-		{"write_brief", NewWriteBrief(func(string) error { return fmt.Errorf("brief boom") }), models.Input{"brief": "b"}},
 		{"write_draft", NewWriteDraft(func(string, string) (string, error) { return "", fmt.Errorf("draft boom") }), models.Input{"story": "{}"}},
 		{"append_canon", NewAppendCanon(func(string) error { return fmt.Errorf("canon boom") }), models.Input{"fact": "f"}},
 		{"write_scene", NewWriteScene(func(string, string) (string, error) { return "", fmt.Errorf("scene boom") }), models.Input{"backdrop": "night"}},
@@ -300,8 +238,7 @@ func TestTools_CallbackErrorIsMessage(t *testing.T) {
 		{"dress_set", NewDressSet(func(string) (string, error) { return "", fmt.Errorf("scene boom") }), models.Input{"notes": "n"}},
 		{"read_story", NewReadStory(func(string) (string, error) { return "", fmt.Errorf("read boom") }), models.Input{"part": "cast"}},
 		{"validate_story", NewValidateStory(func() (string, error) { return "", fmt.Errorf("validate boom") }), models.Input{}},
-		{"pin_identity", NewPinIdentity(func() (string, error) { return "", fmt.Errorf("pin boom") }), models.Input{}},
-		{"submit_story", NewSubmitStory(func(string, string) (string, error) { return "", fmt.Errorf("submit boom") }), models.Input{}},
+		{"submit_story", NewSubmitStory(func() (string, error) { return "", fmt.Errorf("submit boom") }), models.Input{}},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {

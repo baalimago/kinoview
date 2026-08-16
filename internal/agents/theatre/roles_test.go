@@ -25,9 +25,9 @@ func TestRolePrompts_ThreeSections(t *testing.T) {
 	}
 }
 
-// The wardrobe's tool set is the spec's three — post_to_board, read_board and
-// advise — without consult, matching its "You ask: nothing" scope (review 1,
-// R1-02). The other three production roles keep consult.
+// The wardrobe's tool set is just advise — without consult, matching its "You
+// ask: nothing" scope (review 1, R1-02). The other three production roles
+// keep consult.
 func TestRoleTools_WardrobeLacksConsult(t *testing.T) {
 	t.Parallel()
 	co := Open(t.TempDir())
@@ -48,7 +48,7 @@ func TestRoleTools_WardrobeLacksConsult(t *testing.T) {
 	if wardrobe["consult"] {
 		t.Error("the wardrobe carries consult — its scope says it asks nothing")
 	}
-	for _, want := range []string{"post_to_board", "read_board", "advise"} {
+	for _, want := range []string{"advise"} {
 		if !wardrobe[want] {
 			t.Errorf("wardrobe tool set lacks %q; got %v", want, wardrobe)
 		}
@@ -70,7 +70,7 @@ func TestRolePrompts_ScopeTextPinned(t *testing.T) {
 	for _, tc := range []struct {
 		role, needle string
 	}{
-		{"dramaturg", "delivered with write_brief"},
+		{"dramaturg", "final answer is the brief text"},
 		{"playwright", "final answer is the complete story"},
 		{"playwright", "character one of cat, dog, mouse, bird"},
 		{"playwright", "prop one of yarn, box, ball, bone, cushion, bowl"},
@@ -80,11 +80,28 @@ func TestRolePrompts_ScopeTextPinned(t *testing.T) {
 		{"playwright", "cast member must enter with an enter beat"},
 		{"scenographer", "delivered with write_scene"},
 		{"scenographer", "never put a piece through a performer"},
-		{"wardrobe", "grounded in the character registry"},
+		{"wardrobe", "fixed cast and its canon looks"},
 		{"wardrobe", "You decide: nothing"},
 	} {
 		if !strings.Contains(RolePrompt(tc.role), tc.needle) {
 			t.Errorf("%s prompt dropped %q", tc.role, tc.needle)
+		}
+	}
+}
+
+// The theatre board is free-form prose in the shared notebook now: no role
+// prompt — director included — may reference the removed structured
+// machinery. The list is the phase-4 removal contract plus the phase-5
+// notebook direction; a re-introduction of any of these words means the
+// prompt drifted back to the old board.
+func TestRolePrompt_DropsRegistryAndBoardReferences(t *testing.T) {
+	t.Parallel()
+	for _, role := range []string{"director", "dramaturg", "playwright", "scenographer", "wardrobe"} {
+		prompt := RolePrompt(role)
+		for _, gone := range []string{"post_to_board", "read_board", "registry", "pin_identity", "bulletin", "lessons"} {
+			if strings.Contains(prompt, gone) {
+				t.Errorf("%s prompt still mentions %q:\n%s", role, gone, prompt)
+			}
 		}
 	}
 }

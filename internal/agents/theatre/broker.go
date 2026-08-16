@@ -7,8 +7,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 )
 
 // Broker is the consultation layer between the production roles (decision
@@ -21,8 +19,8 @@ import (
 //   - budgets: a spawn past the generation's global call cap or wall-clock
 //     deadline is refused and the caller is told.
 //
-// Question and answer are posted to the board and the transcript, and the
-// ledger records the consult and the hop depth it reached.
+// Question and answer land on the transcript, and the ledger records the
+// consult and the hop depth it reached.
 type Broker struct {
 	company *Company
 	stage   *Stage
@@ -94,9 +92,8 @@ func (b *Broker) Consult(ctx context.Context, questioner, target, question strin
 		return "consult refused: wall-clock deadline exceeded", nil
 	}
 
-	// The question goes on the board before the spawn, so the consulted role
-	// reads it in its context; the transcript records the consult.
-	_ = b.post(questioner, "question", target, question)
+	// The question goes on the transcript before the spawn, so the consulted
+	// role's task carries it; the transcript records the consult.
 	b.stage.Emit(TranscriptEvent{Kind: "consult", From: questioner, To: target, Body: question})
 
 	res, err := b.runner.Run(ctx, Invocation{
@@ -110,25 +107,14 @@ func (b *Broker) Consult(ctx context.Context, questioner, target, question strin
 	}
 	answer := strings.TrimSpace(res.Text)
 
-	// The answer lands on the board, the transcript and the table.
+	// The answer lands on the transcript and the table; the ledger records
+	// the consult.
 	b.stage.RecordConsult(questioner, depth+1)
-	_ = b.post(target, "answer", questioner, answer)
 	b.stage.Emit(TranscriptEvent{Kind: "answer", From: target, To: questioner, Body: answer})
 	b.mu.Lock()
 	b.table[key] = answer
 	b.mu.Unlock()
 	return answer, nil
-}
-
-// post appends a question or answer entry to the board, best-effort: the
-// board is context, not the show, so a write failure is logged and the
-// consultation continues (the transcript keeps the authoritative record).
-func (b *Broker) post(author, kind, to, body string) error {
-	if err := appendBoardEntry(b.company, Entry{Author: author, Kind: kind, To: to, Body: body}); err != nil {
-		ancli.Errf("theatre: board write failed: %v", err)
-		return err
-	}
-	return nil
 }
 
 // consultKey identifies a repeat consultation: the questioner, the consulted

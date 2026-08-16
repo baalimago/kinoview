@@ -7,7 +7,6 @@ import (
 	"strings"
 
 	"github.com/baalimago/clai/pkg/text/models"
-	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/agents/theatre/tools"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -18,15 +17,13 @@ import (
 // never burns budget past its deliverable. The four production roles land
 // here in full (phase 5); the director's own prompt lives in director.go.
 
-const dramaturgPrompt = `You are the dramaturg. You decide: the production brief — the mood the story should carry, the shape it should take, the 1-3 member cast lineup, and what to avoid repeating. You ask: nothing — you work from the board and the character registry alone; the playwright and the scenographer build on your brief. You stop: when the brief is delivered with write_brief — deliver it once and stop.
+const dramaturgPrompt = `You are the dramaturg. You decide: the production brief — the mood the story should carry, the shape it should take, the 1-3 member cast lineup, and what to avoid repeating. You ask: nothing — you work from the director's notes alone; the playwright and the scenographer build on your brief. You stop: when your final answer is the brief text — deliver it once and stop.`
 
-The audience notes in your context are the priority: if they disliked the recent shape or asked for something new, change the shape, the cast or the backdrop — never restage an earlier production's skeleton.`
+const playwrightPrompt = `You are the playwright. You decide: the full draft — the title, the beats, the cast usage, the props, and 1-2 canon facts the story leaves behind (short past-tense outcomes, at most 120 characters each, carried in the story's "canon" array). Riff on the canon facts you are told. You ask: the wardrobe, via consult, when a look needs checking against the set. You stop: when your final answer is the complete story as a single JSON object — it is checked against the story schema, so follow it exactly and never guess. The field rules: "cast" is an array of {"id","character","coat","lane","scale","x"} with character one of cat, dog, mouse, bird; "props" is an array of {"id","prop","lane","x"} with prop one of yarn, box, ball, bone, cushion, bowl; "beats" is an array of {"t","actor","action","x","target","ms","from","piece"} with actor a cast id and action one of enter, exit, walkTo, vocalize, sit, stretch, blink, pounce, chase, greet, stareoff, nap, bat, yawn, sniff, jump, setCell, setBackdrop; "scene" is {"backdrop": one of night, livingroom, garden, theatre, sunset, kitchen, forest, rain, "cells": []}; "durationMs" is 1200-10000. Positions: "x" is the stage position as a fraction 0.0-1.0 — 0.0 is far left, 1.0 is far right, 0.5 is centre — never a 0-100 mark; "lane" is 0-2, 0 nearest the viewer, 2 farthest; "t" is the beat's start time in ms and "ms" its duration. Spread the cast across the stage; never give two performers the same x and lane. Every cast member must enter with an enter beat — a character that never enters misses its entrance and stands at its cast mark from the first frame. Dress the stage: aim for 2-4 scene cells and 1-3 props so the set reads as a place, not an empty stage. Write the story once and stop.`
 
-const playwrightPrompt = `You are the playwright. You decide: the full draft — the title, the beats, the cast usage, the props, and 1-2 canon facts the story leaves behind (short past-tense outcomes, at most 120 characters each, carried in the story's "canon" array). Riff on the canon facts you are told; never contradict the pinned registry (a cat stays a cat, a pinned coat stays pinned). You ask: the wardrobe, via consult, when a look needs checking against the set. You stop: when your final answer is the complete story as a single JSON object — it is checked against the story schema, so follow it exactly and never guess. The field rules: "cast" is an array of {"id","character","coat","lane","scale","x"} with character one of cat, dog, mouse, bird; "props" is an array of {"id","prop","lane","x"} with prop one of yarn, box, ball, bone, cushion, bowl; "beats" is an array of {"t","actor","action","x","target","ms","from","piece"} with actor a cast id and action one of enter, exit, walkTo, vocalize, sit, stretch, blink, pounce, chase, greet, stareoff, nap, bat, yawn, sniff, jump, setCell, setBackdrop; "scene" is {"backdrop": one of night, livingroom, garden, theatre, sunset, kitchen, forest, rain, "cells": []}; "durationMs" is 1200-10000. Positions: "x" is the stage position as a fraction 0.0-1.0 — 0.0 is far left, 1.0 is far right, 0.5 is centre — never a 0-100 mark; "lane" is 0-2, 0 nearest the viewer, 2 farthest; "t" is the beat's start time in ms and "ms" its duration. Spread the cast across the stage; never give two performers the same x and lane. Every cast member must enter with an enter beat — a character that never enters misses its entrance and stands at its cast mark from the first frame. Dress the stage: aim for 2-4 scene cells and 1-3 props so the set reads as a place, not an empty stage. Do not copy an earlier production's skeleton: the earlier-productions list in your context shows what has been staged — change the title, the beats or the cast rather than repeat it. Write the story once and stop.`
+const scenographerPrompt = `You are the scenographer. You decide: the set around the draft's staging — the backdrop, the cells and the prop placements; never put a piece through a performer. You ask: the wardrobe, via consult, when a coat's contrast against a backdrop needs checking. You stop: when the scene is delivered with write_scene — deliver it once and stop.`
 
-const scenographerPrompt = `You are the scenographer. You decide: the set around the draft's staging — the backdrop, the cells and the prop placements; never put a piece through a performer. You ask: the wardrobe, via consult, when a coat's contrast against a backdrop needs checking. You stop: when the scene is delivered with write_scene — deliver it once and stop. Do not repeat the last production's backdrop: the set-recipes list in your context shows what was used — pick a new backdrop or dress the same one differently.`
-
-const wardrobePrompt = `You are the wardrobe consultant. You decide: nothing — you answer questions about character looks against backdrops, grounded in the character registry. You ask: nothing. You stop: when your answer is given with advise — answer once and stop.`
+const wardrobePrompt = `You are the wardrobe consultant. You decide: nothing — you answer questions about character looks against backdrops, from the fixed cast and its canon looks. You ask: nothing. You stop: when your answer is given with advise — answer once and stop.`
 
 // The role prompts are constants — the working-context standard's role
 // section can never be swapped at runtime. The len checks are compile-time
@@ -75,22 +72,13 @@ func artifactName(role string) string {
 }
 
 // roleTools builds the tool set for one role invocation at the given hop
-// depth: the shared tools every role carries — post_to_board and read_board —
-// plus consult for every role except the wardrobe (its "You ask: nothing"
+// depth: consult for every role except the wardrobe (its "You ask: nothing"
 // scope, review 1 R1-02), plus the role's deliverable writer. The author,
 // questioner and depth are pinned at construction, so a tool can never act as
 // another role or escape its hop depth. The writers validate their artifacts
-// at the wrapper boundary (phase 5) before anything enters the board or the
-// working file.
+// at the wrapper boundary (phase 5) before anything enters the working file.
 func (r *Runner) roleTools(ctx context.Context, role string, depth int) []models.LLMTool {
-	shared := []models.LLMTool{
-		tools.NewPostToBoard(func(kind, to, body string) error {
-			return r.postToBoard(role, kind, to, body)
-		}),
-		tools.NewReadBoard(func() (string, error) {
-			return r.readBoardExcerpt(), nil
-		}),
-	}
+	var shared []models.LLMTool
 	if role != "wardrobe" {
 		shared = append(shared, tools.NewConsult(func(target, question string) (string, error) {
 			return r.consult(ctx, role, target, question, depth)
@@ -103,14 +91,16 @@ func (r *Runner) roleTools(ctx context.Context, role string, depth int) []models
 		}
 		return r.directorTools(ctx)
 	case "dramaturg":
-		return append(shared, tools.NewWriteBrief(func(brief string) error {
-			return r.writeBrief(brief)
-		}))
+		// The dramaturg's brief is its final answer — free text, like the
+		// playwright's structured story, so no writer tool is needed; the role
+		// also writes the brief into the shared notebook itself (the NOTES
+		// contract). It keeps consult.
+		return shared
 	case "playwright":
 		// The playwright's story arrives as its structured final answer (the
 		// machine fix, 2026-08-03): no writer tools — the runner persists the
 		// final answer into the working file, and the canon facts ride on the
-		// story's "canon" array. It keeps the shared tools and consult.
+		// story's "canon" array. It keeps consult.
 		return shared
 	case "scenographer":
 		shared = append(shared, tools.NewWriteScene(func(backdrop, report string) (string, error) {
@@ -132,100 +122,6 @@ func (r *Runner) consult(ctx context.Context, questioner, target, question strin
 		return "consult refused: broker not wired", nil
 	}
 	return r.broker.Consult(ctx, questioner, target, question, depth)
-}
-
-// postToBoard appends a validated entry on the role's behalf and records the
-// post event. Both the kind and the addressee are checked here so the tool
-// can tell the model that a rejected entry was rejected: the board gate
-// would silently drop an unknown kind and clear an unknown addressee, and
-// the transcript would drop the same event — the two records must agree on
-// every accepted post (review 1, R1-04).
-func (r *Runner) postToBoard(author, kind, to, body string) error {
-	kind = strings.ToLower(strings.TrimSpace(kind))
-	if !ValidBoardKinds[kind] {
-		return fmt.Errorf("unknown kind %q (one of brief, question, answer, note, decision, deliverable)", kind)
-	}
-	to = strings.ToLower(strings.TrimSpace(to))
-	if to != "" && !ValidRoles[to] {
-		return fmt.Errorf("unknown addressee %q (a role, or empty for the company)", to)
-	}
-	if err := appendBoardEntry(r.company, Entry{Author: author, Kind: kind, To: to, Body: body}); err != nil {
-		return fmt.Errorf("board write: %w", err)
-	}
-	r.stage.Emit(TranscriptEvent{Kind: "post", From: author, To: to, Body: body})
-	return nil
-}
-
-// boardBrief returns the newest brief entry's body — the brief the draft is
-// written from. The playwright's writer and floor capture it into the working
-// file at draft-write time (review 3, R3-02), so the premise survives a board
-// overflow after the draft is written. The window BEFORE the draft write is
-// not budget-closed: consults post question + answer and consulted roles post
-// up to their budget, so a chatty generation can still trim the brief before
-// the playwright writes (review 5, R5-01) — the out-of-band capture should
-// happen at brief-post time, with this scan as the fallback. A board read
-// failure degrades to the empty brief.
-func (r *Runner) boardBrief() string {
-	board, err := r.company.LoadBoard()
-	if err != nil {
-		return ""
-	}
-	for i := len(board.Entries) - 1; i >= 0; i-- {
-		if board.Entries[i].Kind == "brief" {
-			return board.Entries[i].Body
-		}
-	}
-	return ""
-}
-
-// readBoardExcerpt renders the board excerpt for the read_board tool. A board
-// read failure degrades to the empty excerpt — the generation continues.
-func (r *Runner) readBoardExcerpt() string {
-	board, err := r.company.LoadBoard()
-	if err != nil {
-		board = Board{}
-	}
-	var b strings.Builder
-	for _, e := range board.Excerpt(BoardExcerptMax) {
-		to := e.To
-		if to == "" {
-			to = "company"
-		}
-		fmt.Fprintf(&b, "[%d] %s (%s) → %s: %s\n", e.Seq, e.Author, e.Kind, to, e.Body)
-	}
-	return b.String()
-}
-
-// writeBrief posts the dramaturg's brief to the board. A JSON brief is
-// validated at the wrapper boundary — unknown lineup ids dropped, lengths
-// capped — before it enters the board; a free-text brief passes through
-// untouched.
-func (r *Runner) writeBrief(brief string) error {
-	normalized, ok := r.validateBrief(brief)
-	if !ok {
-		normalized = brief
-	}
-	return r.postToBoard("dramaturg", "brief", "director", normalized)
-}
-
-// validateBrief parses and normalises a brief artifact. It reports whether
-// the text was a JSON brief at all; the returned string is the normalized
-// artifact (or the input, when it was not an artifact).
-func (r *Runner) validateBrief(text string) (string, bool) {
-	var ba BriefArtifact
-	if !parseArtifact(text, &ba) {
-		return text, false
-	}
-	var known func(string) bool
-	if r.registry != nil {
-		known = r.registry.Known
-	}
-	normalizeBrief(&ba, known)
-	out, err := marshalArtifact(ba)
-	if err != nil {
-		return text, false
-	}
-	return out, true
 }
 
 // writeDraft saves the playwright's draft into the working file. The story is
@@ -256,7 +152,7 @@ func (r *Runner) writeDraft(story, report string) (string, error) {
 	}
 	// A fresh draft replaces the previous generation's report: the report is
 	// the playwright's own account of THIS draft, and an old one would
-	// otherwise leak into the repertoire doc — the 09:53 production distilled
+	// otherwise leak into the working summary — the 09:53 production carried
 	// "The Office S06E06" (13 beats) beside a draft titled S06E09 (9 beats).
 	w.Report = nil
 	if rep, ok := parseDraftReport(report); ok {
@@ -290,11 +186,6 @@ func (r *Runner) writeDraft(story, report string) (string, error) {
 	// A rewritten draft loses the validate_story blessing (review 7, R7-01):
 	// the exhaustion path ships only the exact content that passed the gate.
 	w.Validated = false
-	// The brief rides out of band (review 3, R3-02): the draft is written
-	// from it, and the premise must survive a board overflow. A fresh draft
-	// is not dressed yet.
-	w.Brief = r.boardBrief()
-	w.Dressed = false
 	if err := r.company.SaveWorking(w); err != nil {
 		return "", err
 	}
@@ -305,15 +196,13 @@ func (r *Runner) writeDraft(story, report string) (string, error) {
 // nothing to dress; the scenographer must wait for the playwright. A JSON
 // scene report carries the whole dress — backdrop, cells and prop placements,
 // validated against the model vocabulary and the draft's own props; a
-// free-text report dresses the backdrop only. The scene report lands on the
-// board (integration contract); the working file stays the authoritative
-// artifact, so a board write failure is logged, not fatal.
+// free-text report dresses the backdrop only. The working file is the
+// authoritative artifact.
 func (r *Runner) writeScene(backdrop, report string) (string, error) {
 	w, err := r.company.LoadWorking()
 	if err != nil {
 		return "", fmt.Errorf("no draft in the working file yet — the playwright must write first")
 	}
-	post := fmt.Sprintf("backdrop: %s", strings.ToLower(strings.TrimSpace(backdrop)))
 	if sr, ok := parseSceneReport(report); ok {
 		backdrop = sr.Backdrop
 		if !model.ValidBackdrops[backdrop] {
@@ -322,9 +211,6 @@ func (r *Runner) writeScene(backdrop, report string) (string, error) {
 		w.Story.Scene.Backdrop = backdrop
 		applyCellPlacements(&w.Story, sr.Cells)
 		applyPropPlacements(&w.Story, sr.Props)
-		if b, merr := marshalArtifact(sr); merr == nil {
-			post = b
-		}
 	} else {
 		backdrop = strings.ToLower(strings.TrimSpace(backdrop))
 		if !model.ValidBackdrops[backdrop] {
@@ -338,14 +224,8 @@ func (r *Runner) writeScene(backdrop, report string) (string, error) {
 	// (review 7, R7-01): the exhaustion path ships only the exact content
 	// that passed the gate.
 	w.Validated = false
-	// The scenographer ran: the out-of-band marker survives a board overflow
-	// that trims its deliverable copy (review 3, R3-02).
-	w.Dressed = true
 	if err := r.company.SaveWorking(w); err != nil {
 		return "", err
-	}
-	if err := r.postToBoard("scenographer", "deliverable", "director", post); err != nil {
-		ancli.Errf("theatre: scene report post failed: %v", err)
 	}
 	return fmt.Sprintf("scene saved (revision %d, backdrop %s)", w.Revision, backdrop), nil
 }

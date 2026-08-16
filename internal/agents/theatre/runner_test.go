@@ -6,11 +6,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/baalimago/clai/pkg/text/models"
+	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 	"github.com/baalimago/kinoview/internal/agents/theatre/tools"
 	"github.com/baalimago/kinoview/internal/model"
 )
@@ -33,6 +35,84 @@ func callTool(t *testing.T, p llmParams, name string, input models.Input) string
 	return ""
 }
 
+// With the slivingdoc callsign configured, runClai applies the callsign and
+// the shared tool globs: the runner reports the notebook enabled, the globs
+// are exactly the shared set, and every role's assembled prompt carries the
+// NOTES partial with the workspace path substituted.
+func TestRunner_RunClai_WithSlivingdoc(t *testing.T) {
+	t.Parallel()
+	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	co := Open(t.TempDir())
+	stage := OpenStage(co, "stry_ab12")
+	silenceFeed(stage)
+
+	runner, prompts := stubRunner(t, stage, nil)
+	WithSlivingdocServer(server)(runner)
+	WithSlivingdocWorkspace("/cache/slivingdoc")(runner)
+
+	if !runner.notebookEnabled() {
+		t.Fatal("expected notebook enabled with a configured server")
+	}
+	if got := runner.notebookGlobs(); !slices.Equal(got, slivingdoc.ToolGlobs()) {
+		t.Errorf("notebookGlobs = %v, want %v", got, slivingdoc.ToolGlobs())
+	}
+
+	if _, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8}); err != nil {
+		t.Fatal(err)
+	}
+	if !promptsContain(prompts, "Pull the shared notebook into /cache/slivingdoc before you start.") {
+		t.Error("prompt lacks the NOTES pull step with the workspace")
+	}
+	if !promptsContain(prompts, "Commit with mcp_slivingdoc_notes_commit with path /cache/slivingdoc when done.") {
+		t.Error("prompt lacks the NOTES commit step with the workspace")
+	}
+}
+
+// With a zero server the notebook is disabled: no globs, no NOTES prompt
+// section, and the assembled prompt is byte-identical to the pre-notebook
+// text — composer-only mode and unit fixtures keep working.
+func TestRunner_NoServer_OmitsSlivingdoc(t *testing.T) {
+	t.Parallel()
+	co := Open(t.TempDir())
+	stage := OpenStage(co, "stry_ab12")
+	silenceFeed(stage)
+
+	runner, prompts := stubRunner(t, stage, nil)
+	if runner.notebookEnabled() {
+		t.Fatal("expected notebook disabled with a zero server")
+	}
+	if got := runner.notebookGlobs(); got != nil {
+		t.Errorf("notebookGlobs = %v, want nil", got)
+	}
+
+	if _, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range *prompts {
+		if strings.Contains(p, "NOTES") || strings.Contains(p, "mcp_slivingdoc") {
+			t.Errorf("no-server prompt must omit the notebook section:\n%s", p)
+		}
+	}
+}
+
+// The workspace path substituted into the NOTES partial comes from the
+// explicit option, or is read back from the callsign args when the option is
+// empty — the prompt can never name a different worktree than the MCP child.
+func TestRunner_WorkspaceDerivedFromCallsign(t *testing.T) {
+	t.Parallel()
+	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+
+	runner := &Runner{slivingdocServer: server}
+	if got := runner.notebookWorkspace(); got != "/cache/slivingdoc" {
+		t.Errorf("notebookWorkspace = %q, want %q", got, "/cache/slivingdoc")
+	}
+
+	WithSlivingdocWorkspace("/explicit")(runner)
+	if got := runner.notebookWorkspace(); got != "/explicit" {
+		t.Errorf("notebookWorkspace = %q, want the explicit option %q", got, "/explicit")
+	}
+}
+
 // The runner assembles the working-context standard: generation, theme, board
 // excerpt, working summary, role prompt and task — in that order — and every
 // piece is present in the prompt the LLM sees.
@@ -42,15 +122,6 @@ func TestRunner_AssemblesWorkingContext(t *testing.T) {
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
 
-	if err := co.SaveBoard(Board{
-		Generation: "stry_ab12",
-		Theme:      "The Long Night",
-		Entries: []Entry{
-			{Author: "director", Kind: "note", To: "dramaturg", Body: "make it standoff-ish"},
-		},
-	}); err != nil {
-		t.Fatal(err)
-	}
 	if err := co.SaveWorking(Working{
 		Story:    validStory(),
 		Revision: 3,
@@ -60,6 +131,7 @@ func TestRunner_AssemblesWorkingContext(t *testing.T) {
 	}
 
 	runner, prompts := stubRunner(t, stage, nil)
+	runner.theme = "The Long Night"
 	res, err := runner.Run(context.Background(), Invocation{
 		Role: "dramaturg", Task: "write the brief", Budget: 8,
 	})
@@ -77,7 +149,6 @@ func TestRunner_AssemblesWorkingContext(t *testing.T) {
 	order := []struct{ name, needle string }{
 		{"generation", "Generation: stry_ab12"},
 		{"theme", "Theme: The Long Night"},
-		{"board excerpt", "make it standoff-ish"},
 		{"working summary", "Title: The Test Night"},
 		{"working revision status", "Status: draft"},
 		{"role prompt", "You are the dramaturg."},
@@ -108,27 +179,27 @@ func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 		name      string
 		role      string
 		tool      string
+		final     string // the LLM's final answer when tool == ""
 		input     models.Input
 		wantCalls int
 		verify    func(t *testing.T, co *Company, res Result, toolOut string)
 	}{
 		{
-			name: "dramaturg writes the brief to the board",
-			role: "dramaturg", tool: "write_brief", wantCalls: 1,
-			input: models.Input{"brief": "mood=standoff, lineup=3"},
-			verify: func(t *testing.T, co *Company, _ Result, _ string) {
-				board, err := co.LoadBoard()
-				if err != nil {
-					t.Fatal(err)
-				}
-				if len(board.Entries) != 1 || board.Entries[0].Kind != "brief" || board.Entries[0].Body != "mood=standoff, lineup=3" {
-					t.Errorf("board = %+v, want one brief entry", board.Entries)
+			// The dramaturg's brief is its final answer — free text, no writer
+			// tool (phase 5); the role writes it into the notebook itself.
+			name: "dramaturg's brief is the final answer",
+			role: "dramaturg", tool: "", wantCalls: 0,
+			final: "mood=standoff, lineup=3",
+			verify: func(t *testing.T, _ *Company, res Result, _ string) {
+				if res.Text != "mood=standoff, lineup=3" {
+					t.Errorf("deliverable = %q, want the brief text", res.Text)
 				}
 			},
 		},
 		{
 			name: "playwright's structured final answer lands in the working file",
-			role: "playwright", tool: "",
+			role: "playwright", tool: "", wantCalls: 0,
+			final: storyJSON(t),
 			verify: func(t *testing.T, co *Company, res Result, _ string) {
 				w, err := co.LoadWorking()
 				if err != nil {
@@ -196,10 +267,11 @@ func TestRunner_ProducesArtifactForEachRole(t *testing.T) {
 			runner := NewRunner(co, stage, WithCacheDir(t.TempDir()))
 			runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 				gotParams = p
-				// The playwright's story is the structured final answer; the
-				// other roles "use" their writer tool, then report.
+				// The playwright's story and the dramaturg's brief are the
+				// structured/free final answers; the other roles "use" their
+				// writer tool, then report.
 				if tt.tool == "" {
-					return llmOutcome{text: storyJSON(t)}, nil
+					return llmOutcome{text: tt.final}, nil
 				}
 				toolOut = callTool(t, p, tt.tool, tt.input)
 				return llmOutcome{text: "report: done"}, nil
@@ -363,28 +435,6 @@ func TestRunner_PanicRecovered(t *testing.T) {
 	t.Errorf("ledger actors = %+v, want dramaturg marked failed", ledger.Actors)
 }
 
-// A board read failure degrades to the empty board: the subagent gets the
-// empty excerpt and the generation continues.
-func TestRunner_BoardReadFailureGetsEmptyBoard(t *testing.T) {
-	t.Parallel()
-	co := Open(t.TempDir())
-	stage := OpenStage(co, "stry_ab12")
-	silenceFeed(stage)
-	if err := os.MkdirAll(filepath.Dir(co.boardPath()), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(co.boardPath(), []byte("{not json"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	runner, prompts := stubRunner(t, stage, nil)
-	if _, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8}); err != nil {
-		t.Fatalf("run: %v", err)
-	}
-	if len(*prompts) != 1 || !strings.Contains((*prompts)[0], "(empty — nothing posted yet)") {
-		t.Errorf("prompt = %q, want the empty board excerpt", (*prompts)[0])
-	}
-}
-
 // A collaborations field in the deliverable yields exactly one re-invocation
 // of the original role, with the consulted role's answer present in its task.
 func TestRunner_CollaborationsResolvedOnce(t *testing.T) {
@@ -437,13 +487,17 @@ func TestRunner_CollaborationsResolvedOnce(t *testing.T) {
 		t.Errorf("revision prompt lacks the consulted answer:\n%s", revision)
 	}
 
-	// The broker posted the question and the answer to the board.
-	board, err := stage.company.LoadBoard()
+	// The broker recorded the question and the answer on the transcript.
+	tr, err := stage.company.LoadTranscript()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(board.Entries) != 2 {
-		t.Errorf("board entries = %d, want the question + answer", len(board.Entries))
+	kinds := map[string]bool{}
+	for _, ev := range tr.Events {
+		kinds[ev.Kind] = true
+	}
+	if !kinds["consult"] || !kinds["answer"] {
+		t.Errorf("transcript kinds = %v, want consult + answer", kinds)
 	}
 }
 
@@ -593,28 +647,17 @@ func TestRunner_StoryCanonAccumulates(t *testing.T) {
 	}
 }
 
-// The shared tools work in-loop: read_board returns the current excerpt and
-// consult routes through the broker, so a subagent can read the room and ask
-// a production role mid-invocation.
+// The consult tool works in-loop: it routes through the broker, so a
+// subagent can ask a production role mid-invocation.
 func TestRunner_SharedToolsWorkInLoop(t *testing.T) {
 	t.Parallel()
 	_, stage, runner, _, _ := wiredProduction(t, nil)
-	if err := stage.company.SaveBoard(Board{
-		Generation: "stry_ab12",
-		Entries:    []Entry{{Author: "director", Kind: "note", To: "dramaturg", Body: "keep it dry"}},
-	}); err != nil {
-		t.Fatal(err)
-	}
 
 	var consultAnswer string
 	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		// Only the top-level invocation uses the tools; the consulted role
 		// just answers.
 		if strings.Contains(p.prompt, "You are the dramaturg.") {
-			excerpt := callTool(t, p, "read_board", models.Input{})
-			if !strings.Contains(excerpt, "keep it dry") {
-				t.Errorf("read_board excerpt = %q, want the posted note", excerpt)
-			}
 			consultAnswer = callTool(t, p, "consult", models.Input{"role": "wardrobe", "question": "does silver read?"})
 			return llmOutcome{text: "report: done"}, nil
 		}
@@ -631,77 +674,6 @@ func TestRunner_SharedToolsWorkInLoop(t *testing.T) {
 	// R3-03).
 	if calls := ledgerCalls(t, stage, "wardrobe"); calls != 0 {
 		t.Errorf("wardrobe calls = %d, want 0 (the consulted role only answered)", calls)
-	}
-}
-
-// post_to_board rejects unknown kinds with a message the model can read; the
-// board gate would otherwise drop the entry silently.
-func TestRunner_PostToBoardRejectsUnknownKind(t *testing.T) {
-	t.Parallel()
-	_, stage, runner, _, _ := wiredProduction(t, nil)
-	var out string
-	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
-		out = callTool(t, p, "post_to_board", models.Input{"kind": "rant", "to": "director", "body": "this is bad"})
-		return llmOutcome{text: "report: done"}, nil
-	}
-	if _, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(out, "unknown kind") {
-		t.Errorf("tool output = %q, want the unknown-kind message", out)
-	}
-	board, err := stage.company.LoadBoard()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(board.Entries) != 0 {
-		t.Errorf("board entries = %d, want 0 — the rejected entry must not land", len(board.Entries))
-	}
-}
-
-// post_to_board rejects an unknown addressee with a message the model can
-// read, so the board and the transcript cannot diverge over it: the board
-// gate would clear an invalid to and keep the entry while the transcript
-// dropped the same event (review 1, R1-04). A valid addressee records on
-// both.
-func TestRunner_PostToBoardRejectsUnknownAddressee(t *testing.T) {
-	t.Parallel()
-	_, stage, runner, _, _ := wiredProduction(t, nil)
-	var bad, good string
-	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
-		bad = callTool(t, p, "post_to_board", models.Input{"kind": "note", "to": "costume", "body": "retired role"})
-		good = callTool(t, p, "post_to_board", models.Input{"kind": "note", "to": "director", "body": "a real note"})
-		return llmOutcome{text: "report: done"}, nil
-	}
-	if _, err := runner.Run(context.Background(), Invocation{Role: "dramaturg", Task: "t", Budget: 8}); err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(bad, "unknown addressee") {
-		t.Errorf("tool output = %q, want the unknown-addressee message", bad)
-	}
-	if !strings.Contains(good, "posted to board") {
-		t.Errorf("tool output = %q, want the success message", good)
-	}
-
-	board, err := stage.company.LoadBoard()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(board.Entries) != 1 || board.Entries[0].Body != "a real note" {
-		t.Errorf("board entries = %+v, want only the accepted post", board.Entries)
-	}
-	tr, err := stage.company.LoadTranscript()
-	if err != nil {
-		t.Fatal(err)
-	}
-	posts := 0
-	for _, ev := range tr.Events {
-		if ev.Kind == "post" {
-			posts++
-		}
-	}
-	if posts != 1 {
-		t.Errorf("transcript post events = %d, want 1 — board and transcript must agree", posts)
 	}
 }
 
@@ -773,7 +745,7 @@ func TestRunner_DirectorUsesInjectedTools(t *testing.T) {
 	runner.directorTools = func(context.Context) []models.LLMTool {
 		called = true
 		return []models.LLMTool{
-			tools.NewSubmitStory(func(string, string) (string, error) { return "submitted", nil }),
+			tools.NewSubmitStory(func() (string, error) { return "submitted", nil }),
 		}
 	}
 
@@ -810,7 +782,7 @@ func TestRunner_FullBudgetNeverShowsOverCap(t *testing.T) {
 	runner.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
 		// The dramaturg spends its full 8-call tool budget, then answers.
 		for range 8 {
-			callTool(t, p, "post_to_board", models.Input{"kind": "note", "body": "spam"})
+			callTool(t, p, "consult", models.Input{"role": "wardrobe", "question": "does silver read?"})
 		}
 		return llmOutcome{text: "brief posted"}, nil
 	}
@@ -987,11 +959,11 @@ func TestRunner_PlaywrightNoDraftFallsBack(t *testing.T) {
 
 // The production clai path needs credentials and a configured model; without
 // them Setup fails cleanly and the dramaturg's deterministic fallback answers
-// with a brief posted to the board — nothing crashes and the production
-// still has an artifact.
+// with a brief artifact — nothing crashes and the production still has an
+// artifact.
 func TestRunner_RunClaiFailsWithoutModel(t *testing.T) {
 	t.Parallel()
-	co, stage, _, _, _ := wiredProduction(t, nil)
+	_, stage, _, _, _ := wiredProduction(t, nil)
 	// Rebuild without the stub: the production runLLM (runClai) and the
 	// internal fallback dispatcher. The config dir is a temp dir so clai's
 	// setup never touches the repo.
@@ -1007,13 +979,10 @@ func TestRunner_RunClaiFailsWithoutModel(t *testing.T) {
 	if res.Err == nil {
 		t.Error("want the clai failure reported on the result")
 	}
-	// The fallback posted a valid brief to the board, exactly like write_brief.
-	board, err := co.LoadBoard()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(board.Entries) != 1 || board.Entries[0].Kind != "brief" || board.Entries[0].Author != "dramaturg" {
-		t.Errorf("board = %+v, want the fallback brief posted by the dramaturg", board.Entries)
+	// The fallback delivered a valid brief artifact as its answer.
+	var brief BriefArtifact
+	if !parseArtifact(res.Text, &brief) || brief.Mood == "" {
+		t.Errorf("fallback brief = %q, want a valid brief artifact", res.Text)
 	}
 }
 
@@ -1144,9 +1113,9 @@ func TestRunner_PlaywrightPercentagePositionsNormalised(t *testing.T) {
 }
 
 // A fresh structured draft clears the previous generation's report: the
-// playwright's story JSON is not a draft report, so without the clear the
-// old report would leak into the repertoire doc (the 09:53 production
-// distilled "The Office S06E06" beside a draft titled S06E09).
+// playwright's story JSON is not a draft report, so without the clear a
+// stale report would leak into the working summary (the 09:53 production
+// carried "The Office S06E06" beside a draft titled S06E09).
 func TestRunner_FreshDraftClearsStaleReport(t *testing.T) {
 	t.Parallel()
 	co := Open(t.TempDir())

@@ -6,27 +6,13 @@ import (
 )
 
 // AssembleContext builds the working-context standard every agent call runs
-// inside (decision D5): the generation id and theme, the board excerpt (the
-// last BoardExcerptMax entries, oldest first), the working-file summary, the
-// role prompt and the task — in that order. Board growth beyond the excerpt
-// cap never grows the prompt.
-func AssembleContext(gen, theme string, board Board, working Summary, rolePrompt, task string) string {
+// inside (decision D5): the generation id and theme, the working-file summary,
+// the role prompt and the task — in that order.
+func AssembleContext(gen, theme string, working Summary, rolePrompt, task string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Generation: %s\n", gen)
 	if theme != "" {
 		fmt.Fprintf(&b, "Theme: %s\n", theme)
-	}
-	b.WriteString("\nBoard (most recent work):\n")
-	excerpt := board.Excerpt(BoardExcerptMax)
-	if len(excerpt) == 0 {
-		b.WriteString("(empty — nothing posted yet)\n")
-	}
-	for _, e := range excerpt {
-		to := e.To
-		if to == "" {
-			to = "company"
-		}
-		fmt.Fprintf(&b, "[%d] %s (%s) → %s: %s\n", e.Seq, e.Author, e.Kind, to, e.Body)
 	}
 	b.WriteString("\nWorking file:\n")
 	if working.Title == "" && len(working.Cast) == 0 && working.Beats == 0 && working.Backdrop == "" {
@@ -45,8 +31,10 @@ func AssembleContext(gen, theme string, board Board, working Summary, rolePrompt
 		fmt.Fprintf(&b, "Backdrop: %s\nStatus: %s\n", working.Backdrop, working.Status)
 		if len(working.Canon) > 0 {
 			// The canon facts are the soft-continuity seam (D6): the playwright
-			// is told them and riffs on them; phase 6 seeds them from the
-			// repertoire doc.
+			// writes them via append_canon and they ride on the draft report,
+			// so a new generation reads the previous one's canon out of the
+			// working file. No durable library exists anymore — the notebook is
+			// the only cross-generation memory (phases 4–5).
 			fmt.Fprintf(&b, "Canon: %s\n", strings.Join(working.Canon, "; "))
 		}
 	}

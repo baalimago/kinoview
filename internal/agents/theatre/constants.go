@@ -1,20 +1,9 @@
 package theatre
 
-// Caps and vocabulary shared by every company document. These bound untrusted
-// LLM text for context hygiene: the board and the transcript are read back
-// into prompts and renderers, so nothing in them may grow without bound.
+// Caps and vocabulary shared by the company's paperwork. These bound untrusted
+// LLM text for context hygiene: the transcript is read back into renderers,
+// so nothing in it may grow without bound.
 const (
-	// BoardMaxEntries caps the per-generation board worklog. Beyond it the
-	// oldest entries drop, because context is read from the tail of the board.
-	BoardMaxEntries = 60
-
-	// EntryMaxBody caps a single board entry's body, in runes.
-	EntryMaxBody = 240
-
-	// BoardExcerptMax is how many entries AssembleContext renders. Board growth
-	// beyond it never grows a prompt.
-	BoardExcerptMax = 20
-
 	// TranscriptMaxBody caps a single transcript event's body, in runes. The
 	// transcript is a file, not a prompt, so its cap is generous; the line cap
 	// below is the real bound.
@@ -29,10 +18,10 @@ const (
 	TranscriptMaxLines = 2000
 )
 
-// ValidRoles is the theatre's role set. Board entries and transcript events
-// only ever name these authors and recipients; anything else is untrusted and
-// dropped on load. "stage" is the stage-manager wrapper, which posts notes and
-// phase transitions but is never consulted.
+// ValidRoles is the theatre's role set. Transcript events only ever name
+// these authors and recipients; anything else is untrusted and dropped on
+// load. "stage" is the stage-manager wrapper, which posts notes and phase
+// transitions but is never consulted.
 var ValidRoles = map[string]bool{
 	"director":     true,
 	"dramaturg":    true,
@@ -43,23 +32,13 @@ var ValidRoles = map[string]bool{
 }
 
 // productionRoles are the roles a consultation may name: the four production
-// roles. The director and the stage are never consulted — the director reads
-// the board, the stage is the wrapper (decision D4).
+// roles. The director and the stage are never consulted — the director
+// decides, the stage is the wrapper (decision D4).
 var productionRoles = map[string]bool{
 	"dramaturg":    true,
 	"playwright":   true,
 	"scenographer": true,
 	"wardrobe":     true,
-}
-
-// ValidBoardKinds are the kinds a board entry may carry.
-var ValidBoardKinds = map[string]bool{
-	"brief":       true,
-	"question":    true,
-	"answer":      true,
-	"note":        true,
-	"decision":    true,
-	"deliverable": true,
 }
 
 // ValidTranscriptKinds are the kinds an inter-agent event may carry.
@@ -89,7 +68,6 @@ var ValidWorkingStatuses = map[string]bool{
 	"brief":     true,
 	"draft":     true,
 	"dressed":   true,
-	"pinned":    true,
 	"validated": true,
 	"submitted": true,
 }
@@ -105,8 +83,8 @@ const (
 )
 
 // Canon caps bound the playwright's canon facts (soft continuity, D6): a
-// bounded number of short past-tense facts per generation, distilled into the
-// repertoire doc at submit (phase 6).
+// bounded number of short past-tense facts per generation, carried in the
+// working file and read back into the working summary.
 const (
 	CanonMaxFacts = 8
 	CanonMaxFact  = 120 // runes
@@ -116,59 +94,6 @@ const (
 // resolves. Each round consults the requested role once and re-invokes the
 // original role once (decision D4).
 const CollabMaxRounds = 2
-
-// Company doc caps (phase 6): every durable company document is trimmed to
-// its cap on write, oldest first. The registry is the exception — it is
-// fixed (small), because identities enter only by explicit director
-// approval: a full book refuses new characters rather than dropping
-// canonized ones.
-const (
-	premisesCap       = 40
-	repertoireSumCap  = 30
-	repertoireFactCap = 40
-	setsCap           = 50
-	directorCap       = 30
-	bulletinCap       = 40
-	registryMax       = 16
-
-	// audienceCap bounds the audience doc, newest first; older notes drop on
-	// trim (decision D-3).
-	audienceCap = 40
-
-	// lessonMaxLen bounds one critique lesson's text, in runes.
-	lessonMaxLen = 240
-
-	// audienceCommentMax bounds one audience note's comment, in runes — the
-	// same bound as a board entry body (decision D-3).
-	audienceCommentMax = 240
-
-	// variantCap bounds one registry entry's variant list, in entries — a
-	// defensive bound against hostile files; every species palette is smaller.
-	variantCap = 8
-)
-
-// Doc context excerpts (phase 6): the docs grow across generations, but a
-// working context only shows the most recent few entries — the past is for
-// trimming, not for reading.
-const (
-	premisesExcerpt  = 8
-	factsExcerpt     = 8
-	summariesExcerpt = 4
-	setsExcerpt      = 6
-	lessonsExcerpt   = 6
-	bulletinExcerpt  = 8
-
-	// audienceExcerpt caps how many notes a working context shows (decision
-	// D-3): the audience's most recent words, never the whole history.
-	audienceExcerpt = 8
-
-	// bulletinFreshDays is how long a bulletin notice stays in the working
-	// context: a directive ages out of the company's attention once it is
-	// stale, so an old commandment cannot keep commanding every generation
-	// forever (the Aug 4 "reuse the cold-case skeleton" notice ran the
-	// company for a week). Undated legacy entries are exempt.
-	bulletinFreshDays = 7
-)
 
 // truncateRunes caps a string at n runes. Bodies are LLM text, so cutting on
 // runes rather than bytes keeps the truncation at a character boundary.

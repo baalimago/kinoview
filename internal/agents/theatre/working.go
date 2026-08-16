@@ -29,22 +29,9 @@ type Working struct {
 	// to the exact content that passed the gate, not to the working file.
 	Validated bool `json:"validated,omitempty"`
 
-	// Brief is the dramaturg's brief the draft was written from, captured
-	// into the working file at draft-write time (review 3, R3-02). The board
-	// also carries it, but the board trims its oldest entries past
-	// BoardMaxEntries; the premise must survive a chatty generation, so the
-	// distill reads the out-of-band copy.
-	Brief string `json:"brief,omitempty"`
-
-	// Dressed records that the scenographer ran on this draft (its
-	// write_scene or deterministic floor set the working file's scene). The
-	// board's deliverable copy is trimmable; this flag is not (review 3,
-	// R3-02), and only the scenographer paths set it.
-	Dressed bool `json:"dressed,omitempty"`
-
 	// Canon holds this generation's canon facts: short past-tense outcome
-	// statements the playwright riffed on. Phase 6 distills them into the
-	// repertoire doc at submit, so they persist across generations.
+	// statements the playwright riffed on. They ride in the working summary
+	// so every role in the generation reads them.
 	Canon []string `json:"canon,omitempty"`
 
 	// Report is the playwright's draft report, when it delivered one: the
@@ -115,10 +102,6 @@ func (w *Working) normalize() error {
 		// itself may be perfectly good, so default rather than reject.
 		w.Status = "draft"
 	}
-	// The brief is untrusted LLM text: trimmed and capped at the same bound
-	// the board applies to entry bodies (the two copies cannot diverge in
-	// size).
-	w.Brief = truncateRunes(strings.TrimSpace(w.Brief), EntryMaxBody)
 	// Canon facts are untrusted LLM text: capped in count and length, trimmed
 	// of whitespace, deduped, and dropped when empty.
 	canon := make([]string, 0, len(w.Canon))

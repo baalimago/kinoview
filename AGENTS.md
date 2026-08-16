@@ -10,7 +10,10 @@ with metadata, recommendations, curated suggestions, and an intro splash story.
 The core loop: **fsnotify watcher → media index → storage → HTTP handlers**. Agentic
 components (classifier, butler, recommender, concierge, theatre) are opt-in via
 CLI flags and plug into the indexer via interface contracts defined in
-`internal/agents/interfaces.go`.
+`internal/agents/interfaces.go`. The concierge and the theatre also
+communicate through the shared **slivingdoc** notebook — a git-backed UTF-8
+text notebook synced through a supervised SeaweedFS S3 child (see Data
+Flow).
 
 ### Package Map
 
@@ -18,7 +21,8 @@ CLI flags and plug into the indexer via interface contracts defined in
 cmd/
 ├── serve/               # Monolithic web-server command: wires watcher, store, agents, HTTP mux
 │   ├── serve.go         # Flagset, Run (server lifecycle), Help/Describe, startServeRoutine
-│   ├── serve_setup.go   # Setup: instantiates every subsystem via functional options
+│   ├── serve_setup.go   # Setup: instantiates every subsystem via functional options,
+│   │                    #   plus the SeaweedFS supervisor and slivingdoc notebook wiring
 │   ├── serve_setup_test.go
 │   ├── serve_test.go
 │   └── frontend/        # //go:embed vanilla JS SPA (gallery, minigallery, events, SSE client)
@@ -34,6 +38,9 @@ internal/
 │   │                    #   ItemGetter, ItemLister, MetadataManager, SuggestionManager,
 │   │                    #   StreamManager, SubtitleSelector, ClientContextManager, OutputSetter
 │   ├── item_updater.go  # Shared helper: updates item metadata with retry + rate-limit awareness
+│   ├── slivingdoc/      # The shared agent notebook: slivingdoc MCP callsign, tool globs,
+│   │                    #   NOTES prompt partial, worktree seeding, and the handler-side seam
+│   │                    #   (notebook.go AppendJSONL, feedback.go FeedbackRecorder)
 │   ├── classifier/      # LLM classifier: inspects media files, writes title/genre/year/plot tags
 │   ├── recommender/     # LLM recommender: semantic media discovery from user query
 │   ├── butler/          # Butler: proactive suggestion cascades based on viewing patterns
@@ -43,11 +50,11 @@ internal/
 │   │   ├── subs_parser.go       # Subtitle file parsing (SRT/VTT)
 │   │   └── subtitle_rank.go     # Subtitle quality ranking heuristics
 │   ├── concierge/       # Concierge: autonomous periodic agent with tool-based actions
-│   │   ├── concierge.go # clai-based agent loop, runs on fixed interval
+│   │   ├── concierge.go # clai-based agent loop, runs on fixed interval, notebook-aware
 │   │   ├── cmd.go       # Tool command registration and routing
 │   │   └── docs.go      # System prompt and tool documentation strings
-│   ├── theatre/          # Theatre company: director superagent + subagents over a production board
-│   │   ├── company.go    # Company paperwork: board, working file, ledger, transcript (atomic writes)
+│   ├── theatre/          # Theatre company: director superagent + subagents over the shared notebook
+│   │   ├── company.go    # Company paperwork: working file, ledger, transcript (atomic writes)
 │   │   ├── context.go    # Working-context standard: AssembleContext for every agent call
 │   │   ├── stage.go      # Stage manager: single-writer transcript, ledger telemetry, SSE log sink
 │   │   ├── feed.go       # Stdout feed goroutine: one ancli line per event, [theatre <gen>] prefix
@@ -57,17 +64,14 @@ internal/
 │   │   ├── collab.go     # Deliverable envelope + collaboration resolution (D4)
 │   │   ├── roles.go      # Role prompts (decide/ask/stop scope), per-role tool sets, writer wrappers
 │   │   ├── artifacts.go  # Role artifact schemas (brief, draft-report, scene-report) + validation
-│   │   ├── fallback.go   # Per-role deterministic floors: composer draft, registry advice, in-place answers
+│   │   ├── fallback.go   # Per-role deterministic floors: composer draft, advice, in-place answers
 │   │   ├── floor.go      # The deterministic composer: scene templates, DressDraft, SceneNames (the floor)
 │   │   ├── staging.go    # Stage layouts: marks, entry sides, lanes (stage/solo/plan)
 │   │   ├── muse.go       # LatestTheme: most-recently-watched title across sessions
-│   │   ├── registry.go   # Costumer registry: canonical coat/species pins, director-approved canonize, registry.json (D7)
-│   │   ├── docs.go       # Company library: seven durable docs (premises, repertoire, sets, registry, director, bulletin, audience), caps + validation
-│   │   ├── distill.go    # Submit-time distillation: board + artifacts → library docs (deterministic, no LLM)
-│   │   ├── director.go   # Director superagent: production-flow prompt, 9-tool set, submit gate
-│   │   ├── theatre.go    # Teller facade + Feedbacker: Next/Prepare/Warm, cooldown, single-flight, RunProduction, Feedback
-│   │   ├── tools/        # Mini-agent + director tools: post_to_board, consult, writers, gates
-│   │   └── (board/working/ledger/transcript/docs files, floor/staging/muse, role/kinds vocab, atomic write helper)
+│   │   ├── director.go   # Director superagent: production-flow prompt, 7-tool set, submit gate
+│   │   ├── theatre.go    # Teller facade: Next/Prepare/Warm, cooldown, single-flight, RunProduction
+│   │   ├── tools/        # Mini-agent + director tools: consult, deliverable writers, gates
+│   │   └── (working/ledger/transcript files, floor/staging/muse, role/kinds vocab, atomic write helper)
 │   └── tools/           # Concierge tool implementations (all satisfy clai's LLMTool interface)
 │       ├── add_suggestion.go / remove_suggestion.go / check_suggestions.go
 │       ├── client_context_getter.go / concierge_context_*.go
@@ -98,6 +102,8 @@ internal/
 │   ├── event.go         # Event types for SSE broadcast
 │   ├── log.go           # Structured log types for LLM agent introspection
 │   └── story.go         # Story type for intro splash
+├── s3embed/             # SeaweedFS supervisor: spawns/stops the weed S3 child, IAM + credentials
+│   │                    #   env file, bucket creation (the notebook's S3 backend)
 └── loghandler/          # HTTP handler for agent log streaming (SSE)
 ```
 
@@ -119,7 +125,7 @@ internal/
  │  │ Snapshot │   └──────────┘   │  Recommender (LLM) │    │
  │  │ Stream   │                  │  Butler (LLM)      │    │
  │  │ Suggest  │                  │  Concierge (LLM)   │    │
- │  └────┬─────┘                  │  Storyteller (LLM) │    │
+ │  └────┬─────┘                  │  Theatre (LLM)     │    │
  │       │                        └─────────┬──────────┘    │
  │       │                                  │               │
  │       │         ┌────────────────────────┘               │
@@ -140,16 +146,59 @@ internal/
                   └──────────────┘
 ```
 
+The agent conversation happens in the shared slivingdoc notebook, backed by
+a supervised SeaweedFS child:
+
+```text
+┌──────────────┐   spawns/stops   ┌──────────────────────────┐
+│ kinoview     │─────────────────►│ weed server -s3          │
+│ (serve)      │                  │ 127.0.0.1:<s3Port>       │
+└──────┬───────┘                  │ bucket "slivingdoc"      │
+       │ pull / commit            └────────────┬─────────────┘
+       ▼                                        │ S3
+┌───────────────────────────────────────────────┴──────────┐
+│        shared worktree  <cache>/slivingdoc/               │
+│   bulletin.md · agent notes · feedback.jsonl              │
+└───────▲───────────────────────────────────────────────────┘
+        │ file tools (cat, rows_between, ls, rg, write_file, apply_patch, mkdir)
+┌───────┴────────┐         ┌──────────────────────────────┐
+│  concierge     │         │  theatre                     │
+│  (clai agent)  │         │  director + role mini-agents │
+└────────────────┘         └──────────────────────────────┘
+```
+
+One agent note write is the loop: `mcp_slivingdoc_notes_pull` materialises
+the notebook into the shared worktree, the file tools read and edit the
+notes, and `mcp_slivingdoc_notes_commit` publishes — slivingdoc merges
+concurrent changes with visible conflict markers.
+
 All agentic components are **opt-in** — each has its own `-model` flag. When unset,
 that agent is nil and the indexer skips the corresponding feature path. The
 theatre is the exception: it always constructs (with a deterministic composer
-fallback) so the intro splash works offline and without an API key.
+fallback) so the intro splash works offline and without an API key. The shared
+notebook is opt-in too: `serve` enables it when the `weed` and `slivingdoc`
+binaries resolve and `-slivingdocDisable` is unset. A missing binary logs one
+warning and the notebook is off — agents fall back to their old single-shot
+behaviour and the theatre's composer still ships the splash.
 
 **Key insights:**
 
-- **The store is the single source of truth.** Agents read from `Storage.Snapshot()`
-  and write back via `UpdateMetadata`/`SuggestionManager.Add`. There is no
-  event bus — components interact through the store and interface contracts.
+- **The store is the single source of truth; the notebook is the
+  communication layer.** Agents read from `Storage.Snapshot()` and write back
+  via `UpdateMetadata`/`SuggestionManager.Add` — the store keeps no agent
+  conversation. The shared slivingdoc notebook carries that conversation: the
+  concierge and the theatre director/roles pull it into the shared worktree,
+  read and edit the materialised notes with the file tools, and commit with
+  `mcp_slivingdoc_notes_commit`. The loop is one shared `NOTES` prompt
+  partial, byte-identical across every agent with only the workspace path
+  substituted.
+- **The notebook's S3 backend is a supervised SeaweedFS child.** `serve`
+  resolves the static `weed` binary, spawns `weed server -s3` bound to
+  loopback, waits for S3 readiness, creates the bucket, writes an IAM config
+  and a credentials env file, and SIGTERMs the child on shutdown (escalating
+  to SIGKILL on timeout). Missing `weed` or `slivingdoc` binaries disable the
+  notebook with one warning: agents fall back to their old single-shot
+  behaviour and the theatre's composer still ships the splash.
 - **The classifier uses a cloned-agent model.** Each worker goroutine gets its own
   `Classifier.Clone()`, eliminating shared mutable state and LLM session races.
 - **Classification is rate-limited.** A token-bucket limiter (configurable
@@ -162,31 +211,16 @@ fallback) so the intro splash works offline and without an API key.
 - **The concierge is autonomous.** It runs on a fixed interval (default 6h), uses
   a clai agent with registered tools, and can add/remove suggestions, update
   metadata, fetch subtitles, and inspect client context — all without user
-  interaction.
-- **The theatre's library is self-developing.** At submit, one deterministic
-  pass distills the generation's board and artifacts into six durable company
-  docs (premises, repertoire, sets, registry, director lessons, bulletin);
-  the seventh, the audience doc, is written only by the audience. Each doc is
-  injected back into the relevant role's context next generation,
-  so the company remembers across generations without the LLM ever writing
-  the docs directly. Identity never drifts: the registry pins canonical coats
-  per id, and a new character enters only by explicit director approval at
-  submit (the registry is the only place identities are born). Docs are
-  atomic-written, validated on load (corrupt degrades to empty, never a
-  crash) and trimmed to caps, oldest first. The memory is a springboard, not
-  a script: the working file is reset at every generation start (the
-  previous play's title/cast/set must not prime the new one), bulletin
-  notices older than 7 days age out of every context, the audience excerpt
-  opens with a mood verdict ("3 of the last 5 notes were thumbs-down — the
-  audience is dissatisfied") plus a sign-correct rating (`[+1]`/`[-1]`), the
-  director reads the earlier-production list, and every role prompt carries
-  the same novelty duty — never restage an earlier production's shape. The
-  distill's board-sourced inputs are carried out of band: the brief and the
-  scenographer's dressed marker ride in the working file (R3-02), so a board
-  overflow past BoardMaxEntries can never silently lose a generation's
-  premise. The registry's load gate runs the same species-palette check as
-  `Canonize`, so a hand-edited registry.json can never surface a coat the
-  player cannot draw (R3-04).
+  interaction. With the slivingdoc callsign configured it also pulls the
+  shared notebook, posts its findings and commits them (the shared `NOTES`
+  partial).
+- **The theatre's company memory is the notebook, not a library.** The old
+  structured board, the seven durable docs, the registry and the deterministic
+  distillation are gone. The director and every role pull, read, write and
+  commit free-form notes in the shared slivingdoc notebook — the only
+  cross-generation memory is what the agents write themselves. The
+  single-writer working file, ledger and transcript stay local: they are the
+  deliverable and the observability, not the conversation.
 - **The theatre's observability is single-writer.** Agents never write stdout:
   the stage manager owns the transcript, one feed goroutine prints ancli lines
   (`[theatre <gen>]`), and the ledger keeps the telemetry. A generation is
@@ -200,51 +234,51 @@ fallback) so the intro splash works offline and without an API key.
 - **The theatre's director is a bounded superagent over the same runner.** It
   runs one clai loop with the generation's budgets (`-theatreMaxCalls`,
   `-theatreGlobalCalls`, `-theatreWallClock`), orchestrates the
-  subagents through its nine tools, and the working file is the resolution
-  point: a submitted story ships, a validated draft ships on exhaustion, and
-  with neither the composer floor answers. “Validated” is an explicit
+  subagents through its seven tools (brief, draft, dress, read, validate,
+  consult, submit), and the working file is the resolution point: a
+  submitted story ships, a validated draft ships on exhaustion, and with
+  neither the composer floor answers. “Validated” is an explicit
   `Working.Validated` flag set only by `validate_story` and cleared by every
   writer that rewrites the draft — the exhaustion gate ships exactly the
   content that passed the playability gate, never a playable-but-unblessed
   file (R7-01). Submission is a persistence boundary: `submit_story` marks
-  `working.json` submitted and distills the library only after the story is
-  durably on disk — `saveStory` returns its atomic-write error and the
-  submit aborts on failure, so paperwork never claims a success the disk did
-  not record (R7-02). The `Theatre` facade implements
-  the `agents.Teller` contract (cooldown, single-flight, `Warm`, `Next`), so
-  the composer-only mode is unchanged. The facade's random source is
-  internally synchronized: every draw — the compose paths and the
-  production's generation-id draw — is serialized through one mutex, so
-  concurrent `Next` + `Prepare` is safe (R1-01, R2-01). The theatre's own
-  gates are the budget authority: it bounds every generation itself (wall
-  clock + single-flight + call budgets), so callers of `agents.Teller`
-  never wrap `Prepare` in a smaller timeout — a caller-side cap would
-  silently disable `-theatreWallClock` on that trigger path (R3-01). The
-  call budgets cap tool executions; an invocation's final answer is not a
-  budgeted call, so telemetry never shows an actor over its cap (R3-03).
+  `working.json` submitted only after the story is durably on disk —
+  `saveStory` returns its atomic-write error and the submit aborts on
+  failure, so paperwork never claims a success the disk did not record
+  (R7-02). The `Theatre` facade implements the `agents.Teller` contract
+  (cooldown, single-flight, `Warm`, `Next`), so the composer-only mode is
+  unchanged. The facade's random source is internally synchronized: every
+  draw — the compose paths and the production's generation-id draw — is
+  serialized through one mutex, so concurrent `Next` + `Prepare` is safe
+  (R1-01, R2-01). The theatre's own gates are the budget authority: it
+  bounds every generation itself (wall clock + single-flight + call
+  budgets), so callers of `agents.Teller` never wrap `Prepare` in a smaller
+  timeout — a caller-side cap would silently disable `-theatreWallClock` on
+  that trigger path (R3-01). The call budgets cap tool executions; an
+  invocation's final answer is not a budgeted call, so telemetry never
+  shows an actor over its cap (R3-03).
 - **The theatre's roles are scoped artifacts with deterministic floors.** Each
   role prompt declares its scope in three sections (decides / asks / stops),
   each deliverable is an artifact schema validated at the writer boundary
   (brief, draft-report, scene-report — unknown values dropped, ids
   pattern-checked, lengths capped), and every role answers with its own
-  deterministic floor when the LLM fails: the dramaturg posts a registry-
-  grounded brief, the playwright composes a draft into the working file, the
+  deterministic floor when the LLM fails: the dramaturg answers with the
+  brief text, the playwright composes a draft into the working file, the
   scenographer dresses via the composer's staging rules, the wardrobe answers
-  from the costumer registry. A consulted role answers in place — a consult
-  never rewrites the director's draft. Canon facts round-trip through the
-  working file (soft continuity, D6); the playwright's draft report carries
-  the author's act structure, which supersedes the derived count.
+  from the fixed cast and its canon looks. A consulted role answers in place
+  — a consult never rewrites the director's draft. Canon facts round-trip
+  through the working file (soft continuity, D6); the playwright's draft
+  report carries the author's act structure, which supersedes the derived
+  count.
 - **The frontend uses SSE for live updates.** The `index_handlers_eventStream.go`
   broadcasts item changes, suggestions, and logs to connected browsers.
-- **Audience feedback is a durable doc, not an event.** A text + thumbs
-  control in the intro splash posts to `POST /gallery/intro/feedback`; the
-  indexer type-asserts `agents.Feedbacker` on the theatre and the facade
-  appends the note to `audience.json` — the doc's single write path, so a
-  submit's distillation never overwrites it. The director and the dramaturg
-  read the recent excerpt next generation — with the mood verdict — and the
-  role prompts make the audience the priority: a dissatisfied audience must
-  change the shape, the cast or the backdrop. Feedback never bypasses the
-  cooldown.
+- **Audience feedback lands in the notebook.** A text + thumbs control in the
+  intro splash posts to `POST /gallery/intro/feedback`; the indexer holds an
+  `agents.Feedbacker` (nil when the notebook is disabled — the handler then
+  answers 501), and the slivingdoc recorder appends one JSON line to
+  `feedback.jsonl` in the shared worktree and commits it. Append and commit
+  are one unit: a commit failure surfaces as a 500, never a silent drop.
+  Feedback never bypasses the cooldown.
 - **clai ≥ v1.10.22-r1 ships the reasoning cap upstream.** A looping model
   can stream reasoning tokens forever; clai ≤ v1.10.21 accumulated them in
   unbounded O(n²) string builders, which OOMed the server on 2026-08-11
@@ -379,6 +413,27 @@ usual "nil result on error" everywhere else.
   practical.
 - All agent components are opt-in via their own `-model` flag.
 - Defaults are documented in the flag help text.
+
+The shared agent notebook (slivingdoc over the supervised SeaweedFS child) is
+configured by twelve `serve` flags:
+
+| Flag | Default | Purpose |
+| ---- | ------- | ------- |
+| `-s3ServerPath` | auto-discover | weed binary: next to the kinoview binary, then `weed` on PATH |
+| `-s3ServerPort` | 8333 | S3 gateway listen port |
+| `-s3ServerDir` | `<configDir>/s3` | SeaweedFS data dir |
+| `-s3MasterPort` | 9333 | SeaweedFS master HTTP port |
+| `-s3VolumePort` | 8080 | SeaweedFS volume server HTTP port |
+| `-s3FilerPort` | 8888 | SeaweedFS filer HTTP port |
+| `-slivingdocCommand` | auto-discover | slivingdoc binary: next to the kinoview binary, then on PATH |
+| `-slivingdocBucket` | `slivingdoc` | S3 bucket backing the notebook |
+| `-slivingdocRegion` | `us-east-1` | AWS region label (SigV4 signing, env file, MCP `--region`) |
+| `-slivingdocEndpoint` | derived | S3 endpoint; empty derives `http://127.0.0.1:<s3ServerPort>` |
+| `-slivingdocWorkspace` | `<cache>/slivingdoc` | shared worktree every agent materialises the notebook into |
+| `-slivingdocDisable` | false | force-disable the notebook even when both binaries exist |
+
+The notebook is on when both binaries resolve and `-slivingdocDisable` is
+false; any other state logs one warning and the server runs without it.
 
 ### Testing
 

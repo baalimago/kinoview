@@ -11,7 +11,7 @@ import (
 // The role artifacts — brief.json, draft-report.json, scene-report.json —
 // are the compact deliverables the four production roles produce. Each is
 // validated at the wrapper boundary (the writer tools) before it enters the
-// board or the working file, with the same strictness as model.Story.Validate:
+// working file, with the same strictness as model.Story.Validate:
 // unknown values are dropped, ids are pattern-checked and lengths are capped.
 // A deliverable that is not a JSON artifact passes through untouched — the
 // free-text path is the legacy quick form, and the deterministic floor always
@@ -74,11 +74,7 @@ type PropPlacement struct {
 // model concepts (cast, props, beats, canon) and add the report's own text
 // bounds, so an LLM-authored artifact can never grow a prompt without bound.
 const (
-	MaxMoodLen     = 40
-	MaxShapeLen    = 60
-	MaxLineup      = 3
-	MaxNoRepeat    = 5
-	MaxNoRepeatLen = 60
+	MaxLineup = 3
 
 	MaxReportActs = 6
 	MaxActNameLen = 40
@@ -103,45 +99,6 @@ func parseArtifact(text string, v any) bool {
 		return false
 	}
 	return json.Unmarshal([]byte(raw), v) == nil
-}
-
-// normalizeBrief repairs a brief in place: ids are pattern-checked, deduped
-// and kept only when known (known is nil when no registry is wired), lengths
-// are capped and counts bounded. It never fails — a partially odd brief is
-// better than no brief.
-func normalizeBrief(ba *BriefArtifact, known func(string) bool) {
-	ba.Mood = truncateRunes(strings.TrimSpace(ba.Mood), MaxMoodLen)
-	ba.Shape = truncateRunes(strings.TrimSpace(ba.Shape), MaxShapeLen)
-	ba.Theme = truncateRunes(strings.TrimSpace(ba.Theme), model.MaxTitleLen)
-	lineup := make([]string, 0, MaxLineup)
-	seen := map[string]bool{}
-	for _, id := range ba.Lineup {
-		if len(lineup) >= MaxLineup {
-			break
-		}
-		id = strings.ToLower(strings.TrimSpace(id))
-		if !artifactIDRe.MatchString(id) || seen[id] {
-			continue
-		}
-		if known != nil && !known(id) {
-			continue // an unregistered character must never enter the brief
-		}
-		seen[id] = true
-		lineup = append(lineup, id)
-	}
-	ba.Lineup = lineup
-	nr := make([]string, 0, MaxNoRepeat)
-	for _, p := range ba.NoRepeat {
-		if len(nr) >= MaxNoRepeat {
-			break
-		}
-		p = strings.TrimSpace(p)
-		if p == "" {
-			continue
-		}
-		nr = append(nr, truncateRunes(p, MaxNoRepeatLen))
-	}
-	ba.NoRepeat = nr
 }
 
 // normalizeDraftReport repairs a draft report in place: text is capped, ids

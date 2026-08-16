@@ -114,7 +114,7 @@ func TestStage_LedgerWriteFailureContinues(t *testing.T) {
 			t.Errorf("stderr = %q, want a logged ledger write failure", errOut)
 		}
 	})
-	if !strings.Contains(out, "─ phase 1/6 brief ─ budget 0/50") {
+	if !strings.Contains(out, "─ phase 1/5 brief ─ budget 0/50") {
 		t.Errorf("stdout = %q, want the phase line despite the ledger failure", out)
 	}
 }

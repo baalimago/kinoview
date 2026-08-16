@@ -2,51 +2,12 @@ package theatre
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 )
-
-// Every company file round-trips: write → load → validate → identical
-// semantics.
-func TestBoard_RoundTrip(t *testing.T) {
-	t.Parallel()
-	co := Open(t.TempDir())
-	want := Board{
-		Generation: "stry_test1",
-		Theme:      "Solaris 1972",
-		Entries: []Entry{
-			{Author: "director", Kind: "brief", To: "dramaturg", Body: "a heist, please"},
-			{Author: "playwright", Kind: "deliverable", Body: "16 beats, 3 acts"},
-			{Author: "wardrobe", Kind: "answer", To: "playwright", Body: "silver reads"},
-		},
-	}
-	if err := co.SaveBoard(want); err != nil {
-		t.Fatal(err)
-	}
-	got, err := co.LoadBoard()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Generation != want.Generation || got.Theme != want.Theme {
-		t.Errorf("header = %q/%q, want %q/%q", got.Generation, got.Theme, want.Generation, want.Theme)
-	}
-	if len(got.Entries) != len(want.Entries) {
-		t.Fatalf("entries = %d, want %d", len(got.Entries), len(want.Entries))
-	}
-	for i, e := range got.Entries {
-		w := want.Entries[i]
-		if e.Author != w.Author || e.Kind != w.Kind || e.To != w.To || e.Body != w.Body {
-			t.Errorf("entry %d = %+v, want %+v", i, e, w)
-		}
-		if e.Seq != i+1 {
-			t.Errorf("entry %d seq = %d, want %d", i, e.Seq, i+1)
-		}
-	}
-}
 
 func TestWorking_RoundTrip(t *testing.T) {
 	t.Parallel()
@@ -101,7 +62,7 @@ func TestLedger_RoundTrip(t *testing.T) {
 		Generation:   "stry_test1",
 		Phase:        "dress",
 		PhaseIndex:   3,
-		PhasesTotal:  6,
+		PhasesTotal:  5,
 		Budget:       Budget{DirectorUsed: 17, DirectorMax: 50, GlobalUsed: 42, GlobalMax: 200},
 		Actors:       []Actor{{Role: "playwright", Status: "working", Calls: 8, Budget: 8, LastAction: "wrote draft"}},
 		StartedAt:    started,
@@ -115,7 +76,7 @@ func TestLedger_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Generation != want.Generation || got.PhaseIndex != 3 || got.PhasesTotal != 6 {
+	if got.Generation != want.Generation || got.PhaseIndex != 3 || got.PhasesTotal != 5 {
 		t.Errorf("header = %+v", got)
 	}
 	if got.Budget != want.Budget {
@@ -166,22 +127,19 @@ func TestTranscript_RoundTrip(t *testing.T) {
 
 // Concurrent writers must never leave a partially written file behind — the
 // same read-loop pattern as the theatre's TestTheatre_SaveStoryIsAtomic.
-func TestSaveBoard_ConcurrentWritersNeverTorn(t *testing.T) {
+func TestSaveWorking_ConcurrentWritersNeverTorn(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	co := Open(dir)
-	path := filepath.Join(dir, CompanyDir, boardFileName)
+	path := filepath.Join(dir, CompanyDir, workingFileName)
 
 	var wg sync.WaitGroup
 	for i := range 12 {
 		wg.Add(1)
 		go func(n int) {
 			defer wg.Done()
-			b := Board{Generation: fmt.Sprintf("gen-%d", n)}
-			for j := range 5 {
-				b.Append(Entry{Author: "playwright", Kind: "note", Body: fmt.Sprintf("writer %d note %d", n, j)})
-			}
-			if err := co.SaveBoard(b); err != nil {
+			w := Working{Story: validStory(), Revision: n, Status: "draft"}
+			if err := co.SaveWorking(w); err != nil {
 				t.Errorf("save: %v", err)
 			}
 		}(i)
@@ -196,9 +154,9 @@ func TestSaveBoard_ConcurrentWritersNeverTorn(t *testing.T) {
 			if err != nil {
 				continue // not created yet; a missing file is fine, a torn one is not
 			}
-			var board Board
-			if err := json.Unmarshal(b, &board); err != nil {
-				t.Errorf("observed a torn board file: %v", err)
+			var w Working
+			if err := json.Unmarshal(b, &w); err != nil {
+				t.Errorf("observed a torn working file: %v", err)
 				return
 			}
 		}

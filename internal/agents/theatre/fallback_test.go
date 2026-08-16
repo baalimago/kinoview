@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,22 +25,21 @@ func freshCompany(t *testing.T, dir string) *Company {
 
 // Each role's fallback produces an artifact that passes its schema validation
 // across 150 seeds (the composer path is randomized): the dramaturg's brief
-// is posted to the board and names only registered characters, the
-// playwright's report has a title and a readable draft behind it, the
-// scenographer's report has a valid backdrop and dresses the working file,
-// and the wardrobe answers from the registry. Each seed exercises the on-disk
-// paperwork, so the sweep is file-I/O bound: 150 seeds still draw every
-// composer template ~12 times while keeping the package inside the house
-// 30s -race -count=3 gate under load.
+// is a valid artifact naming the permanent cast, the playwright's report has
+// a title and a readable draft behind it, the scenographer's report has a
+// valid backdrop and dresses the working file, and the wardrobe answers from
+// the fixed cast. Each seed exercises the on-disk paperwork, so the sweep is
+// file-I/O bound: 150 seeds still draw every composer template ~12 times
+// while keeping the package inside the house 30s -race -count=3 gate under
+// load.
 func TestFallback_AllRolesProduceValidArtifactsAcrossSeeds(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	reg := newRegistry()
 	for seed := range int64(150) {
 		co := freshCompany(t, dir)
 		stage := OpenStage(co, fmt.Sprintf("stry_seed%d", seed))
 		silenceFeed(stage)
-		runner := NewRunner(co, stage, WithRegistry(reg))
+		runner := NewRunner(co, stage, WithTheme("Solaris 1972"))
 		runner.rnd = rand.New(rand.NewSource(seed))
 
 		briefText, err := runner.roleFallback("dramaturg", "t", 0)
@@ -50,19 +50,13 @@ func TestFallback_AllRolesProduceValidArtifactsAcrossSeeds(t *testing.T) {
 		if !parseArtifact(briefText, &brief) || brief.Mood == "" {
 			t.Fatalf("seed %d: brief is not a valid artifact: %q", seed, briefText)
 		}
-		// The board carries the brief; the board has no theme, so the brief
-		// riffs on nothing (the muse-panic path's empty theme).
-		if brief.Theme != "" {
-			t.Errorf("seed %d: brief theme = %q, want empty", seed, brief.Theme)
+		if brief.Theme != "Solaris 1972" {
+			t.Errorf("seed %d: brief theme = %q, want the generation theme", seed, brief.Theme)
 		}
 		for _, id := range brief.Lineup {
-			if !reg.Known(id) {
-				t.Errorf("seed %d: lineup names unregistered %q", seed, id)
+			if !slices.Contains(permanentCastIDs(), id) {
+				t.Errorf("seed %d: lineup names non-permanent %q", seed, id)
 			}
-		}
-		board, err := co.LoadBoard()
-		if err != nil || len(board.Entries) != 1 || board.Entries[0].Kind != "brief" {
-			t.Errorf("seed %d: brief not posted to the board (%v, %+v)", seed, err, board.Entries)
 		}
 
 		draftText, err := runner.roleFallback("playwright", "t", 0)
@@ -95,8 +89,8 @@ func TestFallback_AllRolesProduceValidArtifactsAcrossSeeds(t *testing.T) {
 		}
 
 		answer, err := runner.roleFallback("wardrobe", "what does ina look like on night?", 0)
-		if err != nil || !strings.Contains(answer, "registry says ina") {
-			t.Errorf("seed %d: wardrobe answer = %q, want a registry-grounded one", seed, answer)
+		if err != nil || !strings.Contains(answer, "canon look for ina") {
+			t.Errorf("seed %d: wardrobe answer = %q, want a fixed-cast-grounded one", seed, answer)
 		}
 	}
 }
@@ -148,81 +142,85 @@ func TestFallback_PlaywrightDraftKeepsComposerInvariants(t *testing.T) {
 }
 
 // A wardrobe-consult Q&A about a known character against a known backdrop
-// returns a registry-grounded answer in fallback mode: the pinned look and
-// the backdrop lane note.
-func TestFallback_WardrobeRegistryGroundedAnswer(t *testing.T) {
+// returns a fixed-cast-grounded answer in fallback mode: the canonical look
+// plus the backdrop note — the floor-lane advice for ground characters, the
+// perch note for the bird (a bird reads by species, not by lane, phase 8).
+func TestFallback_WardrobeGroundedAnswer(t *testing.T) {
 	t.Parallel()
-	co := Open(t.TempDir())
-	stage := OpenStage(co, "stry_ab12")
-	silenceFeed(stage)
-	reg := newRegistry()
-	// Pin ina's look first: the registry then answers from the pin, exactly
-	// the book a mid-production generation consults.
-	reg.PinAndApply([]model.Cast{{ID: "ina", Character: "cat", Coat: "ginger", Lane: 0, X: 0.4}})
-	runner := NewRunner(co, stage, WithRegistry(reg))
+	cases := []struct {
+		name, question, wantLook, wantNote string
+	}{
+		{"cat on night", "does ginger read on night for ina?", "canon look for ina is ginger", "lane ≥ 1"},
+		{"bird on rain", "does chaffinch read on rain for pip?", "canon look for pip is chaffinch", "perched"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			co := Open(t.TempDir())
+			stage := OpenStage(co, "stry_ab12")
+			silenceFeed(stage)
+			runner := NewRunner(co, stage)
 
-	answer, err := runner.roleFallback("wardrobe", "does ginger read on night for ina?", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(answer, "registry says ina=ginger") {
-		t.Errorf("answer = %q, want the pinned look", answer)
-	}
-	if !strings.Contains(answer, "night") || !strings.Contains(answer, "lane ≥ 1") {
-		t.Errorf("answer = %q, want the backdrop lane note", answer)
+			answer, err := runner.roleFallback("wardrobe", tt.question, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(answer, tt.wantLook) {
+				t.Errorf("answer = %q, want the canonical look", answer)
+			}
+			if !strings.Contains(answer, tt.wantNote) {
+				t.Errorf("answer = %q, want the %q backdrop note", answer, tt.wantNote)
+			}
+		})
 	}
 }
 
 // The wardrobe consulted for an unknown character refuses with a clear "no
-// registry entry" answer — it never invents a look.
+// known character" answer — it never invents a look.
 func TestFallback_WardrobeUnknownCharacterNoEntry(t *testing.T) {
 	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
-	runner := NewRunner(co, stage, WithRegistry(newRegistry()))
+	runner := NewRunner(co, stage)
 
 	answer, err := runner.roleFallback("wardrobe", "what does the dragon wear on night?", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(answer, "no registry entry") {
-		t.Errorf("answer = %q, want the no-entry refusal", answer)
+	if !strings.Contains(answer, "no known character") {
+		t.Errorf("answer = %q, want the no-character refusal", answer)
 	}
 }
 
-// A bird-on-backdrop consult is registry-grounded too: the pinned look, and a
-// perch note instead of the floor-lane advice — a bird reads by species, not
-// by lane (phase 8).
+// A bird-on-backdrop consult is fixed-cast-grounded too: the canonical look,
+// and a perch note instead of the floor-lane advice — a bird reads by
+// species, not by lane (phase 8).
 func TestFallback_WardrobeBirdPerchAnswer(t *testing.T) {
 	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
-	runner := NewRunner(co, stage, WithRegistry(newRegistry()))
+	runner := NewRunner(co, stage)
 
 	answer, err := runner.roleFallback("wardrobe", "does chaffinch read on rain for pip?", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(answer, "registry says pip=chaffinch") {
-		t.Errorf("answer = %q, want the pinned bird look", answer)
+	if !strings.Contains(answer, "canon look for pip is chaffinch") {
+		t.Errorf("answer = %q, want the canonical bird look", answer)
 	}
 	if !strings.Contains(answer, "perched") || !strings.Contains(answer, "rain") {
 		t.Errorf("answer = %q, want the perch note on the backdrop", answer)
 	}
 }
 
-// The dramaturg's fallback brief carries the board's theme into the brief.
+// The dramaturg's fallback brief carries the generation's theme.
 func TestFallback_DramaturgBriefCarriesTheme(t *testing.T) {
 	t.Parallel()
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
-	if err := co.SaveBoard(Board{Generation: "stry_ab12", Theme: "Solaris 1972"}); err != nil {
-		t.Fatal(err)
-	}
-	runner := NewRunner(co, stage, WithRegistry(newRegistry()))
+	runner := NewRunner(co, stage, WithTheme("Solaris 1972"))
 
 	text, err := runner.roleFallback("dramaturg", "t", 0)
 	if err != nil {
@@ -230,36 +228,7 @@ func TestFallback_DramaturgBriefCarriesTheme(t *testing.T) {
 	}
 	var brief BriefArtifact
 	if !parseArtifact(text, &brief) || brief.Theme != "Solaris 1972" {
-		t.Errorf("brief theme = %q, want the board theme", brief.Theme)
-	}
-}
-
-// The dramaturg's fallback brief carries the premises no-repeat list from the
-// company's durable memory (phase 6): the floor avoids repeating history
-// even when the LLM is down.
-func TestFallback_DramaturgBriefCarriesPremisesNoRepeat(t *testing.T) {
-	t.Parallel()
-	co := Open(t.TempDir())
-	stage := OpenStage(co, "stry_ab12")
-	silenceFeed(stage)
-	if err := co.SavePremises(PremisesDoc{
-		{Theme: "Solaris 1972", Shape: "mousehunt"},
-		{Theme: "The Long Night", Shape: "standoff"},
-	}); err != nil {
-		t.Fatal(err)
-	}
-	runner := NewRunner(co, stage, WithRegistry(newRegistry()))
-
-	text, err := runner.roleFallback("dramaturg", "t", 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var brief BriefArtifact
-	if !parseArtifact(text, &brief) {
-		t.Fatalf("brief is not an artifact: %q", text)
-	}
-	if len(brief.NoRepeat) != 2 || brief.NoRepeat[0] != "Solaris 1972" || brief.NoRepeat[1] != "The Long Night" {
-		t.Errorf("noRepeat = %v, want the premises themes", brief.NoRepeat)
+		t.Errorf("brief theme = %q, want the generation theme", brief.Theme)
 	}
 }
 
@@ -344,64 +313,14 @@ func TestFallback_ConsultedRolesAnswerInPlace(t *testing.T) {
 		t.Errorf("scene answer = %q, want the set's shape", sceneAnswer)
 	}
 
-	// The dramaturg answers from the board: the brief, when one is posted.
+	// The dramaturg answers in place: without a board, its brief lives only
+	// in the final answer it delivered to the director.
 	briefAnswer, err := runner.roleFallback("dramaturg", "what is the brief?", 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(briefAnswer, "no brief posted") {
-		t.Errorf("brief answer = %q, want the no-brief-yet refusal", briefAnswer)
-	}
-
-	// With a brief on the board, the answer names it.
-	if err := runner.postToBoard("dramaturg", "brief", "director", "mood=standoff, lineup=3"); err != nil {
-		t.Fatal(err)
-	}
-	briefAnswer, err = runner.roleFallback("dramaturg", "what is the brief?", 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(briefAnswer, "the brief is: mood=standoff") {
-		t.Errorf("brief answer = %q, want the posted brief quoted", briefAnswer)
-	}
-}
-
-// The composer floor keeps the company's canon across the working-file reset:
-// a fresh generation starts with no draft (ResetWorking removed it), so the
-// playwright fallback re-seeds the working file's canon from the repertoire
-// doc — the same facts the playwright's context carries — instead of starting
-// from an empty continuity. The facts ride in the draft report too, so they
-// distill back into the repertoire doc next submit.
-func TestFallback_ComposerReseedsCanonAfterReset(t *testing.T) {
-	t.Parallel()
-	co := Open(t.TempDir())
-	repFacts := []string{"the mouse got away", "ina pinned her coat", strings.Repeat("x", CanonMaxFact*2)}
-	if err := co.SaveRepertoire(RepertoireDoc{Facts: repFacts}); err != nil {
-		t.Fatal(err)
-	}
-	stage := OpenStage(co, "stry_ab12")
-	silenceFeed(stage)
-	runner := NewRunner(co, stage)
-	runner.rnd = rand.New(rand.NewSource(11))
-
-	if _, err := runner.roleFallback("playwright", "t", 0); err != nil {
-		t.Fatal(err)
-	}
-	w, err := co.LoadWorking()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(w.Canon) != len(repFacts) {
-		t.Fatalf("working canon = %v, want all %d repertoire facts re-seeded", w.Canon, len(repFacts))
-	}
-	if w.Canon[0] != "the mouse got away" || w.Canon[1] != "ina pinned her coat" {
-		t.Errorf("working canon = %v, want the repertoire facts kept verbatim", w.Canon)
-	}
-	if len(w.Canon[2]) != CanonMaxFact {
-		t.Errorf("long fact not truncated to %d runes: %d", CanonMaxFact, len(w.Canon[2]))
-	}
-	if w.Report == nil || len(w.Report.Canon) != len(repFacts) {
-		t.Errorf("report canon = %v, want the re-seeded facts carried in the draft report", w.Report)
+	if !strings.Contains(briefAnswer, "no brief on file") {
+		t.Errorf("brief answer = %q, want the no-brief-on-file refusal", briefAnswer)
 	}
 }
 

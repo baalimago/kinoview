@@ -11,6 +11,7 @@ import (
 )
 
 func TestSetup(t *testing.T) {
+	withoutWeed(t)
 	t.Run("error if flagset is not set", func(t *testing.T) {
 		c := &command{}
 		err := c.Setup(context.Background())
@@ -108,7 +109,38 @@ func TestSetup(t *testing.T) {
 	})
 }
 
+// withoutWeed keeps the serve tests hermetic against a weed binary on PATH:
+// Setup constructs the S3 supervisor, which would otherwise spawn a real
+// SeaweedFS child into the test environment.
+func withoutWeed(t *testing.T) {
+	t.Helper()
+	t.Setenv("PATH", "")
+}
+
+// TestSetup_S3DegradesGracefully: with no weed binary to resolve, Setup still
+// succeeds and the server runs without the S3-backed notebook — no supervisor,
+// no slivingdoc callsign.
+func TestSetup_S3DegradesGracefully(t *testing.T) {
+	withoutWeed(t)
+	c := Command()
+	c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
+	c.configDir = new(t.TempDir())
+	c.classificationWorkers = new(int)
+	*c.classificationWorkers = 1
+
+	if err := c.Setup(context.Background()); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if c.s3Supervisor != nil {
+		t.Fatal("expected no S3 supervisor without a weed binary")
+	}
+	if c.slivingdocServer.Name != "" {
+		t.Fatalf("expected no slivingdoc callsign without the S3 backend, got %+v", c.slivingdocServer)
+	}
+}
+
 func TestSetup_ZeroIntervalRejected(t *testing.T) {
+	withoutWeed(t)
 	c := Command()
 	c.flagset = flag.NewFlagSet("test", flag.ContinueOnError)
 	c.configDir = new(t.TempDir())
@@ -129,6 +161,7 @@ func TestSetup_ZeroIntervalRejected(t *testing.T) {
 
 func TestRun(t *testing.T) {
 	t.Run("successful run", func(t *testing.T) {
+		withoutWeed(t)
 		c := Command()
 		c.Flagset()
 		c.configDir = new(t.TempDir())

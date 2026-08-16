@@ -47,7 +47,7 @@ const (
 	ina    = "ina"    // the cat
 	freija = "freija" // the dog
 	mouse  = "mouse1" // the mouse
-	pip    = "pip"    // the bird (phase 8 — registry entry, canonical chaffinch)
+	pip    = "pip"    // the bird (phase 8 — canonical chaffinch)
 )
 
 var catCoats = []string{"ginger", "grey", "cream", "tuxedo", "char", "siamese"}
@@ -312,8 +312,8 @@ func mouseCast(p plan) model.Cast {
 	}
 }
 
-// birdCast casts the permanent bird (phase 8): the registry's canonical
-// look, like ina/ginger — pin_identity stamps it regardless.
+// birdCast casts the permanent bird (phase 8): the canonical chaffinch look,
+// like ina/ginger.
 func birdCast(p plan) model.Cast {
 	return model.Cast{
 		ID: pip, Character: "bird", Coat: "chaffinch",

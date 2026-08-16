@@ -10,9 +10,9 @@ import (
 // failures are message strings with nil error, so the director's loop
 // continues and the model can read the refusal and adapt (decision D11).
 //
-// The director's post_to_board and consult reuse the shared tools with the
-// author and questioner pinned to "director"; the seven tools below are the
-// director's own.
+// The director's consult and submit reuse the shared shapes with the author
+// and questioner pinned to "director"; the six tools below are the director's
+// own.
 
 // optString reads an optional string input: an absent key is the zero value
 // (the director's notes and read_story's part are optional), while a present
@@ -52,7 +52,7 @@ func (t *dramaturgBriefTool) Call(input models.Input) (string, error) {
 func (t *dramaturgBriefTool) Specification() models.Specification {
 	return models.Specification{
 		Name:        "dramaturg_brief",
-		Description: "Run the dramaturg: the production brief (mood, shape, cast lineup, what to avoid) is decided and posted to the board. Returns the brief report.",
+		Description: "Run the dramaturg: the production brief (mood, shape, cast lineup, what to avoid) is decided. Returns the brief report.",
 		Inputs: &models.InputSchema{
 			Type: "object",
 			Properties: map[string]models.ParameterObject{
@@ -208,59 +208,19 @@ func (t *validateStoryTool) Specification() models.Specification {
 	}
 }
 
-// pinIdentityTool pins the canonical looks so characters never drift.
-type pinIdentityTool struct {
-	pin func() (string, error)
-}
-
-// NewPinIdentity builds the pin_identity tool.
-func NewPinIdentity(pin func() (string, error)) models.LLMTool {
-	return &pinIdentityTool{pin: pin}
-}
-
-func (t *pinIdentityTool) Call(models.Input) (string, error) {
-	out, err := t.pin()
-	if err != nil {
-		return "pin_identity: " + err.Error(), nil
-	}
-	return out, nil
-}
-
-func (t *pinIdentityTool) Specification() models.Specification {
-	return models.Specification{
-		Name:        "pin_identity",
-		Description: "Pin the canonical coat and character per cast id in the registry, so a character's look never drifts between generations. Deterministic — run it after the draft is validated.",
-		Inputs: &models.InputSchema{
-			Type:       "object",
-			Required:   []string{},
-			Properties: map[string]models.ParameterObject{},
-		},
-	}
-}
-
-// submitStoryTool is the final gate: validate, persist the story, fold the
-// generation into the company library and end the run. The optional inputs
-// carry the director's final word: critique lessons for the director doc and
-// newly approved characters for the registry (phase 6).
+// submitStoryTool is the final gate: validate, persist the story and end the
+// run.
 type submitStoryTool struct {
-	submit func(notes, characters string) (string, error)
+	submit func() (string, error)
 }
 
 // NewSubmitStory builds the submit_story tool.
-func NewSubmitStory(submit func(notes, characters string) (string, error)) models.LLMTool {
+func NewSubmitStory(submit func() (string, error)) models.LLMTool {
 	return &submitStoryTool{submit: submit}
 }
 
-func (t *submitStoryTool) Call(input models.Input) (string, error) {
-	notes, ok := optString(input, "notes")
-	if !ok {
-		return "submit_story: 'notes' must be a string", nil
-	}
-	characters, ok := optString(input, "characters")
-	if !ok {
-		return "submit_story: 'characters' must be a string", nil
-	}
-	out, err := t.submit(notes, characters)
+func (t *submitStoryTool) Call(models.Input) (string, error) {
+	out, err := t.submit()
 	if err != nil {
 		return "submit_story: " + err.Error(), nil
 	}
@@ -270,20 +230,11 @@ func (t *submitStoryTool) Call(input models.Input) (string, error) {
 func (t *submitStoryTool) Specification() models.Specification {
 	return models.Specification{
 		Name:        "submit_story",
-		Description: "Submit the production: the working draft is validated once more, persisted as the intro story, the generation's work is distilled into the company library and the generation ends. Call it when the piece is good — a second call is refused.",
+		Description: "Submit the production: the working draft is validated once more, persisted as the intro story, and the generation ends. Call it when the piece is good — a second call is refused.",
 		Inputs: &models.InputSchema{
-			Type: "object",
-			Properties: map[string]models.ParameterObject{
-				"notes": {
-					Type:        "string",
-					Description: "Optional critique lessons for your memory, one per line (\"two stares in a row is dead air\")",
-				},
-				"characters": {
-					Type:        "string",
-					Description: "Optional JSON array of newly approved characters to canonize in the registry, e.g. [{\"id\":\"mouse2\",\"species\":\"mouse\",\"coat\":\"white\"}] — only characters in the draft may be canonized",
-				},
-			},
-			Required: []string{},
+			Type:       "object",
+			Required:   []string{},
+			Properties: map[string]models.ParameterObject{},
 		},
 	}
 }

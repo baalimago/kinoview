@@ -1,7 +1,7 @@
 // Package theatre is the company that produces the intro splash story: a
-// director superagent orchestrating mini-agent subagents over a shared
-// production board. This file holds the persistent substrate — the board, the
-// working file, the ledger and the transcript — that the agents run on.
+// director superagent orchestrating mini-agent subagents. This file holds the
+// persistent substrate — the working file, the ledger and the transcript —
+// that the agents run on.
 package theatre
 
 import (
@@ -14,28 +14,17 @@ import (
 )
 
 // CompanyDir is the subdirectory of the cache dir that holds every piece of
-// the theatre's on-disk paperwork: the board, the working file, the ledger and
-// the transcript. The theatre runs the company; the company's files live in
-// the company directory. The intro story cache file stays at the cache root,
-// so a pre-migration cache still loads.
+// the theatre's on-disk paperwork: the working file, the ledger and the
+// transcript. The theatre runs the company; the company's files live in the
+// company directory. The intro story cache file stays at the cache root, so a
+// pre-migration cache still loads.
 const CompanyDir = "intro/company"
 
 // Company file names, relative to CompanyDir.
 const (
-	boardFileName      = "board.json"
 	workingFileName    = "working.json"
 	ledgerFileName     = "ledger.json"
 	transcriptFileName = "transcript.jsonl"
-
-	// Phase 6: the company's durable memory — one document per file, all
-	// atomic-written, all validated on load, all trimmed to their caps.
-	premisesFileName   = "premises.json"
-	repertoireFileName = "repertoire.json"
-	setsFileName       = "sets.json"
-	registryFileName   = "registry.json"
-	directorFileName   = "director.json"
-	bulletinFileName   = "bulletin.json"
-	audienceFileName   = "audience.json"
 )
 
 // Company is the persistent paperwork of a theatre production. Every file
@@ -57,7 +46,6 @@ func Open(cacheDir string) *Company {
 	return &Company{dir: filepath.Join(cacheDir, CompanyDir)}
 }
 
-func (c *Company) boardPath() string   { return filepath.Join(c.dir, boardFileName) }
 func (c *Company) workingPath() string { return filepath.Join(c.dir, workingFileName) }
 
 // ResetWorking clears the draft for a fresh generation. A generation starts

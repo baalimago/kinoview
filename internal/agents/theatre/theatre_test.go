@@ -14,6 +14,7 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
+	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 	"github.com/baalimago/kinoview/internal/model"
 )
 
@@ -49,12 +50,12 @@ func fixtureScript(t *testing.T) func(context.Context, llmParams) (llmOutcome, e
 			callTool(t, p, "draft_story", models.Input{"notes": "follow the brief"})
 			callTool(t, p, "dress_set", models.Input{"notes": "a night garden"})
 			callTool(t, p, "validate_story", models.Input{})
-			callTool(t, p, "pin_identity", models.Input{})
 			out := callTool(t, p, "submit_story", models.Input{})
 			return llmOutcome{text: out}, nil
 		case strings.Contains(p.prompt, "You are the dramaturg."):
-			callTool(t, p, "write_brief", models.Input{"brief": "mood=standoff, lineup=3"})
-			return llmOutcome{text: deliverable("brief posted")}, nil
+			// The brief is the dramaturg's final answer (phase 5): free text,
+			// no writer tool — the role writes it into the notebook itself.
+			return llmOutcome{text: "mood=standoff, lineup=3"}, nil
 		case strings.Contains(p.prompt, "You are the playwright."):
 			return llmOutcome{text: storyJSON(t)}, nil
 		case strings.Contains(p.prompt, "You are the scenographer."):
@@ -100,18 +101,8 @@ func TestTheatre_FixtureProductionRunsFlow(t *testing.T) {
 	}
 
 	co := Open(cacheDir)
-	board, err := co.LoadBoard()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if board.Generation != story.ID {
-		t.Errorf("board generation = %q, want %q", board.Generation, story.ID)
-	}
-	if len(board.Entries) == 0 || board.Entries[0].Kind != "brief" || board.Entries[0].Author != "dramaturg" {
-		t.Errorf("board = %+v, want the dramaturg's brief first", board.Entries)
-	}
 
-	// The transcript records every step: the six phase transitions, the
+	// The transcript records every step: the five phase transitions, the
 	// deliverables and the submit.
 	tr, err := co.LoadTranscript()
 	if err != nil {
@@ -131,7 +122,7 @@ func TestTheatre_FixtureProductionRunsFlow(t *testing.T) {
 			submitted = true
 		}
 	}
-	for _, want := range []string{"brief", "draft", "dress", "validate", "pin", "submit"} {
+	for _, want := range []string{"brief", "draft", "dress", "validate", "submit"} {
 		found := false
 		for body := range phases {
 			if strings.Contains(body, want) {
@@ -172,21 +163,48 @@ func TestTheatre_FixtureProductionRunsFlow(t *testing.T) {
 		}
 	}
 
-	// The working file carries the brief the draft was written from, captured
-	// at draft-write time — the distill's out-of-band copy (review 3, R3-02).
+	// The working file holds the playwright's draft under the generation id.
 	w, err := co.LoadWorking()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if w.Brief != "mood=standoff, lineup=3" {
-		t.Errorf("working brief = %q, want the posted brief", w.Brief)
+	if w.Story.ID != story.ID || w.Story.Title != story.Title {
+		t.Errorf("working story = %q/%q, want the playwright's draft", w.Story.ID, w.Story.Title)
 	}
 }
 
-// The director's tool set is the spec's nine: the three role spawns, the two
-// working-file gates, the deterministic pin, the shared post and consult, and
-// the submit gate. Every spec validates (the tools package's spec-shape test
-// covers the shape; here the set is asserted).
+// The theatre facade carries the slivingdoc callsign into every generation's
+// runner (phase 5): WithSlivingdoc wires the server and the workspace, and
+// openProduction hands them to the runner, so the director and every role
+// pull, read, write and commit the shared notebook.
+func TestTheatre_SlivingdocReachesRunner(t *testing.T) {
+	t.Parallel()
+	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	th := New(models.Configurations{}, t.TempDir(), time.Hour,
+		WithSlivingdoc(server, "/cache/slivingdoc"))
+
+	p := th.openProduction("")
+	defer p.stage.Close()
+	if !p.runner.notebookEnabled() {
+		t.Fatal("the generation's runner lost the notebook callsign")
+	}
+	if got := p.runner.notebookWorkspace(); got != "/cache/slivingdoc" {
+		t.Errorf("runner workspace = %q, want %q", got, "/cache/slivingdoc")
+	}
+
+	// A zero server keeps the runner notebook-disabled: composer-only mode
+	// and unit fixtures are unchanged.
+	plain := New(models.Configurations{}, t.TempDir(), time.Hour)
+	p2 := plain.openProduction("")
+	defer p2.stage.Close()
+	if p2.runner.notebookEnabled() {
+		t.Error("a default theatre enabled the notebook")
+	}
+}
+
+// The director's tool set is the spec's seven: the three role spawns, the two
+// working-file gates, consult and the submit gate. Every spec validates (the
+// tools package's spec-shape test covers the shape; here the set is asserted).
 func TestTheatre_DirectorToolSetRegistered(t *testing.T) {
 	t.Parallel()
 	th := newTestTheatre(t)
@@ -200,15 +218,19 @@ func TestTheatre_DirectorToolSetRegistered(t *testing.T) {
 	}
 	for _, want := range []string{
 		"dramaturg_brief", "draft_story", "dress_set", "read_story",
-		"validate_story", "pin_identity", "post_to_board", "consult",
-		"submit_story",
+		"validate_story", "consult", "submit_story",
 	} {
 		if !names[want] {
 			t.Errorf("director tool set lacks %q; got %v", want, names)
 		}
 	}
-	if len(tools) != 9 {
-		t.Errorf("director tool set has %d tools, want 9", len(tools))
+	for _, gone := range []string{"pin_identity", "post_to_board", "read_board"} {
+		if names[gone] {
+			t.Errorf("director tool set still carries %q", gone)
+		}
+	}
+	if len(tools) != 7 {
+		t.Errorf("director tool set has %d tools, want 7", len(tools))
 	}
 }
 
@@ -427,8 +449,8 @@ func TestTheatre_SubmitRefusesInvalidDraft(t *testing.T) {
 }
 
 // submit_story aborts when the story cannot be persisted: the working file
-// is not marked submitted and the library is not distilled — paperwork must
-// never claim a success the disk did not record (review 7, R7-02).
+// is not marked submitted — paperwork must never claim a success the disk
+// did not record (review 7, R7-02).
 func TestTheatre_SubmitAbortsWhenStoryNotPersisted(t *testing.T) {
 	t.Parallel()
 	cacheDir := t.TempDir()
@@ -462,8 +484,8 @@ func TestTheatre_SubmitAbortsWhenStoryNotPersisted(t *testing.T) {
 		t.Errorf("submit = %q, want the persistence refusal", submitOut)
 	}
 
-	// The working file is not marked submitted and the library is not
-	// distilled.
+	// The working file is not marked submitted: paperwork must never claim a
+	// success the disk did not record.
 	co := Open(cacheDir)
 	w, err := co.LoadWorking()
 	if err != nil {
@@ -471,9 +493,6 @@ func TestTheatre_SubmitAbortsWhenStoryNotPersisted(t *testing.T) {
 	}
 	if w.Status == "submitted" {
 		t.Error("working file marked submitted although the story was not persisted")
-	}
-	if lib := co.LoadLibrary(); len(lib.Premises) != 0 {
-		t.Errorf("library distilled without a persisted story: %+v", lib.Premises)
 	}
 }
 
@@ -1060,297 +1079,5 @@ func TestTheatre_OpenProductionResetsWorkingFile(t *testing.T) {
 	}
 	if _, err := co.LoadWorking(); err == nil {
 		t.Fatal("working file survived openProduction")
-	}
-}
-
-// Two sequential generations (acceptance criterion): generation 2's
-// playwright context carries generation 1's canon facts, the dramaturg
-// context carries generation 1's premise in the no-repeat list, and the
-// director context carries generation 1's critique lesson. The library is
-// the only channel between the two — the board is per-generation.
-func TestTheatre_SecondGenerationReadsFirstLibrary(t *testing.T) {
-	t.Parallel()
-	cacheDir := t.TempDir()
-	ctx := context.Background()
-
-	// Generation 1: brief → draft (with a canon fact) → dress → validate →
-	// pin → submit (with a lesson).
-	gen1 := New(models.Configurations{Model: "stub", ConfigDir: t.TempDir()}, cacheDir, time.Hour)
-	gen1.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
-		switch {
-		case strings.Contains(p.prompt, "You are the director of"):
-			callTool(t, p, "dramaturg_brief", models.Input{"notes": "keep it dry"})
-			callTool(t, p, "draft_story", models.Input{})
-			callTool(t, p, "dress_set", models.Input{})
-			callTool(t, p, "validate_story", models.Input{})
-			callTool(t, p, "pin_identity", models.Input{})
-			out := callTool(t, p, "submit_story", models.Input{"notes": "two stares in a row is dead air"})
-			return llmOutcome{text: out}, nil
-		case strings.Contains(p.prompt, "You are the dramaturg."):
-			callTool(t, p, "write_brief", models.Input{"brief": `{"mood":"standoff","shape":"mousehunt","theme":"Solaris 1972"}`})
-			return llmOutcome{text: "brief posted"}, nil
-		case strings.Contains(p.prompt, "You are the playwright."):
-			return llmOutcome{text: storyWithCanon(t, "the mouse got away")}, nil
-		case strings.Contains(p.prompt, "You are the scenographer."):
-			callTool(t, p, "write_scene", models.Input{"backdrop": "garden"})
-			return llmOutcome{text: "scene saved"}, nil
-		}
-		return llmOutcome{text: "ok"}, nil
-	}
-	if !gen1.Prepare(ctx, "gen1") {
-		t.Fatal("generation 1 should run")
-	}
-
-	// Generation 2 over the same cache dir: capture each role's prompt.
-	// runProduction bypasses the cooldown, which generation 1's submit
-	// started.
-	var director, dramaturg, playwright string
-	gen2 := New(models.Configurations{Model: "stub", ConfigDir: t.TempDir()}, cacheDir, time.Hour)
-	gen2.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
-		switch {
-		case strings.Contains(p.prompt, "You are the director of"):
-			director = p.prompt
-			callTool(t, p, "dramaturg_brief", models.Input{})
-			callTool(t, p, "draft_story", models.Input{})
-			out := callTool(t, p, "submit_story", models.Input{})
-			return llmOutcome{text: out}, nil
-		case strings.Contains(p.prompt, "You are the dramaturg."):
-			dramaturg = p.prompt
-			callTool(t, p, "write_brief", models.Input{"brief": `{"mood":"cozy","shape":"greeting","theme":"The Long Night"}`})
-			return llmOutcome{text: "brief posted"}, nil
-		case strings.Contains(p.prompt, "You are the playwright."):
-			playwright = p.prompt
-			return llmOutcome{text: storyJSON(t)}, nil
-		}
-		return llmOutcome{text: "ok"}, nil
-	}
-	if _, err := gen2.runProduction(ctx, ""); err != nil {
-		t.Fatalf("generation 2 should run: %v", err)
-	}
-
-	if !strings.Contains(playwright, "the mouse got away") {
-		t.Errorf("generation 2 playwright context lacks generation 1's canon fact")
-	}
-	if !strings.Contains(playwright, "The Test Night") {
-		t.Errorf("generation 2 playwright context lacks generation 1's play summary")
-	}
-	if !strings.Contains(dramaturg, "Solaris 1972") {
-		t.Errorf("generation 2 dramaturg context lacks generation 1's premise (no-repeat list)")
-	}
-	// The working file is reset at generation start: generation 2's dramaturg
-	// must not see generation 1's submitted title in its working summary (the
-	// same-play anchor), and the fresh state is marked plainly.
-	if strings.Contains(dramaturg, "The Test Night") {
-		t.Errorf("generation 2 dramaturg context carries generation 1's working-file title — the working file must reset per generation")
-	}
-	if !strings.Contains(dramaturg, "no draft yet") {
-		t.Errorf("generation 2 dramaturg context lacks the fresh-generation marker")
-	}
-	if !strings.Contains(director, "two stares in a row is dead air") {
-		t.Errorf("generation 2 director context lacks generation 1's lesson")
-	}
-	// The director reads the earlier-production list too, so the company's
-	// head can see a repeated shape coming.
-	if !strings.Contains(director, "Earlier productions") || !strings.Contains(director, "The Test Night") {
-		t.Errorf("generation 2 director context lacks the earlier-productions list")
-	}
-
-	// The bulletins and canon facts are durable on disk too.
-	co := Open(cacheDir)
-	lib := co.LoadLibrary()
-	if len(lib.Repertoire.Facts) != 1 || lib.Repertoire.Facts[0] != "the mouse got away" {
-		t.Errorf("facts = %v, want generation 1's canon fact persisted", lib.Repertoire.Facts)
-	}
-	if len(lib.Premises) != 2 { // generation 1's brief premise + generation 2's free-text brief
-		t.Errorf("premises = %+v, want both generations' premises", lib.Premises)
-	}
-	if len(lib.Director) != 1 || lib.Director[0].Text != "two stares in a row is dead air" {
-		t.Errorf("director = %+v, want generation 1's lesson persisted", lib.Director)
-	}
-}
-
-// The director can canonize a new named character at submit: a valid entry
-// in the draft enters the registry and survives the restart (the integration
-// contract: registry is the only place identities are born).
-func TestTheatre_SubmitCanonizesApprovedCharacter(t *testing.T) {
-	t.Parallel()
-	cacheDir := t.TempDir()
-	th := New(models.Configurations{Model: "stub", ConfigDir: t.TempDir()}, cacheDir, time.Hour)
-
-	// A draft with a second mouse on stage.
-	draft := func() string {
-		s := validStory()
-		s.Cast = append(s.Cast, model.Cast{ID: "mouse2", Character: "mouse", Coat: "white", Lane: 1, X: 0.6})
-		b, err := json.Marshal(s)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
-	}
-
-	var submitOut string
-	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
-		switch {
-		case strings.Contains(p.prompt, "You are the director of"):
-			callTool(t, p, "draft_story", models.Input{})
-			callTool(t, p, "pin_identity", models.Input{})
-			submitOut = callTool(t, p, "submit_story", models.Input{
-				"characters": `[{"id":"mouse2","species":"mouse","coat":"white"}]`,
-			})
-			return llmOutcome{text: submitOut}, nil
-		case strings.Contains(p.prompt, "You are the playwright."):
-			return llmOutcome{text: draft()}, nil
-		}
-		return llmOutcome{text: "ok"}, nil
-	}
-
-	if _, err := th.runProduction(context.Background(), ""); err != nil {
-		t.Fatalf("production: %v", err)
-	}
-	if !strings.Contains(submitOut, "canonized 1 characters") {
-		t.Errorf("submit = %q, want the canonization reported", submitOut)
-	}
-
-	// The registry doc on disk carries the new character, and a restart
-	// picks it up.
-	co := Open(cacheDir)
-	lib := co.LoadLibrary()
-	if len(lib.Registry) != 5 {
-		t.Fatalf("registry = %+v, want the permanent cast + mouse2", lib.Registry)
-	}
-	restarted := New(models.Configurations{}, cacheDir, time.Hour)
-	if !restarted.registry.Known("mouse2") {
-		t.Error("restart lost the canonized character")
-	}
-
-	// A character not in the draft is refused.
-	submitOut = ""
-	th.runLLM = func(_ context.Context, p llmParams) (llmOutcome, error) {
-		switch {
-		case strings.Contains(p.prompt, "You are the director of"):
-			callTool(t, p, "draft_story", models.Input{})
-			submitOut = callTool(t, p, "submit_story", models.Input{
-				"characters": `[{"id":"ghost","species":"cat","coat":"ginger"}]`,
-			})
-			return llmOutcome{text: submitOut}, nil
-		case strings.Contains(p.prompt, "You are the playwright."):
-			return llmOutcome{text: storyJSON(t)}, nil
-		}
-		return llmOutcome{text: "ok"}, nil
-	}
-	if _, err := th.runProduction(context.Background(), ""); err != nil {
-		t.Fatalf("production: %v", err)
-	}
-	if !strings.Contains(submitOut, "ghost\": not in the draft cast") {
-		t.Errorf("submit = %q, want the refusal", submitOut)
-	}
-}
-
-// Feedback (the agents.Feedbacker contract) appends through the facade's
-// persistent company: notes land in audience.json newest first, and a fresh
-// theatre over the same cache dir reads them back.
-func TestTheatre_FeedbackAppendsToAudienceDoc(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	th := New(models.Configurations{}, dir, time.Hour)
-	t.Cleanup(th.writeWG.Wait)
-	ctx := context.Background()
-
-	if err := th.Feedback(ctx, "stry_first", 1, "more dog"); err != nil {
-		t.Fatal(err)
-	}
-	if err := th.Feedback(ctx, "stry_second", -1, "too slow"); err != nil {
-		t.Fatal(err)
-	}
-
-	doc := Open(dir).LoadAudience()
-	if len(doc) != 2 {
-		t.Fatalf("audience = %d notes, want 2", len(doc))
-	}
-	if doc[0].StoryID != "stry_second" || doc[0].Rating != -1 || doc[0].Comment != "too slow" {
-		t.Errorf("newest note = %+v, want the second note first", doc[0])
-	}
-	first := doc[1]
-	if first.StoryID != "stry_first" || first.Rating != 1 || first.Comment != "more dog" {
-		t.Errorf("older note = %+v, want the first note", first)
-	}
-	if got, want := first.Date, dateStamp(time.Now()); got != want {
-		t.Errorf("note date = %q, want today's %q", got, want)
-	}
-}
-
-// The facade is the trust boundary, like submit_story: a rating outside
-// {+1, -1} is rejected with an error and nothing is written.
-func TestTheatre_FeedbackRejectsBadRating(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	th := New(models.Configurations{}, dir, time.Hour)
-	t.Cleanup(th.writeWG.Wait)
-	ctx := context.Background()
-
-	for _, rating := range []int{0, 5, -2} {
-		if err := th.Feedback(ctx, "stry_ok01", rating, "nope"); err == nil {
-			t.Errorf("rating %d: Feedback accepted it", rating)
-		}
-	}
-	if doc := Open(dir).LoadAudience(); len(doc) != 0 {
-		t.Errorf("rejected ratings still wrote %d notes", len(doc))
-	}
-}
-
-// A story id that could never have come from a validated story is rejected
-// before the note is written.
-func TestTheatre_FeedbackRejectsBadStoryID(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	th := New(models.Configurations{}, dir, time.Hour)
-	t.Cleanup(th.writeWG.Wait)
-	ctx := context.Background()
-
-	for _, id := range []string{"", "../etc", "stry_ABC", "stry_" + strings.Repeat("x", 25)} {
-		if err := th.Feedback(ctx, id, 1, ""); err == nil {
-			t.Errorf("story id %q: Feedback accepted it", id)
-		}
-	}
-	if doc := Open(dir).LoadAudience(); len(doc) != 0 {
-		t.Errorf("bad story ids still wrote %d notes", len(doc))
-	}
-}
-
-// A long comment is clipped to the cap, never rejected (decision D-3).
-func TestTheatre_FeedbackTruncatesLongComment(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	th := New(models.Configurations{}, dir, time.Hour)
-	t.Cleanup(th.writeWG.Wait)
-	ctx := context.Background()
-
-	long := strings.Repeat("è", 1000)
-	if err := th.Feedback(ctx, "stry_ok01", 1, long); err != nil {
-		t.Fatal(err)
-	}
-	doc := Open(dir).LoadAudience()
-	if len(doc) != 1 {
-		t.Fatalf("audience = %d notes, want 1", len(doc))
-	}
-	if got, want := doc[0].Comment, string([]rune(long)[:audienceCommentMax]); got != want {
-		t.Errorf("comment = %d runes, want the first %d", len([]rune(got)), audienceCommentMax)
-	}
-}
-
-// A note the disk cannot hold returns the error instead of being swallowed.
-func TestTheatre_FeedbackWriteFailureReturnsError(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	// The cache dir itself is a file, so every mkdir/write fails — the same
-	// shape as the SaveStory write-failure test.
-	cacheDir := filepath.Join(dir, "cache")
-	if err := os.WriteFile(cacheDir, []byte("not a dir"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	th := New(models.Configurations{}, cacheDir, time.Hour)
-
-	if err := th.Feedback(context.Background(), "stry_ok01", 1, ""); err == nil {
-		t.Fatal("Feedback accepted a note it could not persist")
 	}
 }

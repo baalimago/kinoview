@@ -61,16 +61,16 @@ func TestFeed_OneLinePerEventInOrder(t *testing.T) {
 	}
 
 	want := []string{
-		"notice: [theatre stry_ab12] ─ phase 1/6 brief ─ budget 0/50",
+		"notice: [theatre stry_ab12] ─ phase 1/5 brief ─ budget 0/50",
 		`notice: [theatre stry_ab12] director→dramaturg: brief (mood=standoff, lineup=3)`,
 		"notice: [theatre stry_ab12] dramaturg→playwright: note 0",
 		`notice: [theatre stry_ab12] playwright→wardrobe: "does silver read on night?"`,
 		`notice: [theatre stry_ab12] wardrobe→playwright: "silver reads; keep ina lane 1"`,
 		`notice: [theatre stry_ab12] playwright⇉draft: 16 beats / 3 acts / "The Long Night"`,
 		"warning: [theatre stry_ab12] stage: budget refusal: playwright out of calls",
-		"notice: [theatre stry_ab12] ─ phase 3/6 dress ─ scenographer 2/8 calls ─ budget 3/50",
+		"notice: [theatre stry_ab12] ─ phase 3/5 dress ─ scenographer 2/8 calls ─ budget 3/50",
 		"notice: [theatre stry_ab12] scenographer→director: dressing 0",
-		"notice: [theatre stry_ab12] ─ phase 6/6 submit ─ scenographer 2/8 calls ─ budget 3/50",
+		"notice: [theatre stry_ab12] ─ phase 5/5 submit ─ scenographer 2/8 calls ─ budget 3/50",
 	}
 	for _, w := range want {
 		if !strings.Contains(out, w) {

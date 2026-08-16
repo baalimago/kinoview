@@ -289,8 +289,8 @@ func TestCompose_Phase7PieceBeatsAddressRealCells(t *testing.T) {
 }
 
 // The phase-8 bird: the birdvisit template is reachable, its bird is always
-// the registry's permanent entry (pip / chaffinch), and the bird's beats stay
-// inside the closed vocabulary. The 400-seed sweep in
+// the canonical entry (pip / chaffinch), and the bird's beats stay inside the
+// closed vocabulary. The 400-seed sweep in
 // TestCompose_AllScenesValidateAcrossSeeds covers the template's validity.
 func TestCompose_BirdSceneReachable(t *testing.T) {
 	t.Parallel()
@@ -311,7 +311,7 @@ func TestCompose_BirdSceneReachable(t *testing.T) {
 			}
 			sawBird = true
 			if c.ID != "pip" || c.Coat != "chaffinch" {
-				t.Fatalf("seed %d: bird cast = %+v, want pip/chaffinch (the registry entry)", seed, c)
+				t.Fatalf("seed %d: bird cast = %+v, want pip/chaffinch (the canonical entry)", seed, c)
 			}
 		}
 	}

@@ -23,8 +23,7 @@ const DefaultCooldown = 10 * time.Minute
 
 // Theatre is the facade the rest of kinoview sees: it prepares the intro
 // splash story by running a theatre production — a director superagent
-// orchestrating mini-agent subagents over a shared board — and hands out the
-// current story. It implements the agents.Teller contract (Next/Prepare/Warm),
+// orchestrating mini-agent subagents — and hands out the current story. It implements the agents.Teller contract (Next/Prepare/Warm),
 // the house home of agent contracts since phase 9.
 //
 // Cooldown, single-flight, Warm's two-step seed-then-upgrade, Next's
@@ -48,8 +47,8 @@ type Theatre struct {
 	configDir string
 	cacheDir  string
 
-	// company is the theatre's persistent paperwork (the board, the working
-	// file, the ledger, the transcript and the seven company docs). The facade
+	// company is the theatre's persistent paperwork (the working file, the
+	// ledger and the transcript). The facade
 	// owns it — New opens it once and every subsystem reads and writes through
 	// it (R2-01): a fresh Company per call would not serialize its
 	// load-modify-save paths across calls.
@@ -59,12 +58,17 @@ type Theatre struct {
 	globalMax   int
 	wallClock   time.Duration
 
-	logSink func(model.LogMessage)
+	// slivingdocServer is the MCP callsign for the shared agent notebook,
+	// carried to every generation's runner. A zero server disables the
+	// notebook: composer-only mode and unit fixtures keep working.
+	slivingdocServer models.McpServer
 
-	// registry pins the canonical look per cast id (pin_identity, decision
-	// D7): the permanent cast carries its canonical coat from generation one
-	// (phase 6) and the book round-trips through registry.json.
-	registry *Registry
+	// slivingdocWorkspace is the shared worktree the notebook is materialised
+	// into — the same value the MCP server uses, substituted into the NOTES
+	// prompt section of every role.
+	slivingdocWorkspace string
+
+	logSink func(model.LogMessage)
 
 	// writeMu serialises disk writes independently of mu, so persisting never
 	// holds the lock that serving a story needs.
@@ -135,6 +139,17 @@ func WithSessionSink(sink func(model.LogMessage)) Option {
 	return func(t *Theatre) { t.logSink = sink }
 }
 
+// WithSlivingdoc configures the shared agent notebook: the MCP callsign and
+// the shared worktree every generation's runner materialises the notebook
+// into. A zero server (the default) disables the notebook: composer-only
+// mode and unit fixtures keep working.
+func WithSlivingdoc(server models.McpServer, workspace string) Option {
+	return func(t *Theatre) {
+		t.slivingdocServer = server
+		t.slivingdocWorkspace = workspace
+	}
+}
+
 // New builds a Theatre. Pass an empty model name to run composer-only, which
 // reproduces the pre-migration composer-only behaviour exactly (the phase-9
 // snapshot test proves it).
@@ -149,7 +164,6 @@ func New(c models.Configurations, cacheDir string, cooldown time.Duration, opts 
 		directorMax: DefaultDirectorBudget,
 		globalMax:   DefaultGlobalBudget,
 		wallClock:   DefaultWallClock,
-		registry:    newRegistry(),
 	}
 	if t.cooldown <= 0 {
 		t.cooldown = DefaultCooldown
@@ -159,18 +173,7 @@ func New(c models.Configurations, cacheDir string, cooldown time.Duration, opts 
 	}
 	t.company = Open(cacheDir)
 	t.loadFromDisk()
-	t.loadLibrary()
 	return t
-}
-
-// loadLibrary picks up the company's durable memory at startup (phase 6):
-// the registry document seeds the costumer's book, so characters canonized
-// in an earlier generation survive the restart. A corrupt document is logged
-// and degrades to the empty one — the server starts (the acceptance
-// criterion).
-func (t *Theatre) loadLibrary() {
-	lib := t.company.LoadLibrary()
-	t.registry.LoadDoc(lib.Registry)
 }
 
 // theme asks the muse what to riff on, tolerating a nil or panicking muse: a
@@ -414,32 +417,3 @@ func newID(r *rand.Rand) string {
 // Compile-time proof that the theatre satisfies the house Teller contract
 // (internal/agents/interfaces.go) — the index wires it as agents.Teller.
 var _ agents.Teller = (*Theatre)(nil)
-
-// Compile-time proof that the theatre satisfies the house Feedbacker
-// contract (internal/agents/interfaces.go) — the index type-asserts it in
-// the intro feedback handler.
-var _ agents.Feedbacker = (*Theatre)(nil)
-
-// Feedback records one audience note about a story (the agents.Feedbacker
-// contract). The note is appended through the facade's persistent company —
-// the audience doc's single write path (decision D-5) — so the
-// load-modify-save holds the company's mutex and two concurrent posts lose
-// no note (R2-01). The facade is the trust boundary, like submit_story: it
-// re-checks the rating and the story id even though the handler already
-// validated them. The comment is truncated to its cap by the doc trim, never
-// rejected (decision D-3).
-func (t *Theatre) Feedback(_ context.Context, storyID string, rating int, comment string) error {
-	if rating != 1 && rating != -1 {
-		return fmt.Errorf("theatre: feedback rating %d out of {+1, -1}", rating)
-	}
-	storyID = strings.TrimSpace(storyID)
-	if !artifactIDRe.MatchString(storyID) {
-		return fmt.Errorf("theatre: feedback story id %q does not match %v", storyID, artifactIDRe)
-	}
-	return t.company.AppendAudience(AudienceNote{
-		StoryID: storyID,
-		Rating:  rating,
-		Comment: comment,
-		Date:    dateStamp(time.Now()),
-	})
-}

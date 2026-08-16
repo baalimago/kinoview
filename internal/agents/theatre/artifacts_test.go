@@ -7,57 +7,6 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-// The brief artifact is validated at the wrapper boundary: unregistered
-// lineup ids are dropped, ids are lowercased and deduped, and lengths are
-// capped — the same strictness as model.Story.Validate.
-func TestArtifacts_BriefLineupFilteredAgainstRegistry(t *testing.T) {
-	t.Parallel()
-	reg := newRegistry()
-	text := `{"mood":"standoff","shape":"standoff","lineup":["ina","dragon","FREIJA","ina"],"noRepeat":["x"],"theme":"Solaris"}`
-	var ba BriefArtifact
-	if !parseArtifact(text, &ba) {
-		t.Fatal("brief did not parse")
-	}
-	normalizeBrief(&ba, reg.Known)
-	if len(ba.Lineup) != 2 || ba.Lineup[0] != "ina" || ba.Lineup[1] != "freija" {
-		t.Errorf("lineup = %v, want [ina freija] — dragon dropped, dupes collapsed, ids lowercased", ba.Lineup)
-	}
-
-	// A nil registry (unit fixtures without one) does not destroy the lineup:
-	// ids are still pattern-checked and deduped.
-	text2 := `{"lineup":["ina","bad id","INA"]}`
-	var ba2 BriefArtifact
-	if !parseArtifact(text2, &ba2) {
-		t.Fatal("brief did not parse")
-	}
-	normalizeBrief(&ba2, nil)
-	if len(ba2.Lineup) != 1 || ba2.Lineup[0] != "ina" {
-		// "bad id" fails the id pattern; "INA" lowercases to a duplicate of
-		// the first "ina", so it is dropped by the dedupe.
-		t.Errorf("lineup = %v, want [ina]", ba2.Lineup)
-	}
-}
-
-// Lengths are capped at the artifact caps; an over-long mood or theme never
-// survives into the board.
-func TestArtifacts_BriefLengthsCapped(t *testing.T) {
-	t.Parallel()
-	var ba BriefArtifact
-	text := `{"mood":"` + strings.Repeat("m", 200) + `","shape":"` + strings.Repeat("s", 200) +
-		`","theme":"` + strings.Repeat("t", 200) + `","noRepeat":["` + strings.Repeat("n", 200) + `"]}`
-	if !parseArtifact(text, &ba) {
-		t.Fatal("brief did not parse")
-	}
-	normalizeBrief(&ba, nil)
-	if len(ba.Mood) != MaxMoodLen || len(ba.Shape) != MaxShapeLen || len(ba.Theme) != model.MaxTitleLen {
-		t.Errorf("caps: mood %d/%d, shape %d/%d, theme %d/%d",
-			len(ba.Mood), MaxMoodLen, len(ba.Shape), MaxShapeLen, len(ba.Theme), model.MaxTitleLen)
-	}
-	if len(ba.NoRepeat) != 1 || len(ba.NoRepeat[0]) != MaxNoRepeatLen {
-		t.Errorf("noRepeat = %v, want one entry capped at %d", ba.NoRepeat, MaxNoRepeatLen)
-	}
-}
-
 // The draft report is repaired at the wrapper boundary: text is capped,
 // ids are pattern-checked, counters are clamped and canon facts are bounded
 // like the working file's.

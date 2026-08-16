@@ -17,8 +17,8 @@ import (
 // flow as guidance, not law (decision D1). The director orchestrates the
 // company through its tools, works from the stage-manager reports and reads
 // script pages only when scrutiny is needed. The working-context standard
-// (AssembleContext) carries the generation, the theme, the board excerpt and
-// the working summary around this prompt.
+// (AssembleContext) carries the generation, the theme and the working summary
+// around this prompt.
 const directorPrompt = `You are the director of a tiny wordless theatre company. The company produces
 one short slapstick scene for a media-server splash screen, acted out by simple
 cartoon animals, then the app opens.
@@ -35,7 +35,7 @@ three.
 The company works through you:
 
   * dramaturg_brief — the dramaturg decides the production brief (mood, shape,
-    cast lineup, what to avoid) and posts it to the board.
+    cast lineup, what to avoid).
   * draft_story — the playwright writes the full story into the working file:
     title, cast, props, beats, canon facts.
   * dress_set — the scenographer dresses the draft's set.
@@ -43,28 +43,14 @@ The company works through you:
     scene, title), when you need to scrutinise the script.
   * validate_story — run the playability gate; it reports exact errors when
     the draft cannot be staged.
-  * pin_identity — pin the canonical looks so characters never drift.
-  * post_to_board — share notes with the company.
   * consult — ask a production role (dramaturg, playwright, scenographer,
-    wardrobe) a focused question; the question and its answer land on the
-    board.
+    wardrobe) a focused question.
   * submit_story — submit the production: validate, persist, end the run.
-    Optionally pass 'notes' (critique lessons for your memory, one per line)
-    and 'characters' (a JSON array of newly approved cast members to canonize
-    in the registry, e.g. [{"id":"mouse2","species":"mouse","coat":"white"}] —
-    only characters in the draft may be canonized).
 
-Suggested flow: brief → draft → dress → validate → pin → iterate on your notes
-→ submit. This is guidance, not law: you may deviate, revisit or consult at
-will. Work from the reports the roles deliver; read script pages only when
-scrutiny is needed. Submit as soon as the piece is good — do not burn budget.
-
-The company's memory is a springboard, not a script. The bulletin, the
-lessons, the audience notes and the earlier productions in your context are
-guidance: never submit a play that repeats an earlier production's title,
-beat skeleton or backdrop. If the audience disliked recent shows or asked
-for something new, change the shape, the cast or the set — do not polish the
-same play again. A repeated play is a failure, not a success.`
+Suggested flow: brief → draft → dress → validate → submit. This is guidance,
+not law: you may deviate, revisit or consult at will. Work from the reports
+the roles deliver; read script pages only when scrutiny is needed. Submit as
+soon as the piece is good — do not burn budget.`
 
 // production is one generation's run: the company paperwork, the stage, the
 // runner and the broker, plus the director's own bookkeeping. It exists for
@@ -77,10 +63,6 @@ type production struct {
 	broker  *Broker
 	gen     string
 
-	// lessons are the director's critique lessons, carried by the submit
-	// call and distilled into the director doc (phase 6).
-	lessons []string
-
 	// submitted is set by submit_story: the story is persisted and a second
 	// submit is refused. The director's loop is single-threaded, so a plain
 	// field is safe.
@@ -88,10 +70,11 @@ type production struct {
 }
 
 // openProduction wires one generation: the company, the stage (with the
-// generation's budgets, wall-clock deadline and log sink), the runner (model,
-// config dir, cache dir and the LLM seam when a test injected one) and the
-// consultation broker. The board is seeded with the generation and theme, so
-// the working-context standard carries them into every agent.
+// generation's budgets, wall-clock deadline and log sink) and the runner
+// (model, config dir, cache dir, the theme, the slivingdoc callsign and the
+// LLM seam when a test injected one) and the consultation broker. A
+// generation starts with no draft: the working file is reset so the previous
+// generation's submitted story cannot prime the new one's working-context.
 func (t *Theatre) openProduction(theme string) *production {
 	gen := t.newGenID()
 	company := Open(t.cacheDir)
@@ -100,9 +83,6 @@ func (t *Theatre) openProduction(theme string) *production {
 		WithWallDeadline(t.wallClock),
 		WithLogSink(t.logSink),
 	)
-	if err := company.SaveBoard(Board{Generation: gen, Theme: theme}); err != nil {
-		ancli.Errf("theatre: board seed failed: %v", err)
-	}
 	// A generation starts with no draft: the previous generation's submitted
 	// story must not prime the new one's working-context — its title, cast
 	// and set anchored every role on the same play, generation after
@@ -114,7 +94,13 @@ func (t *Theatre) openProduction(theme string) *production {
 		WithModel(t.model),
 		WithConfigDir(t.configDir),
 		WithCacheDir(t.cacheDir),
-		WithRegistry(t.registry),
+		WithTheme(theme),
+		// The shared agent notebook: with the slivingdoc callsign configured,
+		// the director and every role pull, read, write and commit the shared
+		// notebook (phase 5); a zero server keeps composer-only mode and unit
+		// fixtures byte-identical to today.
+		WithSlivingdocServer(t.slivingdocServer),
+		WithSlivingdocWorkspace(t.slivingdocWorkspace),
 	)
 	if t.runLLM != nil {
 		runner.runLLM = t.runLLM
@@ -211,9 +197,8 @@ func (p *production) finish(dirErr error) (model.Story, error) {
 }
 
 // directorTools is the director's instrument set: the three role spawns, the
-// two working-file gates, the deterministic pin, the shared board post and
-// consult (author and questioner pinned to the director, depth 0), and the
-// final submit gate — nine tools, the spec's table.
+// two working-file gates, consult (author and questioner pinned to the
+// director, depth 0) and the final submit gate — seven tools.
 func (p *production) directorTools(ctx context.Context) []models.LLMTool {
 	return []models.LLMTool{
 		tools.NewDramaturgBrief(func(notes string) (string, error) {
@@ -251,22 +236,17 @@ func (p *production) directorTools(ctx context.Context) []models.LLMTool {
 		}),
 		tools.NewReadStory(func(part string) (string, error) { return p.readStory(part) }),
 		tools.NewValidateStory(func() (string, error) { return p.validateStory() }),
-		tools.NewPinIdentity(func() (string, error) { return p.pinIdentity() }),
-		tools.NewPostToBoard(func(kind, to, body string) error {
-			return p.runner.postToBoard("director", kind, to, body)
-		}),
 		tools.NewConsult(func(target, question string) (string, error) {
 			return p.broker.Consult(ctx, "director", target, question, 0)
 		}),
-		tools.NewSubmitStory(func(notes, characters string) (string, error) {
-			return p.submitStory(notes, characters)
+		tools.NewSubmitStory(func() (string, error) {
+			return p.submitStory()
 		}),
 	}
 }
 
 // roleTask appends the director's notes to a role's task. The working-context
-// standard carries the rest: the board excerpt (the brief), the working
-// summary and the role prompt.
+// standard carries the rest: the working summary and the role prompt.
 func (p *production) roleTask(task, notes string) string {
 	notes = strings.TrimSpace(notes)
 	if notes == "" {
@@ -337,36 +317,12 @@ func (p *production) validateStory() (string, error) {
 	return fmt.Sprintf("story validated: %s", b), nil
 }
 
-// pinIdentity pins the canonical coat and character per cast id (decision
-// D7): a registered id is stamped from the book — the permanent cast's
-// canonical defaults, whatever the draft says — so characters never drift.
-// An unregistered id is a guest and is left as-is. Phase 6 made the book
-// durable: it round-trips through registry.json and new characters enter
-// only by director approval at submit.
-func (p *production) pinIdentity() (string, error) {
-	w, err := p.company.LoadWorking()
-	if err != nil {
-		return "", fmt.Errorf("no draft in the working file yet — the playwright must write first")
-	}
-	applied := p.theatre.registry.PinAndApply(w.Story.Cast)
-	w.Status = "pinned"
-	if err := p.company.SaveWorking(w); err != nil {
-		return "", err
-	}
-	p.stage.SetPhase("pin")
-	return fmt.Sprintf("pinned %d identities (%d in the registry)", applied, p.theatre.registry.Size()), nil
-}
-
 // submitStory is the final gate: the working draft is validated once more
 // (belt and braces — SaveWorking already refuses unplayable drafts), the
 // story is persisted to intro_story.json, the working file is marked
-// submitted and the production is done. The submit call also carries the
-// director's final word — critique lessons and newly approved characters —
-// which the distillation folds into the company library AFTER the story is
-// persisted (the integration contract: docs never precede the story). A
-// second submit for the same generation is refused; the story is persisted
-// exactly once.
-func (p *production) submitStory(notes, characters string) (string, error) {
+// submitted and the production is done. A second submit for the same
+// generation is refused; the story is persisted exactly once.
+func (p *production) submitStory() (string, error) {
 	if p.submitted {
 		return "", fmt.Errorf("submit refused: the production is already submitted")
 	}
@@ -378,8 +334,7 @@ func (p *production) submitStory(notes, characters string) (string, error) {
 	// playwright's write_draft set it), so the persisted story is traceable
 	// back to its production. The story must be durably on disk before the
 	// paperwork claims a submission: a persistence failure aborts the submit
-	// and leaves the working state and the library untouched (review 7,
-	// R7-02).
+	// and leaves the working state untouched (review 7, R7-02).
 	if err := p.theatre.saveStory(w.Story); err != nil {
 		return "", fmt.Errorf("submit refused: story not persisted: %w", err)
 	}
@@ -390,29 +345,6 @@ func (p *production) submitStory(notes, characters string) (string, error) {
 	p.submitted = true
 	p.stage.SetPhase("submit")
 
-	// The director's final word, distilled after the story is safe. A
-	// distillation failure is logged and never fails the submit — the story
-	// is already persisted, and the next submit writes the docs again (the
-	// error table).
-	p.lessons = splitLessons(notes)
-	approved, refused := 0, []string(nil)
-	if entries, perr := parseCanonizations(characters); perr != nil {
-		refused = append(refused, perr.Error())
-	} else {
-		approved, refused = p.theatre.registry.Canonize(entries, castIDs(w.Story))
-	}
-	if err := p.distill(); err != nil {
-		ancli.Errf("theatre: distillation failed: %v", err)
-		p.stage.Emit(TranscriptEvent{Kind: "note", From: "stage", Body: "distillation failed — the company library was not updated", Level: "warning"})
-	}
-
-	msg := fmt.Sprintf("submitted %q (%d beats, %d cast, %d props)",
-		w.Story.Title, len(w.Story.Beats), len(w.Story.Cast), len(w.Story.Props))
-	if approved > 0 {
-		msg += fmt.Sprintf(", canonized %d characters", approved)
-	}
-	if len(refused) > 0 {
-		msg += fmt.Sprintf(", refused: %s", strings.Join(refused, "; "))
-	}
-	return msg, nil
+	return fmt.Sprintf("submitted %q (%d beats, %d cast, %d props)",
+		w.Story.Title, len(w.Story.Beats), len(w.Story.Cast), len(w.Story.Props)), nil
 }
