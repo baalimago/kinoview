@@ -29,7 +29,7 @@ func TestFeedbackRecorder_AppendsJSONLLine(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	recorder := NewFeedbackRecorder(NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
+	recorder := NewFeedbackRecorder(NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 
 	if err := recorder.Feedback(t.Context(), "stry_abc12345", 1, "more dog"); err != nil {
 		t.Fatalf("Feedback: %v", err)
@@ -74,7 +74,7 @@ func TestFeedbackRecorder_EmptyCommentIsPreserved(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	recorder := NewFeedbackRecorder(NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
+	recorder := NewFeedbackRecorder(NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 
 	if err := recorder.Feedback(t.Context(), "stry_abc12345", -1, ""); err != nil {
 		t.Fatalf("Feedback: %v", err)
@@ -95,7 +95,7 @@ func TestFeedbackRecorder_CommitErrorReturnsError(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	recorder := NewFeedbackRecorder(NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
+	recorder := NewFeedbackRecorder(NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 
 	err := recorder.Feedback(t.Context(), "stry_abc12345", 1, "")
 	if err == nil {
@@ -122,7 +122,7 @@ func TestNotebook_AppendJSONLDoesNotPull(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	notebook := NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
+	notebook := NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
 	if err := notebook.AppendJSONL(feedbackName, feedbackRecord{StoryID: "stry_new", Rating: 1, Comment: "hi", TS: "2026-08-16T17:00:00Z"}); err != nil {
 		t.Fatalf("AppendJSONL: %v", err)
 	}
@@ -152,7 +152,7 @@ func TestNotebook_AppendJSONL_ConcurrentPosts(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	notebook := NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
+	notebook := NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
 
 	const posts = 20
 	var wg sync.WaitGroup
@@ -206,10 +206,10 @@ func TestNotebook_AppendJSONL_FailuresPropagate(t *testing.T) {
 		v         any
 		wantError string
 	}{
-		{"worktree unwritable", NewNotebook("slivingdoc", filepath.Join(blocked, "sub"), filepath.Join(t.TempDir(), "priv"), envFile), feedbackName, feedbackRecord{}, "worktree"},
-		{"encode failure", NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), envFile), feedbackName, func() {}, "encode"},
-		{"open failure", NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), envFile), "missing/feedback.jsonl", feedbackRecord{}, "open"},
-		{"env file missing", NewNotebook("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env")), feedbackName, feedbackRecord{}, "env"},
+		{"worktree unwritable", NewNotebook(NpxRunner("npx"), filepath.Join(blocked, "sub"), filepath.Join(t.TempDir(), "priv"), envFile), feedbackName, feedbackRecord{}, "worktree"},
+		{"encode failure", NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), envFile), feedbackName, func() {}, "encode"},
+		{"open failure", NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), envFile), "missing/feedback.jsonl", feedbackRecord{}, "open"},
+		{"env file missing", NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env")), feedbackName, feedbackRecord{}, "env"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -235,7 +235,7 @@ func TestNotebook_CommitArgsCarryRootsAndEnv(t *testing.T) {
 	if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=KEY\nAWS_SECRET_ACCESS_KEY=SECRET\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	notebook := NewNotebook("slivingdoc", workspace, "/priv", envFile)
+	notebook := NewNotebook(NpxRunner("npx"), workspace, "/priv", envFile)
 	if err := notebook.AppendJSONL(feedbackName, feedbackRecord{StoryID: "stry_abc12345", Rating: 1, Comment: "", TS: "2026-08-16T17:00:00Z"}); err != nil {
 		t.Fatalf("AppendJSONL: %v", err)
 	}

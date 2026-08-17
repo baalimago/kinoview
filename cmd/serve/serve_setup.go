@@ -133,13 +133,13 @@ func (c *command) Setup(ctx context.Context) error {
 	// slivingdoc setup — the shared agent notebook (callsign + worktree)
 	////////////
 	if c.s3Supervisor != nil {
-		npx, err := resolveNpx(*c.npxCommand)
+		runner, err := resolveSlivingdoc(*c.slivingdocCommand)
 		if err != nil {
 			ancli.Warnf("running without the slivingdoc agent notebook: %v", err)
 		} else {
 			privateRoot := path.Join(*c.cacheDir, "slivingdoc-private")
 			server := slivingdoc.Server(
-				npx,
+				runner,
 				*c.slivingdocBucket,
 				*c.slivingdocRegion,
 				// The MCP child talks to the S3 gateway at the explicit
@@ -154,7 +154,7 @@ func (c *command) Setup(ctx context.Context) error {
 			// the env file carries the same region the server advertises.
 			server.EnvFile = c.s3Supervisor.EnvPath()
 			c.slivingdocServer = server
-			if err := slivingdoc.Seed(npx, slivingdocWorkspaceRoot, privateRoot, server.EnvFile); err != nil {
+			if err := slivingdoc.Seed(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile); err != nil {
 				ancli.Warnf("slivingdoc worktree seed failed, agents run without the shared notebook: %v", err)
 			} else {
 				ancli.Noticef("slivingdoc notebook ready at %s", slivingdocWorkspaceRoot)
@@ -165,7 +165,7 @@ func (c *command) Setup(ctx context.Context) error {
 			// set; a zero callsign leaves the recorder nil and the handler
 			// answers 501.
 			feedbackRecorder = slivingdoc.NewFeedbackRecorder(
-				slivingdoc.NewNotebook(npx, slivingdocWorkspaceRoot, privateRoot, server.EnvFile),
+				slivingdoc.NewNotebook(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile),
 			)
 		}
 	}
@@ -252,7 +252,7 @@ func (c *command) Setup(ctx context.Context) error {
 			concierge.WithUserContextManager(userContextMgr),
 			concierge.WithModel(*c.conciergeModel),
 			// The shared agent notebook: a zero callsign (no S3 backend or no
-			// npx) keeps the concierge running exactly as before.
+			// slivingdoc command) keeps the concierge running exactly as before.
 			concierge.WithSlivingdocServer(c.slivingdocServer),
 			concierge.WithSlivingdocWorkspace(slivingdocWorkspaceRoot),
 		)
@@ -354,20 +354,22 @@ func notebookEndpoint(flagEndpoint string, s3 *s3embed.Supervisor) string {
 	return s3.Endpoint()
 }
 
-// resolveNpx finds the npx command that runs the slivingdoc npm package: the
-// explicit -npxCommand path, else npx on PATH. npx ships with Node.js, so a
-// missing npx means no Node.js — the notebook then degrades with one warning.
-func resolveNpx(explicit string) (string, error) {
+// resolveSlivingdoc returns how to invoke the slivingdoc CLI: the explicit
+// -slivingdocCommand path is a prebuilt binary (the production arm path) run
+// directly; empty resolves npx on PATH and runs the npm package through
+// npx -y slivingdoc. npx ships with Node.js, so a missing npx means no
+// Node.js — the notebook then degrades with one warning.
+func resolveSlivingdoc(explicit string) (slivingdoc.Runner, error) {
 	if explicit != "" {
 		if _, err := os.Stat(explicit); err != nil {
-			return "", fmt.Errorf("npx command at %q: %w", explicit, err)
+			return slivingdoc.Runner{}, fmt.Errorf("slivingdoc binary at %q: %w", explicit, err)
 		}
-		return explicit, nil
+		return slivingdoc.BinaryRunner(explicit), nil
 	}
 	if p, err := exec.LookPath("npx"); err == nil {
-		return p, nil
+		return slivingdoc.NpxRunner(p), nil
 	}
-	return "", errors.New("npx command not found on PATH (install Node.js to enable the slivingdoc notebook)")
+	return slivingdoc.Runner{}, errors.New("npx command not found on PATH (install Node.js to enable the slivingdoc notebook)")
 }
 
 func (c *command) setupMux() (*http.ServeMux, error) {

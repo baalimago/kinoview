@@ -11,10 +11,10 @@ import (
 // Notebook is the non-MCP seam into the shared notebook for server-side
 // writers (the feedback handler). Agents use the mcp_slivingdoc_* tools; the
 // handler appends directly to the shared worktree and commits through the
-// slivingdoc npm package (via npx), so a note is durable, merged like every
-// other note and readable by the next generation's roles.
+// slivingdoc CLI, so a note is durable, merged like every other note and
+// readable by the next generation's roles.
 type Notebook struct {
-	npx         string // npx command path (runs the slivingdoc npm package)
+	runner      Runner // how the slivingdoc CLI is invoked (npx or prebuilt)
 	workspace   string // shared worktree every agent materialises into
 	privateRoot string // slivingdoc's private state root
 	envFile     string // credentials env file (S3 access keys)
@@ -25,11 +25,11 @@ type Notebook struct {
 }
 
 // NewNotebook builds the handler-side seam over the same worktree the
-// callsign materialises. npx is the npx command path; envFile carries the S3
-// credentials the commit child needs.
-func NewNotebook(npx, workspace, privateRoot, envFile string) *Notebook {
+// callsign materialises. runner is how the slivingdoc CLI is invoked;
+// envFile carries the S3 credentials the commit child needs.
+func NewNotebook(runner Runner, workspace, privateRoot, envFile string) *Notebook {
 	return &Notebook{
-		npx:         npx,
+		runner:      runner,
 		workspace:   workspace,
 		privateRoot: privateRoot,
 		envFile:     envFile,
@@ -72,13 +72,13 @@ func (n *Notebook) AppendJSONL(name string, v any) error {
 	if err != nil {
 		return fmt.Errorf("slivingdoc: append %s: env: %w", name, err)
 	}
-	commitArgs := cliArgs("commit",
+	commitArgs := n.runner.argv("commit",
 		"--workspace-root", n.workspace,
 		"--private-root", n.privateRoot,
 		n.workspace,
 		"-m", "append "+name,
 	)
-	if err := runCLI(n.npx, env, commitArgs...); err != nil {
+	if err := runCLI(n.runner.Command, env, commitArgs...); err != nil {
 		return fmt.Errorf("slivingdoc: append %s: commit: %w", name, err)
 	}
 	return nil

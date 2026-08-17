@@ -208,7 +208,7 @@ func TestConcierge_Setup_WithUserContextManager(t *testing.T) {
 // tool globs (callsign + file tools) and the full constructor wires the
 // callsign without error.
 func TestConcierge_ToolGlobsIncludeSlivingdoc(t *testing.T) {
-	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
 	c := concierge{}
 	WithSlivingdocServer(server)(&c)
 	WithSlivingdocWorkspace("/cache/slivingdoc")(&c)
@@ -264,7 +264,7 @@ func TestConcierge_NoServerOmitsSlivingdoc(t *testing.T) {
 // option, or read back from the callsign args when the option is empty — so
 // the model is never asked to guess where the notebook lives.
 func TestConcierge_PromptNamesWorkspace(t *testing.T) {
-	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
 
 	t.Run("explicit workspace option", func(t *testing.T) {
 		c := concierge{slivingdocServer: server, slivingdocWorkspace: "/cache/slivingdoc"}

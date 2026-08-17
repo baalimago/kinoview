@@ -41,7 +41,7 @@ func callTool(t *testing.T, p llmParams, name string, input models.Input) string
 // NOTES partial with the workspace path substituted.
 func TestRunner_RunClai_WithSlivingdoc(t *testing.T) {
 	t.Parallel()
-	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
 	co := Open(t.TempDir())
 	stage := OpenStage(co, "stry_ab12")
 	silenceFeed(stage)
@@ -100,7 +100,7 @@ func TestRunner_NoServer_OmitsSlivingdoc(t *testing.T) {
 // empty — the prompt can never name a different worktree than the MCP child.
 func TestRunner_WorkspaceDerivedFromCallsign(t *testing.T) {
 	t.Parallel()
-	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
 
 	runner := &Runner{slivingdocServer: server}
 	if got := runner.notebookWorkspace(); got != "/cache/slivingdoc" {

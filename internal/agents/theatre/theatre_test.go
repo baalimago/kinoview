@@ -179,7 +179,7 @@ func TestTheatre_FixtureProductionRunsFlow(t *testing.T) {
 // pull, read, write and commit the shared notebook.
 func TestTheatre_SlivingdocReachesRunner(t *testing.T) {
 	t.Parallel()
-	server := slivingdoc.Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
 	th := New(models.Configurations{}, t.TempDir(), time.Hour,
 		WithSlivingdoc(server, "/cache/slivingdoc"))
 

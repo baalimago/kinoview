@@ -12,7 +12,7 @@ import (
 
 func TestServer_Args(t *testing.T) {
 	t.Run("endpoint sets path-style", func(t *testing.T) {
-		got := Server("npx", "slivingdoc", "us-east-1", "http://127.0.0.1:8333", "/ws", "/priv")
+		got := Server(NpxRunner("npx"), "slivingdoc", "us-east-1", "http://127.0.0.1:8333", "/ws", "/priv")
 		want := []string{
 			"-y", "slivingdoc", "serve",
 			"--bucket", "slivingdoc",
@@ -33,7 +33,7 @@ func TestServer_Args(t *testing.T) {
 	})
 
 	t.Run("empty endpoint omits path-style", func(t *testing.T) {
-		got := Server("npx", "b", "r", "", "/ws", "/priv")
+		got := Server(NpxRunner("npx"), "b", "r", "", "/ws", "/priv")
 		want := []string{
 			"-y", "slivingdoc", "serve",
 			"--bucket", "b",
@@ -48,9 +48,30 @@ func TestServer_Args(t *testing.T) {
 }
 
 func TestServer_Timeout(t *testing.T) {
-	got := Server("npx", "b", "r", "", "/ws", "/priv")
+	got := Server(NpxRunner("npx"), "b", "r", "", "/ws", "/priv")
 	if got.TimeoutSeconds != 300 {
 		t.Errorf("TimeoutSeconds = %d, want 300", got.TimeoutSeconds)
+	}
+}
+
+// A prebuilt binary runner (the production arm path) runs the CLI directly:
+// the command is the binary and the args start with the subcommand, not with
+// the npx -y slivingdoc prefix.
+func TestServer_PrebuiltRunner(t *testing.T) {
+	got := Server(BinaryRunner("/opt/slivingdoc"), "b", "r", "http://127.0.0.1:8333", "/ws", "/priv")
+	if got.Command != "/opt/slivingdoc" {
+		t.Errorf("Command = %q, want %q", got.Command, "/opt/slivingdoc")
+	}
+	want := []string{
+		"serve",
+		"--bucket", "b",
+		"--region", "r",
+		"--endpoint", "http://127.0.0.1:8333", "--path-style",
+		"--workspace-root", "/ws",
+		"--private-root", "/priv",
+	}
+	if !slices.Equal(got.Args, want) {
+		t.Errorf("Args = %v, want %v", got.Args, want)
 	}
 }
 
@@ -91,7 +112,7 @@ func TestNotesPartial_SubstitutesWorkspace(t *testing.T) {
 // WorkspaceRoot reads the shared worktree path back from the callsign args,
 // so a prompt names the same path the MCP child materialises into.
 func TestWorkspaceRoot_FromCallsignArgs(t *testing.T) {
-	server := Server("npx", "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := Server(NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
 	if got := WorkspaceRoot(server); got != "/cache/slivingdoc" {
 		t.Errorf("WorkspaceRoot = %q, want %q", got, "/cache/slivingdoc")
 	}
@@ -115,9 +136,12 @@ type fakeCLI struct {
 func (f *fakeCLI) run(_ string, env []string, args ...string) error {
 	f.calls = append(f.calls, append([]string(nil), args...))
 	f.envs = append(f.envs, append([]string(nil), env...))
-	// cliArgs places the subcommand at index 2 (["-y", NpmPackage, <sub>]).
+	// The subcommand is index 0 for a prebuilt binary and index 2 for npx
+	// (-y slivingdoc <subcommand>).
 	sub := ""
-	if len(args) > 2 {
+	if len(args) > 0 && (args[0] == "pull" || args[0] == "commit") {
+		sub = args[0]
+	} else if len(args) > 2 {
 		sub = args[2]
 	}
 	if sub == f.failOn {
@@ -152,7 +176,7 @@ func TestSeed_PullsAndCommitsBulletin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Seed("slivingdoc", workspace, private, envFile); err != nil {
+	if err := Seed(NpxRunner("npx"), workspace, private, envFile); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
 
@@ -188,7 +212,7 @@ func TestSeed_ExistingBulletin_NoCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Seed("slivingdoc", workspace, filepath.Join(t.TempDir(), "priv"), envFile); err != nil {
+	if err := Seed(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), envFile); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
 
@@ -224,7 +248,7 @@ func TestSeed_StepFailure_Propagates(t *testing.T) {
 			if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=k\nAWS_SECRET_ACCESS_KEY=s\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			err := Seed("slivingdoc", filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile)
+			err := Seed(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile)
 			if err == nil {
 				t.Fatal("expected error from failed " + tt.step)
 			}
@@ -238,7 +262,7 @@ func TestSeed_StepFailure_Propagates(t *testing.T) {
 func TestSeed_MissingEnvFile_Fails(t *testing.T) {
 	withFakeCLI(t, &fakeCLI{})
 
-	err := Seed("slivingdoc", filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env"))
+	err := Seed(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env"))
 	if err == nil {
 		t.Fatal("expected error from missing env file")
 	}
@@ -252,7 +276,7 @@ func TestSeed_EnvReachesChild(t *testing.T) {
 	if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=KEY\nAWS_SECRET_ACCESS_KEY=SECRET\nSLIVINGDOC_PATH_STYLE=true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Seed("slivingdoc", filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile); err != nil {
+	if err := Seed(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
 	if len(fake.envs) == 0 {
@@ -268,7 +292,7 @@ func TestSeed_EnvReachesChild(t *testing.T) {
 // Server builds a complete clai McpServer: callsign, command and args are
 // all set, so agent.WithMcpServers accepts it as-is.
 func TestServer_IsUsableMcpServer(t *testing.T) {
-	got := Server("slivingdoc", "b", "r", "http://127.0.0.1:8333", "/ws", "/priv")
+	got := Server(NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/ws", "/priv")
 	var _ models.McpServer = got // the exact clai type the agents register
 	if got.Name == "" || got.Command == "" || len(got.Args) == 0 {
 		t.Errorf("incomplete McpServer: %+v", got)

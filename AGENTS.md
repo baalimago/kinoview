@@ -177,9 +177,11 @@ that agent is nil and the indexer skips the corresponding feature path. The
 theatre is the exception: it always constructs (with a deterministic composer
 fallback) so the intro splash works offline and without an API key. The shared
 notebook is opt-in too: `serve` enables it when the `weed` binary resolves,
-`npx` is on PATH and `-slivingdocDisable` is unset. A missing dependency logs
-one warning and the notebook is off — agents fall back to their old
-single-shot behaviour and the theatre's composer still ships the splash.
+the slivingdoc command resolves (`npx -y slivingdoc` by default, or a prebuilt
+binary via `-slivingdocCommand`) and `-slivingdocDisable` is unset. A missing
+dependency logs one warning and the notebook is off — agents fall back to
+their old single-shot behaviour and the theatre's composer still ships the
+splash.
 
 **Key insights:**
 
@@ -196,9 +198,9 @@ single-shot behaviour and the theatre's composer still ships the splash.
   resolves the static `weed` binary, spawns `weed server -s3` bound to
   loopback, waits for S3 readiness, creates the bucket, writes an IAM config
   and a credentials env file, and SIGTERMs the child on shutdown (escalating
-  to SIGKILL on timeout). Missing `weed` or `npx` disables the notebook with
-  one warning: agents fall back to their old single-shot behaviour and the
-  theatre's composer still ships the splash.
+  to SIGKILL on timeout). Missing `weed` or the slivingdoc command disables
+  the notebook with one warning: agents fall back to their old single-shot
+  behaviour and the theatre's composer still ships the splash.
 - **The classifier uses a cloned-agent model.** Each worker goroutine gets its own
   `Classifier.Clone()`, eliminating shared mutable state and LLM session races.
 - **Classification is rate-limited.** A token-bucket limiter (configurable
@@ -425,14 +427,14 @@ configured by twelve `serve` flags:
 | `-s3MasterPort` | 9333 | SeaweedFS master HTTP port |
 | `-s3VolumePort` | 8080 | SeaweedFS volume server HTTP port |
 | `-s3FilerPort` | 8888 | SeaweedFS filer HTTP port |
-| `-npxCommand` | auto-discover | npx command that runs the slivingdoc npm package; default `npx` on PATH |
+| `-slivingdocCommand` | `npx -y slivingdoc` | path to a prebuilt slivingdoc binary; empty runs the npm package through npx (`npx -y slivingdoc`) |
 | `-slivingdocBucket` | `slivingdoc` | S3 bucket backing the notebook |
 | `-slivingdocRegion` | `us-east-1` | AWS region label (SigV4 signing, env file, MCP `--region`) |
 | `-slivingdocEndpoint` | derived | S3 endpoint; empty derives `http://127.0.0.1:<s3ServerPort>` |
 | `-slivingdocWorkspace` | `<cache>/slivingdoc` | shared worktree every agent materialises the notebook into |
-| `-slivingdocDisable` | false | force-disable the notebook even when the weed binary and npx are available |
+| `-slivingdocDisable` | false | force-disable the notebook even when the weed binary and the slivingdoc command are available |
 
-The notebook is on when the weed binary and npx resolve and
+The notebook is on when the weed binary and the slivingdoc command resolve and
 `-slivingdocDisable` is false; any other state logs one warning and the
 server runs without it.
 

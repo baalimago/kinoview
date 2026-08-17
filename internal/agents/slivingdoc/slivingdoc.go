@@ -3,11 +3,11 @@
 // shared worktree helper.
 //
 // The callsign mirrors the sakfraga harvest_agent pattern with kinoview
-// adaptations: npx slivingdoc (the npm package), the SeaweedFS endpoint and
-// path-style addressing. Agents address the notebook through the
-// mcp_slivingdoc_notes_pull and mcp_slivingdoc_notes_commit tools (the
-// mcp_slivingdoc* glob) and read and edit the materialised files with the
-// clai file tools.
+// adaptations: the slivingdoc CLI (npx -y slivingdoc by default, or a
+// prebuilt binary), the SeaweedFS endpoint and path-style addressing. Agents
+// address the notebook through the mcp_slivingdoc_notes_pull and
+// mcp_slivingdoc_notes_commit tools (the mcp_slivingdoc* glob) and read and
+// edit the materialised files with the clai file tools.
 package slivingdoc
 
 import (
@@ -40,24 +40,44 @@ const (
 	seedMessage = "seed bulletin.md"
 )
 
-// cliArgs returns the argv for running one slivingdoc subcommand through npx:
-// -y (--yes) auto-installs the package without prompting, so a headless MCP
-// child or seed child can never hang waiting for an interactive "install?"
-// answer.
-func cliArgs(subcommand string, rest ...string) []string {
-	return append([]string{"-y", NpmPackage, subcommand}, rest...)
+// Runner is how kinoview invokes the slivingdoc CLI. The default runs the
+// npm package through npx (-y slivingdoc); a prebuilt native binary (the
+// production arm path) runs directly without the npx prefix.
+type Runner struct {
+	Command  string // "npx" (on PATH) or the prebuilt binary path
+	Prebuilt bool   // true → Command is the slivingdoc binary itself
 }
 
-// Server builds the slivingdoc MCP server. npx is the npx command path (the
-// resolver returns "npx" on PATH or the explicit -npxCommand override); the
-// package itself is NpmPackage, run through npx so no native binary is
-// shipped. endpoint is the SeaweedFS S3 endpoint (empty = real AWS, no
-// --path-style). workspaceRoot is the single shared worktree every agent
-// materialises the notebook into; privateRoot is slivingdoc's own private
-// state root, kept separate so concurrent slivingdoc users on the host
-// cannot clash on it.
-func Server(npx, bucket, region, endpoint, workspaceRoot, privateRoot string) models.McpServer {
-	args := cliArgs("serve",
+// NpxRunner returns the default runner: the slivingdoc npm package through
+// npx, installed on demand with -y (--yes) so a headless child can never
+// hang waiting for an interactive "install?" answer.
+func NpxRunner(command string) Runner {
+	return Runner{Command: command}
+}
+
+// BinaryRunner returns a runner for a prebuilt slivingdoc binary at path.
+func BinaryRunner(command string) Runner {
+	return Runner{Command: command, Prebuilt: true}
+}
+
+// argv returns the argv for running one slivingdoc subcommand, prefixing the
+// npx invocation (-y slivingdoc) unless the runner is a prebuilt binary.
+func (r Runner) argv(subcommand string, rest ...string) []string {
+	args := append([]string{subcommand}, rest...)
+	if r.Prebuilt {
+		return args
+	}
+	return append([]string{"-y", NpmPackage}, args...)
+}
+
+// Server builds the slivingdoc MCP server. runner is how the slivingdoc CLI
+// is invoked (npx -y slivingdoc by default, or a prebuilt binary); endpoint
+// is the SeaweedFS S3 endpoint (empty = real AWS, no --path-style).
+// workspaceRoot is the single shared worktree every agent materialises the
+// notebook into; privateRoot is slivingdoc's own private state root, kept
+// separate so concurrent slivingdoc users on the host cannot clash on it.
+func Server(runner Runner, bucket, region, endpoint, workspaceRoot, privateRoot string) models.McpServer {
+	args := runner.argv("serve",
 		"--bucket", bucket,
 		"--region", region,
 	)
@@ -70,7 +90,7 @@ func Server(npx, bucket, region, endpoint, workspaceRoot, privateRoot string) mo
 	)
 	return models.McpServer{
 		Name:           Callsign,
-		Command:        npx,
+		Command:        runner.Command,
 		Args:           args,
 		TimeoutSeconds: timeoutSeconds,
 	}
@@ -127,15 +147,15 @@ func WorkspaceRoot(server models.McpServer) string {
 
 // Seed materialises the shared notebook into the worktree and ensures a
 // bulletin.md exists for cross-agent notices, committing it when it was
-// created. npx is the npx command path; privateRoot is slivingdoc's private
-// state root (the same value the MCP server uses), passed on the command line
-// because the CLI's workspace and private roots default to the process working
-// directory and the host cache — neither is the shared worktree. envFile is
-// the credentials env file the McpServer's EnvFile references; the same
-// variables reach the seed child so it can talk to the S3 bucket. A missing
-// npx or an unreachable bucket surfaces as an error for the caller to degrade
-// with.
-func Seed(npx, workspaceRoot, privateRoot, envFile string) error {
+// created. runner is how the slivingdoc CLI is invoked; privateRoot is
+// slivingdoc's private state root (the same value the MCP server uses),
+// passed on the command line because the CLI's workspace and private roots
+// default to the process working directory and the host cache — neither is
+// the shared worktree. envFile is the credentials env file the McpServer's
+// EnvFile references; the same variables reach the seed child so it can talk
+// to the S3 bucket. A missing command or an unreachable bucket surfaces as
+// an error for the caller to degrade with.
+func Seed(runner Runner, workspaceRoot, privateRoot, envFile string) error {
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		return fmt.Errorf("slivingdoc: seed worktree: %w", err)
 	}
@@ -143,8 +163,8 @@ func Seed(npx, workspaceRoot, privateRoot, envFile string) error {
 	if err != nil {
 		return fmt.Errorf("slivingdoc: seed env: %w", err)
 	}
-	pullArgs := cliArgs("pull", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot)
-	if err := runCLI(npx, env, pullArgs...); err != nil {
+	pullArgs := runner.argv("pull", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot)
+	if err := runCLI(runner.Command, env, pullArgs...); err != nil {
 		return fmt.Errorf("slivingdoc: seed pull: %w", err)
 	}
 	created, err := seedBulletin(workspaceRoot)
@@ -154,8 +174,8 @@ func Seed(npx, workspaceRoot, privateRoot, envFile string) error {
 	if !created {
 		return nil
 	}
-	commitArgs := cliArgs("commit", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot, "-m", seedMessage)
-	if err := runCLI(npx, env, commitArgs...); err != nil {
+	commitArgs := runner.argv("commit", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot, "-m", seedMessage)
+	if err := runCLI(runner.Command, env, commitArgs...); err != nil {
 		return fmt.Errorf("slivingdoc: seed commit: %w", err)
 	}
 	return nil
