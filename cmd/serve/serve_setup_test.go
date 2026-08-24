@@ -202,7 +202,7 @@ func TestSetup_TroupeFlags_Registered(t *testing.T) {
 	withoutWeed(t)
 	c := Command()
 	fs := c.Flagset()
-	if err := fs.Parse([]string{"-troupeModel", "gpt-5", "-troupeTokenStoploss", "100000"}); err != nil {
+	if err := fs.Parse([]string{"-troupe", "gpt-5", "-troupeTokenStoploss", "100000"}); err != nil {
 		t.Fatal(err)
 	}
 	if *c.troupeModel != "gpt-5" {

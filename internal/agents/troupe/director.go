@@ -134,7 +134,7 @@ func WithGenerationBudget(b *Budget) DirectorOption {
 	return func(d *Director) { d.budget = b }
 }
 
-// WithDirectorModel sets the director's clai model (the -troupeModel flag).
+// WithDirectorModel sets the director's clai model (the -troupe flag).
 func WithDirectorModel(m string) DirectorOption {
 	return func(d *Director) { d.model = m }
 }

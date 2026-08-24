@@ -34,7 +34,7 @@ func (c *command) Setup(ctx context.Context) error {
 	relPath := ""
 
 	// The troupe facade + play API. All nil when the troupe is disabled (no
-	// notebook or no -troupeModel); the play API then stays unmounted (404).
+	// notebook or no -troupe); the play API then stays unmounted (404).
 	var (
 		troupeFacade   *troupe.Troupe
 		troupeLib      *troupe.PlayLibrary
@@ -166,7 +166,7 @@ func (c *command) Setup(ctx context.Context) error {
 			////////////
 			// Troupe setup — the director + swarm + critic over the shared
 			// notebook (phase 9 cutover: the troupe is the only splash path).
-			// Gated on the notebook and -troupeModel: with either missing the
+			// Gated on the notebook and -troupe: with either missing the
 			// troupe does not start and the play API returns 404. Two flags
 			// only (decision 19); the generation cadence is the hardcoded
 			// cooldown, driven by the indexer's troupe loop.

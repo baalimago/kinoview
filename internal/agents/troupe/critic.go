@@ -313,7 +313,7 @@ func WithCriticismWriter(w *CriticismWriter) CriticOption {
 	return func(c *Critic) { c.writer = w }
 }
 
-// WithCriticModel sets the critic's clai model (the -troupeModel flag).
+// WithCriticModel sets the critic's clai model (the -troupe flag).
 func WithCriticModel(m string) CriticOption {
 	return func(c *Critic) { c.model = m }
 }

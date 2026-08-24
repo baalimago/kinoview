@@ -327,7 +327,7 @@ func (c *command) Flagset() *flag.FlagSet {
 
 	// The troupe: the director + critic run one generation per cooldown,
 	// gated on the shared notebook. Two flags only (decision 19).
-	c.troupeModel = fs.String("troupeModel", "", "set to LLM text model you'd like to use for the troupe (director + critic). Supports multiple vendors automatically via clai. If unset, or the shared notebook is disabled, the troupe does not start and the play API returns 404.")
+	c.troupeModel = fs.String("troupe", "", "set to LLM text model you'd like to use for the troupe (director + critic). Supports multiple vendors automatically via clai. If unset, or the shared notebook is disabled, the troupe does not start and the play API returns 404.")
 	c.troupeTokenStoploss = fs.Int("troupeTokenStoploss", 0, "token stoploss for one troupe generation: once the generation's cumulative token usage crosses it, spawn_role refuses new spawns (0 disables)")
 
 	// The shared agent notebook: a supervised SeaweedFS child (the S3 backend)

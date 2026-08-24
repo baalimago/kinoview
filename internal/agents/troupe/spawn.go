@@ -32,8 +32,7 @@ type Spawner struct {
 // SpawnOption configures one Spawner.
 type SpawnOption func(*Spawner)
 
-// WithModel sets the model every spawned agent runs on (the -troupeModel
-// flag).
+// WithModel sets the model every spawned agent runs on (the -troupe flag).
 func WithModel(m string) SpawnOption {
 	return func(s *Spawner) { s.model = m }
 }

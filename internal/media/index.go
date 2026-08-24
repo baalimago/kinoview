@@ -101,7 +101,7 @@ type Indexer struct {
 	conciergeTimeout      time.Duration
 
 	// The troupe (phase 9): the generation facade and the play API. All three
-	// are nil when the troupe is disabled (no notebook or no -troupeModel) —
+	// are nil when the troupe is disabled (no notebook or no -troupe) —
 	// the troupe routes then stay unmounted and the API answers 404.
 	troupe         *troupe.Troupe
 	troupeLibrary  *troupe.PlayLibrary
