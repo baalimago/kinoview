@@ -123,7 +123,6 @@ func TestUsage_Attribution(t *testing.T) {
 		{"Your job is to pick a media item from a list.", "semanticIndexer"},
 		{"You are a media stream analyzer.", "subtitleSelector"},
 		{"You are the media concierge.", "concierge"},
-		{"You are a slapstick comedian.", "theatre"},
 		{"You are a media recommender.", "recommender"},
 		{"Something completely different.", "other"},
 		{"", "other"},

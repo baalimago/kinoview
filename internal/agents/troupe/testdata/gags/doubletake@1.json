@@ -1,0 +1,4 @@
+{
+  "kind": "gag", "id": "doubletake", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": { "clips": [ "blink@1", "pounce@1" ] } }

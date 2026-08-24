@@ -9,26 +9,15 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="preload" href="kinoview-logo.png" as="image">
     <link href="style.css" rel="stylesheet" />
-    <!-- intro.js first: it owns window.__introMarkLoaded, which index.js calls -->
-    <script src="intro.js" defer></script>
+    <script src="engine.js" defer></script>
     <script src="index.js" defer></script>
   </head>
 
   <body>
-    <div id="intro-overlay" class="intro-overlay">
-      <!-- The set. Backdrop class is applied by the story player. -->
-      <div id="intro-backdrop" class="intro-backdrop" aria-hidden="true">
-        <div class="backdrop-sky"></div>
-        <div class="backdrop-scenery"></div>
-        <div class="backdrop-ground"></div>
-      </div>
-      <!-- Cast, props and title are built by the story player in intro.js -->
-      <div id="intro-stage" class="intro-stage" aria-hidden="true"></div>
-      <div class="intro-logo-wrapper">
-        <img src="kinoview-logo.png" alt="Kinoview" class="intro-logo" draggable="false" />
-      </div>
-      <div id="intro-title" class="intro-title" aria-hidden="true"></div>
-    </div>
+    <!-- The troupe's mount point. The old intro splash is gone (phase 0);
+         the engine self-mounts here in phase 2 and serves nothing until the
+         troupe submits a play. -->
+    <div id="troupe"></div>
 
     <div class="app-container">
       <header class="header">

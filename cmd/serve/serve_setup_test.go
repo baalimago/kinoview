@@ -3,13 +3,13 @@ package serve
 import (
 	"context"
 	"flag"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"github.com/baalimago/kinoview/internal/agents/theatre"
 	"github.com/baalimago/kinoview/internal/s3embed"
 )
 
@@ -173,43 +173,14 @@ func TestSetup_ModelsEmptyString_DisablesAgents(t *testing.T) {
 	}
 }
 
-// The theatre's generation budgets are flags with the theatre's defaults:
-// the director's call cap, the global call cap and the wall clock, all
-// documented in the flag help.
-func TestCommand_TheatreBudgetFlagsDefault(t *testing.T) {
-	c := Command()
-	c.Flagset()
-
-	if c.theatreMaxCalls == nil || *c.theatreMaxCalls != theatre.DefaultDirectorBudget {
-		t.Errorf("theatreMaxCalls = %v, want the director budget default %d", *c.theatreMaxCalls, theatre.DefaultDirectorBudget)
-	}
-	if c.theatreGlobalCalls == nil || *c.theatreGlobalCalls != theatre.DefaultGlobalBudget {
-		t.Errorf("theatreGlobalCalls = %v, want the global budget default %d", *c.theatreGlobalCalls, theatre.DefaultGlobalBudget)
-	}
-	if c.theatreWallClock == nil || *c.theatreWallClock != theatre.DefaultWallClock {
-		t.Errorf("theatreWallClock = %v, want the wall-clock default %v", *c.theatreWallClock, theatre.DefaultWallClock)
-	}
-	if c.theatreCooldown == nil || *c.theatreCooldown != theatre.DefaultCooldown {
-		t.Errorf("theatreCooldown = %v, want %v", *c.theatreCooldown, theatre.DefaultCooldown)
-	}
-}
-
-// The new flags parse from the command line and are honoured by Setup: a
-// small budget still yields a working composer-only indexer.
-func TestSetup_TheatreBudgetFlagsParseAndApply(t *testing.T) {
+// TestSetup_NoTheatreFlags_SetupStillWorks
+// Setup must still work with no theatre flags on the flagset.
+func TestSetup_NoTheatreFlags_SetupStillWorks(t *testing.T) {
 	withoutWeed(t)
 	c := Command()
 	fs := c.Flagset()
-	if err := fs.Parse([]string{
-		"-theatreMaxCalls", "30",
-		"-theatreGlobalCalls", "120",
-		"-theatreWallClock", "5m",
-	}); err != nil {
+	if err := fs.Parse([]string{}); err != nil {
 		t.Fatal(err)
-	}
-	if *c.theatreMaxCalls != 30 || *c.theatreGlobalCalls != 120 || *c.theatreWallClock != 5*time.Minute {
-		t.Errorf("flags not applied: maxCalls=%d globalCalls=%d wallClock=%v",
-			*c.theatreMaxCalls, *c.theatreGlobalCalls, *c.theatreWallClock)
 	}
 
 	empty := ""
@@ -220,6 +191,50 @@ func TestSetup_TheatreBudgetFlagsParseAndApply(t *testing.T) {
 	c.classificationWorkers = new(1)
 	c.configDir = new(t.TempDir())
 	if err := c.Setup(context.Background()); err != nil {
-		t.Fatalf("Setup with budget flags: %v", err)
+		t.Fatalf("Setup: %v", err)
+	}
+}
+
+// TestSetup_TroupeFlags_Registered pins the two troupe flags (decision 19):
+// they parse with their defaults, and the troupe stays disabled when the
+// notebook is off — no facade, no play API mount.
+func TestSetup_TroupeFlags_Registered(t *testing.T) {
+	withoutWeed(t)
+	c := Command()
+	fs := c.Flagset()
+	if err := fs.Parse([]string{"-troupeModel", "gpt-5", "-troupeTokenStoploss", "100000"}); err != nil {
+		t.Fatal(err)
+	}
+	if *c.troupeModel != "gpt-5" {
+		t.Errorf("troupeModel = %q, want gpt-5", *c.troupeModel)
+	}
+	if *c.troupeTokenStoploss != 100000 {
+		t.Errorf("troupeTokenStoploss = %d, want 100000", *c.troupeTokenStoploss)
+	}
+
+	// Without the S3 backend (no weed), the notebook is off and the troupe
+	// must not start even with a model: Setup succeeds, the API stays
+	// unmounted (404).
+	c.configDir = new(t.TempDir())
+	empty := ""
+	c.classificationModel = &empty
+	c.recommenderModel = &empty
+	c.butlerModel = &empty
+	c.conciergeModel = &empty
+	c.classificationWorkers = new(1)
+	if err := c.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup: %v", err)
+	}
+	if c.troupeEnabled {
+		t.Error("the troupe must not start without the notebook")
+	}
+	mux, err := c.setupMux()
+	if err != nil {
+		t.Fatalf("setupMux: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/troupe/play/resolved", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("disabled troupe API = %d, want 404", rec.Code)
 	}
 }

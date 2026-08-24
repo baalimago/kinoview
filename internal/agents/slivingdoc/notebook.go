@@ -68,18 +68,30 @@ func (n *Notebook) AppendJSONL(name string, v any) error {
 		return fmt.Errorf("slivingdoc: append %s: close: %w", name, err)
 	}
 
+	if err := n.Commit("append " + name); err != nil {
+		return fmt.Errorf("slivingdoc: append %s: commit: %w", name, err)
+	}
+	return nil
+}
+
+// Commit commits the shared worktree through the slivingdoc CLI: the
+// write+commit unit's second half, reusable by any server-side writer (the
+// troupe's feedback and criticism notes commit through this seam). The caller
+// holds the serialization contract — AppendJSONL wraps it in the Notebook's
+// lock; the troupe writers serialize whole write+commit units themselves.
+func (n *Notebook) Commit(message string) error {
 	env, err := loadEnvFile(n.envFile)
 	if err != nil {
-		return fmt.Errorf("slivingdoc: append %s: env: %w", name, err)
+		return fmt.Errorf("slivingdoc: commit: env: %w", err)
 	}
 	commitArgs := n.runner.argv("commit",
 		"--workspace-root", n.workspace,
 		"--private-root", n.privateRoot,
 		n.workspace,
-		"-m", "append "+name,
+		"-m", message,
 	)
 	if err := runCLI(n.runner.Command, env, commitArgs...); err != nil {
-		return fmt.Errorf("slivingdoc: append %s: commit: %w", name, err)
+		return fmt.Errorf("slivingdoc: commit: %w", err)
 	}
 	return nil
 }

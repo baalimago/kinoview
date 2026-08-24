@@ -1,0 +1,8 @@
+{
+  "kind": "model", "id": "leaf", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": {
+    "bones": [ { "id": "root", "parent": null, "x": 0, "y": 0, "rot": 0, "length": 0 } ],
+    "attachments": [ { "id": "blade", "slot": "main", "bone": "root",
+      "shape": { "type": "ellipse", "w": 1, "h": 3, "color": "#3a7d44" } } ],
+    "skins": { "default": { "main": "blade" } } } }

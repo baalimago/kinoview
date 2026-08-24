@@ -289,6 +289,60 @@ func TestSeed_EnvReachesChild(t *testing.T) {
 	}
 }
 
+// TestPull_MaterialisesWithoutAuthoring pins the troupe's Warm seam: Pull
+// runs the pull only — no bulletin seeding, no commit — and materialises
+// the worktree state the pull writes.
+func TestPull_MaterialisesWithoutAuthoring(t *testing.T) {
+	fake := &fakeCLI{pullFiles: map[string]string{"note.json": `{"kind":"model"}`}}
+	withFakeCLI(t, fake)
+
+	workspace := filepath.Join(t.TempDir(), "slivingdoc")
+	if err := os.MkdirAll(workspace, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	private := filepath.Join(t.TempDir(), "slivingdoc-private")
+	envFile := filepath.Join(t.TempDir(), "credentials.env")
+	if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=k\nAWS_SECRET_ACCESS_KEY=s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Pull(NpxRunner("npx"), workspace, private, envFile); err != nil {
+		t.Fatalf("Pull: %v", err)
+	}
+
+	// Exactly one pull: no bulletin seeding, no commit — Pull never authors.
+	want := []string{"-y", "slivingdoc", "pull", "--workspace-root", workspace, "--private-root", private, workspace}
+	if len(fake.calls) != 1 || !slices.Equal(fake.calls[0], want) {
+		t.Fatalf("calls = %v, want exactly the pull %v", fake.calls, want)
+	}
+	if _, err := os.Stat(filepath.Join(workspace, bulletinName)); !os.IsNotExist(err) {
+		t.Errorf("Pull must not seed the bulletin (stat err = %v)", err)
+	}
+	b, err := os.ReadFile(filepath.Join(workspace, "note.json"))
+	if err != nil {
+		t.Fatalf("pulled file: %v", err)
+	}
+	if !strings.Contains(string(b), "model") {
+		t.Errorf("pulled file = %q, want the materialised note", b)
+	}
+}
+
+// TestPull_FailurePropagates pins that a failed pull returns its error for
+// the caller (the facade's Warm) to degrade with.
+func TestPull_FailurePropagates(t *testing.T) {
+	fake := &fakeCLI{failOn: "pull"}
+	withFakeCLI(t, fake)
+
+	envFile := filepath.Join(t.TempDir(), "credentials.env")
+	if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=k\nAWS_SECRET_ACCESS_KEY=s\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := Pull(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile)
+	if err == nil || !strings.Contains(err.Error(), "pull") {
+		t.Fatalf("err = %v, want a pull error", err)
+	}
+}
+
 // Server builds a complete clai McpServer: callsign, command and args are
 // all set, so agent.WithMcpServers accepts it as-is.
 func TestServer_IsUsableMcpServer(t *testing.T) {

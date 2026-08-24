@@ -16,6 +16,7 @@ import (
 	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
+	"github.com/baalimago/kinoview/internal/agents/troupe"
 	"github.com/baalimago/kinoview/internal/loghandler"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
 	int_watcher "github.com/baalimago/kinoview/internal/media/watcher"
@@ -98,12 +99,13 @@ type Indexer struct {
 	conciergeInterval     time.Duration
 	conciergeCacheDir     string
 	conciergeTimeout      time.Duration
-	// theatre prepares the intro splash story (the agents.Teller contract).
-	theatre agents.Teller
-	// feedback records audience notes into the shared notebook (the
-	// agents.Feedbacker contract). Nil when the notebook is disabled; the
-	// feedback handler then answers 501.
-	feedback agents.Feedbacker
+
+	// The troupe (phase 9): the generation facade and the play API. All three
+	// are nil when the troupe is disabled (no notebook or no -troupeModel) —
+	// the troupe routes then stay unmounted and the API answers 404.
+	troupe         *troupe.Troupe
+	troupeLibrary  *troupe.PlayLibrary
+	troupeFeedback *troupe.FeedbackWriter
 
 	// Agent support managers
 	clientContextMgr agents.ClientContextManager
@@ -174,18 +176,28 @@ func WithConcierge(c agents.Concierge) IndexerOption {
 	}
 }
 
-// WithTheatre sets the agent which prepares the intro splash story.
-func WithTheatre(t agents.Teller) IndexerOption {
+// WithTroupe sets the generation facade: the server's generation loop calls
+// Prepare on the hardcoded cooldown, and the play API is mounted when the
+// library is set too. Nil disables the troupe entirely.
+func WithTroupe(t *troupe.Troupe) IndexerOption {
 	return func(i *Indexer) {
-		i.theatre = t
+		i.troupe = t
 	}
 }
 
-// WithFeedbacker sets the recorder audience notes land in. Nil disables the
-// feedback endpoint (the handler answers 501).
-func WithFeedbacker(fb agents.Feedbacker) IndexerOption {
+// WithTroupeLibrary sets the read-only play view the play API serves from.
+// Nil leaves the API unmounted (404).
+func WithTroupeLibrary(l *troupe.PlayLibrary) IndexerOption {
 	return func(i *Indexer) {
-		i.feedback = fb
+		i.troupeLibrary = l
+	}
+}
+
+// WithTroupeFeedback sets the audience feedback gate the feedback handler
+// writes through. Nil leaves the endpoint unmounted (404).
+func WithTroupeFeedback(w *troupe.FeedbackWriter) IndexerOption {
+	return func(i *Indexer) {
+		i.troupeFeedback = w
 	}
 }
 
@@ -434,6 +446,9 @@ func (i *Indexer) Start(ctx context.Context) error {
 		i.registerErrorChannel(ctx, "concierge", conciergeErrChan)
 		go i.runConciergeLoop(ctx, conciergeErrChan)
 	}
+	if i.troupe != nil {
+		go i.runTroupeLoop(ctx)
+	}
 
 	for {
 		select {
@@ -461,6 +476,52 @@ func (i *Indexer) Close() error {
 		return nil
 	}
 	return i.watcher.Close()
+}
+
+// runTroupeLoop is the background goroutine that schedules troupe
+// generations: Warm materialises the notebook first, the first generation
+// runs after the concierge's startup delay (the troupe has no flags of its
+// own — decision 19 — and shares the server's "delay before the first heavy
+// agent run" cadence), then a generation is attempted every cooldown. The
+// facade's own gates (single-flight + cooldown) are the authority: the loop
+// just calls Prepare, and a skipped trigger is logged there, never here.
+func (i *Indexer) runTroupeLoop(ctx context.Context) {
+	i.troupe.Warm(ctx)
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(i.conciergeStartupDelay):
+	}
+	i.troupe.Prepare(ctx, "startup")
+
+	tick := time.NewTicker(i.troupe.Cooldown())
+	defer tick.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+			i.troupe.Prepare(ctx, "interval")
+		}
+	}
+}
+
+// TroupeHandler returns the /api/v1/troupe mux, or nil when the troupe is
+// disabled — the serve wiring mounts it only then, so a missing notebook or
+// model leaves the play API unmounted (404, decision: the troupe is gated on
+// slivingdoc). `resolved` is a literal route matched before /play/{id}: it
+// is a reserved path segment, never a play id (decision 20).
+func (i *Indexer) TroupeHandler() http.Handler {
+	if i.troupeLibrary == nil || i.troupeFeedback == nil {
+		return nil
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/v1/troupe/play", i.troupePlayIndexHandler())
+	mux.HandleFunc("GET /api/v1/troupe/play/resolved", i.troupePlayResolvedHandler())
+	mux.HandleFunc("GET /api/v1/troupe/play/{id}", i.troupePlayGetHandler())
+	mux.HandleFunc("POST /api/v1/troupe/feedback", i.troupeFeedbackHandler())
+	return mux
 }
 
 // runConciergeLoop is the background goroutine that schedules and executes
@@ -659,9 +720,6 @@ func (i *Indexer) Handler() http.Handler {
 	mux.HandleFunc("/recommend", i.recomendHandler())
 	mux.HandleFunc("/suggestions", i.suggestionsHandler())
 	mux.HandleFunc("/shows", i.showsHandler())
-	mux.HandleFunc("/intro/story", i.introStoryHandler())
-	mux.HandleFunc("/intro/session-end", i.introSessionEndHandler())
-	mux.HandleFunc("/intro/feedback", i.introFeedbackHandler())
 	mux.HandleFunc("/log", loghandler.Func())
 	mux.HandleFunc("/ws", i.eventStream())
 	return mux

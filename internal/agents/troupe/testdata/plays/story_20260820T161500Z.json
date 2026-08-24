@@ -1,0 +1,13 @@
+{
+  "kind": "play", "id": "story_20260820T161500Z",
+  "status": "submitted", "author": "director", "provenance": "generation g_01j8x",
+  "spec": {
+    "instances": [
+      { "id": "forest", "model": "forest@1", "role": "backdrop", "scale": 2.4, "y": -0.2 },
+      { "id": "cat", "model": "cat@1", "role": "actor", "voice": "cat@1", "scale": 1, "x": 0.1 },
+      { "id": "dog", "model": "dog@1", "role": "actor", "voice": "dog@1", "scale": 1, "x": 0.9 } ],
+    "timeline": [
+      { "at": 0, "on": "cat", "clip": "walk@1" },
+      { "at": 0, "on": "cat", "tween": { "to": { "x": 0.5 }, "over": 3000, "easing": "ease-in-out" } },
+      { "at": 3000, "on": "cat", "tween": { "to": { "beside": "dog", "side": "left" }, "over": 900, "easing": "ease-out" } },
+      { "at": 3900, "on": "cat", "gag": "doubletake@1" } ] } }

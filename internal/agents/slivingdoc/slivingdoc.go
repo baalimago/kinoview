@@ -159,13 +159,8 @@ func Seed(runner Runner, workspaceRoot, privateRoot, envFile string) error {
 	if err := os.MkdirAll(workspaceRoot, 0o755); err != nil {
 		return fmt.Errorf("slivingdoc: seed worktree: %w", err)
 	}
-	env, err := loadEnvFile(envFile)
-	if err != nil {
-		return fmt.Errorf("slivingdoc: seed env: %w", err)
-	}
-	pullArgs := runner.argv("pull", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot)
-	if err := runCLI(runner.Command, env, pullArgs...); err != nil {
-		return fmt.Errorf("slivingdoc: seed pull: %w", err)
+	if err := Pull(runner, workspaceRoot, privateRoot, envFile); err != nil {
+		return err
 	}
 	created, err := seedBulletin(workspaceRoot)
 	if err != nil {
@@ -175,8 +170,28 @@ func Seed(runner Runner, workspaceRoot, privateRoot, envFile string) error {
 		return nil
 	}
 	commitArgs := runner.argv("commit", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot, "-m", seedMessage)
+	env, err := loadEnvFile(envFile)
+	if err != nil {
+		return fmt.Errorf("slivingdoc: seed env: %w", err)
+	}
 	if err := runCLI(runner.Command, env, commitArgs...); err != nil {
 		return fmt.Errorf("slivingdoc: seed commit: %w", err)
+	}
+	return nil
+}
+
+// Pull materialises the shared notebook into the worktree: the same pull
+// every agent's mcp_slivingdoc_notes_pull runs, without authoring anything —
+// no bulletin seeding, no commit. The troupe's Warm uses it so the stage
+// starts from the repertoire the last generation left, never from a seed.
+func Pull(runner Runner, workspaceRoot, privateRoot, envFile string) error {
+	env, err := loadEnvFile(envFile)
+	if err != nil {
+		return fmt.Errorf("slivingdoc: pull env: %w", err)
+	}
+	args := runner.argv("pull", "--workspace-root", workspaceRoot, "--private-root", privateRoot, workspaceRoot)
+	if err := runCLI(runner.Command, env, args...); err != nil {
+		return fmt.Errorf("slivingdoc: pull: %w", err)
 	}
 	return nil
 }

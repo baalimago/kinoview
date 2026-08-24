@@ -19,9 +19,8 @@ import (
 	"github.com/baalimago/kinoview/internal/agents/concierge"
 	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
-	"github.com/baalimago/kinoview/internal/agents/theatre"
 	"github.com/baalimago/kinoview/internal/agents/tools"
-	"github.com/baalimago/kinoview/internal/loghandler"
+	"github.com/baalimago/kinoview/internal/agents/troupe"
 	"github.com/baalimago/kinoview/internal/media"
 	"github.com/baalimago/kinoview/internal/media/clientcontext"
 	"github.com/baalimago/kinoview/internal/media/storage"
@@ -33,10 +32,14 @@ import (
 
 func (c *command) Setup(ctx context.Context) error {
 	relPath := ""
-	// feedbackRecorder lands audience notes in feedback.jsonl in the shared
-	// notebook. Nil when the slivingdoc callsign is not configured; the
-	// feedback handler then answers 501.
-	var feedbackRecorder agents.Feedbacker
+
+	// The troupe facade + play API. All nil when the troupe is disabled (no
+	// notebook or no -troupeModel); the play API then stays unmounted (404).
+	var (
+		troupeFacade   *troupe.Troupe
+		troupeLib      *troupe.PlayLibrary
+		troupeFeedback *troupe.FeedbackWriter
+	)
 
 	if c.flagset == nil {
 		return errors.New("flagset not set; use the Command function")
@@ -159,14 +162,84 @@ func (c *command) Setup(ctx context.Context) error {
 			} else {
 				ancli.Noticef("slivingdoc notebook ready at %s", slivingdocWorkspaceRoot)
 			}
-			// Audience feedback lands in feedback.jsonl in the shared notebook
-			// (phase 6, decision Q6): the handler-side seam appends and
-			// commits one JSON line per note. Wired whenever the callsign is
-			// set; a zero callsign leaves the recorder nil and the handler
-			// answers 501.
-			feedbackRecorder = slivingdoc.NewFeedbackRecorder(
-				slivingdoc.NewNotebook(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile),
-			)
+
+			////////////
+			// Troupe setup — the director + swarm + critic over the shared
+			// notebook (phase 9 cutover: the troupe is the only splash path).
+			// Gated on the notebook and -troupeModel: with either missing the
+			// troupe does not start and the play API returns 404. Two flags
+			// only (decision 19); the generation cadence is the hardcoded
+			// cooldown, driven by the indexer's troupe loop.
+			////////////
+			if *c.troupeModel != "" {
+				notebook := slivingdoc.NewNotebook(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile)
+				commit := func(filename string) error {
+					return notebook.Commit("append " + filename)
+				}
+				budget := troupe.NewBudget(troupe.WithStoploss(*c.troupeTokenStoploss))
+				spawner, err := troupe.NewSpawner(
+					troupe.WithModel(*c.troupeModel),
+					troupe.WithConfigDir(*c.configDir),
+					troupe.WithNotebook(c.slivingdocServer, slivingdocWorkspaceRoot),
+					troupe.WithBudget(budget),
+					// The live role source: roles are notes the director authors
+					// during the generation, so the swarm must read them from the
+					// worktree at spawn time, never a setup-time snapshot.
+					troupe.WithRoleSource(troupe.NewWorktreeRoleSource(slivingdocWorkspaceRoot)),
+				)
+				if err != nil {
+					return fmt.Errorf("troupe spawner: %w", err)
+				}
+				submitter, err := troupe.NewSubmitter(slivingdocWorkspaceRoot)
+				if err != nil {
+					return fmt.Errorf("troupe submitter: %w", err)
+				}
+				director, err := troupe.NewDirector(
+					troupe.WithSwarm(spawner),
+					troupe.WithSubmitter(submitter),
+					troupe.WithGenerationBudget(budget),
+					troupe.WithDirectorModel(*c.troupeModel),
+					troupe.WithDirectorConfigDir(*c.configDir),
+					troupe.WithDirectorNotebook(c.slivingdocServer, slivingdocWorkspaceRoot),
+				)
+				if err != nil {
+					return fmt.Errorf("troupe director: %w", err)
+				}
+				criticismWriter, err := troupe.NewCriticismWriter(slivingdocWorkspaceRoot,
+					troupe.WithCriticismCommit(commit))
+				if err != nil {
+					return fmt.Errorf("troupe criticism writer: %w", err)
+				}
+				critic, err := troupe.NewCritic(
+					troupe.WithCriticismWriter(criticismWriter),
+					troupe.WithCriticModel(*c.troupeModel),
+					troupe.WithCriticConfigDir(*c.configDir),
+				)
+				if err != nil {
+					return fmt.Errorf("troupe critic: %w", err)
+				}
+				troupeFacade, err = troupe.NewTroupe(
+					troupe.WithGenerationDirector(director),
+					troupe.WithGenerationCritic(critic),
+					troupe.WithMaterialise(func(ctx context.Context) error {
+						return slivingdoc.Pull(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile)
+					}),
+				)
+				if err != nil {
+					return fmt.Errorf("troupe facade: %w", err)
+				}
+				troupeFeedback, err = troupe.NewFeedbackWriter(slivingdocWorkspaceRoot,
+					troupe.WithFeedbackCommit(commit))
+				if err != nil {
+					return fmt.Errorf("troupe feedback writer: %w", err)
+				}
+				troupeLib, err = troupe.NewPlayLibrary(slivingdocWorkspaceRoot)
+				if err != nil {
+					return fmt.Errorf("troupe play library: %w", err)
+				}
+				c.troupeEnabled = true
+				ancli.Noticef("troupe ready over the shared notebook at %s", slivingdocWorkspaceRoot)
+			}
 		}
 	}
 
@@ -264,47 +337,6 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 
 	////////////
-	// Theatre setup — the theatre runs the company (decision D13)
-	////////////
-	// Always constructed: with no model configured it runs composer-only, which
-	// is what keeps the intro splash working offline and without an API key.
-	// Phase 9 renamed the intro-story flags to -theatre*; the cache path and
-	// cooldown semantics are unchanged, so a pre-migration cache still loads.
-	bard := theatre.New(
-		models.Configurations{
-			Model:         *c.theatreModel,
-			ConfigDir:     *c.configDir,
-			InternalTools: []models.ToolName{},
-		}, *c.cacheDir, *c.theatreCooldown,
-		// The play takes its theme from whatever was watched most recently.
-		// Read lazily: preparation happens long after the request that triggered
-		// it, and by then the household may have moved on to something else.
-		theatre.WithMuse(theatre.MuseFunc(func() string {
-			if userContextMgr == nil {
-				return ""
-			}
-			return theatre.LatestTheme(userContextMgr.AllClientContexts())
-		})),
-		// Budgets are flags, tuned later from telemetry (decision D8).
-		theatre.WithCallBudgets(*c.theatreMaxCalls, *c.theatreGlobalCalls),
-		theatre.WithWallClock(*c.theatreWallClock),
-		// Mini-agent sessions stream through the house loghandler format
-		// (phase 2's serve-side hookup).
-		theatre.WithSessionSink(loghandler.Print),
-		// The shared agent notebook: with the slivingdoc callsign configured,
-		// the director and every role pull, read, write and commit the shared
-		// notebook (phase 5); a zero callsign (no S3 backend or no slivingdoc
-		// binary) keeps the theatre composer-only.
-		theatre.WithSlivingdoc(c.slivingdocServer, slivingdocWorkspaceRoot),
-	)
-	if *c.theatreModel == "" {
-		ancli.Noticef("theatre running composer-only (no -theatre model set)")
-	}
-	// Get a story ready before anyone shows up, so the first visit is not
-	// stuck with a composed one while the LLM sits idle.
-	bard.Warm(ctx)
-
-	////////////
 	// Indexer setup
 	////////////
 	indexer, err := media.NewIndexer(
@@ -317,10 +349,12 @@ func (c *command) Setup(ctx context.Context) error {
 		media.WithConcierge(conkidonk),
 		media.WithConciergeStartupDelay(*c.conciergeStartupDelay),
 		media.WithClientContextManager(userContextMgr),
-		media.WithTheatre(bard),
-		// Nil when the slivingdoc notebook is disabled; the feedback handler
-		// then answers 501 (phase 6).
-		media.WithFeedbacker(feedbackRecorder),
+		// The troupe (phase 9): the generation facade, the play API's read
+		// view and the audience feedback gate — all nil when disabled, which
+		// leaves the /api/v1/troupe surface unmounted (404).
+		media.WithTroupe(troupeFacade),
+		media.WithTroupeLibrary(troupeLib),
+		media.WithTroupeFeedback(troupeFeedback),
 		media.WithButlerDebounce(*c.butlerDebounce),
 		media.WithButlerCacheTTL(*c.butlerCacheTTL),
 		media.WithPongGrace(*c.pongGrace),
@@ -394,6 +428,11 @@ func (c *command) setupMux() (*http.ServeMux, error) {
 	fsh = wd41serve.CacheHandler(fsh, *c.cacheControl)
 	fsh = wd41serve.CrossOriginIsolationHandler(fsh)
 	mux.Handle("/gallery/", http.StripPrefix("/gallery", c.indexer.Handler()))
+	if c.troupeEnabled {
+		if h := c.indexer.TroupeHandler(); h != nil {
+			mux.Handle("/api/v1/troupe/", h)
+		}
+	}
 	mux.Handle("/", fsh)
 	return mux, nil
 }

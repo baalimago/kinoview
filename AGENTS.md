@@ -5,13 +5,13 @@
 Kinoview is a self-hosted media gallery and classification server. It crawls a local
 filesystem directory for media files, indexes them in a local store, and serves them
 through a single-page web frontend. Optional LLM-driven agents enrich the library
-with metadata, recommendations, curated suggestions, and an intro splash story.
+with metadata, recommendations and curated suggestions.
 
 The core loop: **fsnotify watcher → media index → storage → HTTP handlers**. Agentic
-components (classifier, butler, recommender, concierge, theatre) are opt-in via
+components (classifier, butler, recommender, concierge) are opt-in via
 CLI flags and plug into the indexer via interface contracts defined in
-`internal/agents/interfaces.go`. The concierge and the theatre also
-communicate through the shared **slivingdoc** notebook — a git-backed UTF-8
+`internal/agents/interfaces.go`. The concierge also
+communicates through the shared **slivingdoc** notebook — a git-backed UTF-8
 text notebook synced through a supervised SeaweedFS S3 child (see Data
 Flow).
 
@@ -27,20 +27,20 @@ cmd/
 │   ├── serve_test.go
 │   └── frontend/        # //go:embed vanilla JS SPA (gallery, minigallery, events, SSE client)
 ├── classify/            # Standalone CLI for ad-hoc item classification (debugging)
-├── debug/               # Standalone CLI for store inspection and debugging (debug production <genID> renders a theatre dialog)
+├── debug/               # Standalone CLI for store inspection and debugging
 ├── media/               # Standalone CLI for media listing
 ├── llm/                 # LLM usage analytics CLI
 └── (main.go)            # Root command dispatcher: flags → cmd.Run with shutdown.MonitorV2
 
 internal/
 ├── agents/              # Agent contracts + implementations (LLM-driven, all opt-in)
-│   ├── interfaces.go    # Classifier, Recommender, Butler, Concierge, Teller, Feedbacker,
+│   ├── interfaces.go    # Classifier, Recommender, Butler, Concierge,
 │   │                    #   ItemGetter, ItemLister, MetadataManager, SuggestionManager,
 │   │                    #   StreamManager, SubtitleSelector, ClientContextManager, OutputSetter
 │   ├── item_updater.go  # Shared helper: updates item metadata with retry + rate-limit awareness
 │   ├── slivingdoc/      # The shared agent notebook: slivingdoc MCP callsign, tool globs,
 │   │                    #   NOTES prompt partial, worktree seeding, and the handler-side seam
-│   │                    #   (notebook.go AppendJSONL, feedback.go FeedbackRecorder)
+│   │                    #   (notebook.go AppendJSONL)
 │   ├── classifier/      # LLM classifier: inspects media files, writes title/genre/year/plot tags
 │   ├── recommender/     # LLM recommender: semantic media discovery from user query
 │   ├── butler/          # Butler: proactive suggestion cascades based on viewing patterns
@@ -53,25 +53,9 @@ internal/
 │   │   ├── concierge.go # clai-based agent loop, runs on fixed interval, notebook-aware
 │   │   ├── cmd.go       # Tool command registration and routing
 │   │   └── docs.go      # System prompt and tool documentation strings
-│   ├── theatre/          # Theatre company: director superagent + subagents over the shared notebook
-│   │   ├── company.go    # Company paperwork: working file, ledger, transcript (atomic writes)
-│   │   ├── context.go    # Working-context standard: AssembleContext for every agent call
-│   │   ├── stage.go      # Stage manager: single-writer transcript, ledger telemetry, SSE log sink
-│   │   ├── feed.go       # Stdout feed goroutine: one ancli line per event, [theatre <gen>] prefix
-│   │   ├── dialog.go     # RenderDialog: debug production script from transcript + ledger
-│   │   ├── runner.go     # Mini-agent runner: bounded clai loops, session logs, budget/deadline gates
-│   │   ├── broker.go     # Consultation broker: hop cap, repeat-consult table, budget ledger
-│   │   ├── collab.go     # Deliverable envelope + collaboration resolution (D4)
-│   │   ├── roles.go      # Role prompts (decide/ask/stop scope), per-role tool sets, writer wrappers
-│   │   ├── artifacts.go  # Role artifact schemas (brief, draft-report, scene-report) + validation
-│   │   ├── fallback.go   # Per-role deterministic floors: composer draft, advice, in-place answers
-│   │   ├── floor.go      # The deterministic composer: scene templates, DressDraft, SceneNames (the floor)
-│   │   ├── staging.go    # Stage layouts: marks, entry sides, lanes (stage/solo/plan)
-│   │   ├── muse.go       # LatestTheme: most-recently-watched title across sessions
-│   │   ├── director.go   # Director superagent: production-flow prompt, 7-tool set, submit gate
-│   │   ├── theatre.go    # Teller facade: Next/Prepare/Warm, cooldown, single-flight, RunProduction
-│   │   ├── tools/        # Mini-agent + director tools: consult, deliverable writers, gates
-│   │   └── (working/ledger/transcript files, floor/staging/muse, role/kinds vocab, atomic write helper)
+│   ├── troupe/          # The fixed stage: frozen grammar (grammar.go/validate.go),
+│   │                    #   STAGE.md (the human-readable grammar note), and the
+│   │                    #   resolver/tools/roles of later phases
 │   └── tools/           # Concierge tool implementations (all satisfy clai's LLMTool interface)
 │       ├── add_suggestion.go / remove_suggestion.go / check_suggestions.go
 │       ├── client_context_getter.go / concierge_context_*.go
@@ -100,8 +84,7 @@ internal/
 │   ├── item.go          # Item, Metadata, ShowGrouping, Suggestion
 │   ├── media.go         # MediaInfo, Stream (codec/language/subtitle metadata)
 │   ├── event.go         # Event types for SSE broadcast
-│   ├── log.go           # Structured log types for LLM agent introspection
-│   └── story.go         # Story type for intro splash
+│   └── log.go           # Structured log types for LLM agent introspection
 ├── s3embed/             # SeaweedFS supervisor: spawns/stops the weed S3 child, IAM + credentials
 │   │                    #   env file, bucket creation (the notebook's S3 backend)
 └── loghandler/          # HTTP handler for agent log streaming (SSE)
@@ -125,12 +108,11 @@ internal/
  │  │ Snapshot │   └──────────┘   │  Recommender (LLM) │    │
  │  │ Stream   │                  │  Butler (LLM)      │    │
  │  │ Suggest  │                  │  Concierge (LLM)   │    │
- │  └────┬─────┘                  │  Theatre (LLM)     │    │
- │       │                        └─────────┬──────────┘    │
+ │  └────┬─────┘                  └─────────┬──────────┘    │
  │       │                                  │               │
  │       │         ┌────────────────────────┘               │
  │       │         │  metadata updates, suggestions,        │
- │       │         │  recommendations, stories              │
+ │       │         │  recommendations                       │
  │       ▼         ▼                                        │
  │  ┌──────────────────────────────────────────────────┐    │
  │  │              HTTP Handler (ServeMux)             │    │
@@ -155,16 +137,16 @@ a supervised SeaweedFS child:
 │ (serve)      │                  │ 127.0.0.1:<s3Port>       │
 └──────┬───────┘                  │ bucket "slivingdoc"      │
        │ pull / commit            └────────────┬─────────────┘
-       ▼                                        │ S3
-┌───────────────────────────────────────────────┴──────────┐
-│        shared worktree  <cache>/slivingdoc/               │
-│   bulletin.md · agent notes · feedback.jsonl              │
-└───────▲───────────────────────────────────────────────────┘
+       ▼                                       │ S3
+┌──────────────────────────────────────────────┴───────────┐
+│        shared worktree  <cache>/slivingdoc/              │
+│   bulletin.md · agent notes                              │
+└───────▲──────────────────────────────────────────────────┘
         │ file tools (cat, rows_between, ls, rg, write_file, apply_patch, mkdir)
-┌───────┴────────┐         ┌──────────────────────────────┐
-│  concierge     │         │  theatre                     │
-│  (clai agent)  │         │  director + role mini-agents │
-└────────────────┘         └──────────────────────────────┘
+┌───────┴────────┐
+│  concierge     │
+│  (clai agent)  │
+└────────────────┘
 ```
 
 One agent note write is the loop: `mcp_slivingdoc_notes_pull` materialises
@@ -174,14 +156,13 @@ concurrent changes with visible conflict markers.
 
 All agentic components are **opt-in** — each has its own `-model` flag. When unset,
 that agent is nil and the indexer skips the corresponding feature path. The
-theatre is the exception: it always constructs (with a deterministic composer
-fallback) so the intro splash works offline and without an API key. The shared
-notebook is opt-in too: `serve` enables it when the `weed` binary resolves,
+shared notebook is opt-in too: `serve` enables it when the `weed` binary resolves,
 the slivingdoc command resolves (`npx -y slivingdoc` by default, or a prebuilt
 binary via `-slivingdocCommand`) and `-slivingdocDisable` is unset. A missing
 dependency logs one warning and the notebook is off — agents fall back to
-their old single-shot behaviour and the theatre's composer still ships the
-splash.
+their old single-shot behaviour. The old intro splash was removed in
+worklog 2026-08-17-the-troupe phase 0; the troupe (director + swarm + critic)
+replaces it from phase 7 onward.
 
 **Key insights:**
 
@@ -189,8 +170,8 @@ splash.
   communication layer.** Agents read from `Storage.Snapshot()` and write back
   via `UpdateMetadata`/`SuggestionManager.Add` — the store keeps no agent
   conversation. The shared slivingdoc notebook carries that conversation: the
-  concierge and the theatre director/roles pull it into the shared worktree,
-  read and edit the materialised notes with the file tools, and commit with
+  concierge pulls it into the shared worktree,
+  reads and edits the materialised notes with the file tools, and commits with
   `mcp_slivingdoc_notes_commit`. The loop is one shared `NOTES` prompt
   partial, byte-identical across every agent with only the workspace path
   substituted.
@@ -200,7 +181,7 @@ splash.
   and a credentials env file, and SIGTERMs the child on shutdown (escalating
   to SIGKILL on timeout). Missing `weed` or the slivingdoc command disables
   the notebook with one warning: agents fall back to their old single-shot
-  behaviour and the theatre's composer still ships the splash.
+  behaviour.
 - **The classifier uses a cloned-agent model.** Each worker goroutine gets its own
   `Classifier.Clone()`, eliminating shared mutable state and LLM session races.
 - **Classification is rate-limited.** A token-bucket limiter (configurable
@@ -216,78 +197,18 @@ splash.
   interaction. With the slivingdoc callsign configured it also pulls the
   shared notebook, posts its findings and commits them (the shared `NOTES`
   partial).
-- **The theatre's company memory is the notebook, not a library.** The old
-  structured board, the seven durable docs, the registry and the deterministic
-  distillation are gone. The director and every role pull, read, write and
-  commit free-form notes in the shared slivingdoc notebook — the only
-  cross-generation memory is what the agents write themselves. The
-  single-writer working file, ledger and transcript stay local: they are the
-  deliverable and the observability, not the conversation.
-- **The theatre's observability is single-writer.** Agents never write stdout:
-  the stage manager owns the transcript, one feed goroutine prints ancli lines
-  (`[theatre <gen>]`), and the ledger keeps the telemetry. A generation is
-  debuggable via `kinoview debug production <genID>`.
-- **The theatre's subagents are stateless, bounded mini-agents.** The runner
-  assembles the working-context standard into every prompt and gates every
-  spawn on the generation's budgets; the consultation broker caps hop depth
-  and dedupes repeats; the LLM seam (`runLLM`) lets the whole machinery run
-  without a model configured. Roles never consult the director — the
-  collaborations flow (D4) resolves cross-agent questions through the broker.
-- **The theatre's director is a bounded superagent over the same runner.** It
-  runs one clai loop with the generation's budgets (`-theatreMaxCalls`,
-  `-theatreGlobalCalls`, `-theatreWallClock`), orchestrates the
-  subagents through its seven tools (brief, draft, dress, read, validate,
-  consult, submit), and the working file is the resolution point: a
-  submitted story ships, a validated draft ships on exhaustion, and with
-  neither the composer floor answers. “Validated” is an explicit
-  `Working.Validated` flag set only by `validate_story` and cleared by every
-  writer that rewrites the draft — the exhaustion gate ships exactly the
-  content that passed the playability gate, never a playable-but-unblessed
-  file (R7-01). Submission is a persistence boundary: `submit_story` marks
-  `working.json` submitted only after the story is durably on disk —
-  `saveStory` returns its atomic-write error and the submit aborts on
-  failure, so paperwork never claims a success the disk did not record
-  (R7-02). The `Theatre` facade implements the `agents.Teller` contract
-  (cooldown, single-flight, `Warm`, `Next`), so the composer-only mode is
-  unchanged. The facade's random source is internally synchronized: every
-  draw — the compose paths and the production's generation-id draw — is
-  serialized through one mutex, so concurrent `Next` + `Prepare` is safe
-  (R1-01, R2-01). The theatre's own gates are the budget authority: it
-  bounds every generation itself (wall clock + single-flight + call
-  budgets), so callers of `agents.Teller` never wrap `Prepare` in a smaller
-  timeout — a caller-side cap would silently disable `-theatreWallClock` on
-  that trigger path (R3-01). The call budgets cap tool executions; an
-  invocation's final answer is not a budgeted call, so telemetry never
-  shows an actor over its cap (R3-03).
-- **The theatre's roles are scoped artifacts with deterministic floors.** Each
-  role prompt declares its scope in three sections (decides / asks / stops),
-  each deliverable is an artifact schema validated at the writer boundary
-  (brief, draft-report, scene-report — unknown values dropped, ids
-  pattern-checked, lengths capped), and every role answers with its own
-  deterministic floor when the LLM fails: the dramaturg answers with the
-  brief text, the playwright composes a draft into the working file, the
-  scenographer dresses via the composer's staging rules, the wardrobe answers
-  from the fixed cast and its canon looks. A consulted role answers in place
-  — a consult never rewrites the director's draft. Canon facts round-trip
-  through the working file (soft continuity, D6); the playwright's draft
-  report carries the author's act structure, which supersedes the derived
-  count.
 - **The frontend uses SSE for live updates.** The `index_handlers_eventStream.go`
   broadcasts item changes, suggestions, and logs to connected browsers.
-- **Audience feedback lands in the notebook.** A text + thumbs control in the
-  intro splash posts to `POST /gallery/intro/feedback`; the indexer holds an
-  `agents.Feedbacker` (nil when the notebook is disabled — the handler then
-  answers 501), and the slivingdoc recorder appends one JSON line to
-  `feedback.jsonl` in the shared worktree and commits it. Append and commit
-  are one unit: a commit failure surfaces as a 500, never a silent drop.
-  Feedback never bypasses the cooldown.
 - **clai ≥ v1.10.22-r1 ships the reasoning cap upstream.** A looping model
   can stream reasoning tokens forever; clai ≤ v1.10.21 accumulated them in
   unbounded O(n²) string builders, which OOMed the server on 2026-08-11
   (2.53 GB heap, 476 MiB failed allocation). The fix caps both reasoning
   accumulators (`reasoningContent` in `internal/text/generic/` and
   `reasoningBuf` in `internal/text/`) at 1 MiB, keeping the tail. Kinoview
-  pins v1.10.22-r1; do not downgrade below it. Two wall-clock guards back the
+  pins ≥ v1.10.23-rc1 (race-safe clai, which also replaced the io.Writer
+  terminal output `WithOutputTo` with the `WithLogger` slog channel — the
+  classifier's per-worker log files are text-handler sinks now); do not
+  downgrade below v1.10.22-r1. Two wall-clock guards back the
   cap up: `-conciergeTimeout` (default 10 min) aborts a stuck concierge run,
   and `-classifierTimeout` (default 5 min) aborts a stuck classification
   call (the attempt still counts). Regression proof:
@@ -419,20 +340,20 @@ usual "nil result on error" everywhere else.
 The shared agent notebook (slivingdoc over the supervised SeaweedFS child) is
 configured by twelve `serve` flags:
 
-| Flag | Default | Purpose |
-| ---- | ------- | ------- |
-| `-s3ServerPath` | auto-discover | weed binary: next to the kinoview binary, then `weed` on PATH |
-| `-s3ServerPort` | 8333 | S3 gateway listen port |
-| `-s3ServerDir` | `<configDir>/s3` | SeaweedFS data dir |
-| `-s3MasterPort` | 9333 | SeaweedFS master HTTP port |
-| `-s3VolumePort` | 8080 | SeaweedFS volume server HTTP port |
-| `-s3FilerPort` | 8888 | SeaweedFS filer HTTP port |
-| `-slivingdocCommand` | `npx -y slivingdoc` | path to a prebuilt slivingdoc binary; empty runs the npm package through npx (`npx -y slivingdoc`) |
-| `-slivingdocBucket` | `slivingdoc` | S3 bucket backing the notebook |
-| `-slivingdocRegion` | `us-east-1` | AWS region label (SigV4 signing, env file, MCP `--region`) |
-| `-slivingdocEndpoint` | derived | S3 endpoint; empty derives `http://127.0.0.1:<s3ServerPort>` |
-| `-slivingdocWorkspace` | `<cache>/slivingdoc` | shared worktree every agent materialises the notebook into |
-| `-slivingdocDisable` | false | force-disable the notebook even when the weed binary and the slivingdoc command are available |
+| Flag                   | Default              | Purpose                                                                                            |
+| ---------------------- | -------------------- | -------------------------------------------------------------------------------------------------- |
+| `-s3ServerPath`        | auto-discover        | weed binary: next to the kinoview binary, then `weed` on PATH                                      |
+| `-s3ServerPort`        | 8333                 | S3 gateway listen port                                                                             |
+| `-s3ServerDir`         | `<configDir>/s3`     | SeaweedFS data dir                                                                                 |
+| `-s3MasterPort`        | 9333                 | SeaweedFS master HTTP port                                                                         |
+| `-s3VolumePort`        | 8080                 | SeaweedFS volume server HTTP port                                                                  |
+| `-s3FilerPort`         | 8888                 | SeaweedFS filer HTTP port                                                                          |
+| `-slivingdocCommand`   | `npx -y slivingdoc`  | path to a prebuilt slivingdoc binary; empty runs the npm package through npx (`npx -y slivingdoc`) |
+| `-slivingdocBucket`    | `slivingdoc`         | S3 bucket backing the notebook                                                                     |
+| `-slivingdocRegion`    | `us-east-1`          | AWS region label (SigV4 signing, env file, MCP `--region`)                                         |
+| `-slivingdocEndpoint`  | derived              | S3 endpoint; empty derives `http://127.0.0.1:<s3ServerPort>`                                       |
+| `-slivingdocWorkspace` | `<cache>/slivingdoc` | shared worktree every agent materialises the notebook into                                         |
+| `-slivingdocDisable`   | false                | force-disable the notebook even when the weed binary and the slivingdoc command are available      |
 
 The notebook is on when the weed binary and the slivingdoc command resolve and
 `-slivingdocDisable` is false; any other state logs one warning and the

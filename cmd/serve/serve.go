@@ -14,7 +14,6 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
-	"github.com/baalimago/kinoview/internal/agents/theatre"
 	"github.com/baalimago/kinoview/internal/s3embed"
 )
 
@@ -25,6 +24,9 @@ type Indexer interface {
 	Setup(ctx context.Context) error
 	Start(ctx context.Context) error
 	Handler() http.Handler
+	// TroupeHandler returns the /api/v1/troupe mux, or nil when the troupe
+	// is disabled (phase 9) — the play API is mounted only then.
+	TroupeHandler() http.Handler
 }
 
 type command struct {
@@ -68,16 +70,18 @@ type command struct {
 	conciergeModel                *string
 	conciergeStartupDelay         *time.Duration
 	startupWriteDelay             *time.Duration
-	theatreModel                  *string
-	theatreCooldown               *time.Duration
-	theatreMaxCalls               *int
-	theatreWallClock              *time.Duration
-	theatreGlobalCalls            *int
 	butlerDebounce                *time.Duration
 	butlerCacheTTL                *time.Duration
 	pongGrace                     *time.Duration
 	conciergeInterval             *time.Duration
 	conciergeTimeout              *time.Duration
+	// The troupe: two flags only (decision 19).
+	troupeModel         *string
+	troupeTokenStoploss *int
+	// troupeEnabled reports whether Setup wired the troupe facade: the play
+	// API is mounted only then, and a missing notebook or model leaves it
+	// unmounted (404).
+	troupeEnabled bool
 	// S3 backend for the shared agent notebook: the supervised SeaweedFS child.
 	s3ServerPath *string
 	s3ServerPort *int
@@ -102,27 +106,20 @@ func Command() *command {
 		recommenderModel:              &defaultModel,
 		butlerModel:                   &defaultModel,
 		conciergeModel:                &defaultModel,
-		theatreModel:                  &defaultModel,
 		conciergeStartupDelay:         new(time.Duration),
 		classificationWorkers:         new(int),
 		classificationRate:            new(float64),
 		classificationBurst:           new(int),
 		classificationStartupCooldown: &defaultCooldown,
 		classificationTimeout:         new(time.Duration),
+		troupeModel:                   &defaultModel,
+		troupeTokenStoploss:           new(int),
 	}
 	*ret.classificationWorkers = 10
 	*ret.classificationRate = 0.2
 	*ret.classificationBurst = 3
 	*ret.classificationTimeout = 5 * time.Minute
 	*ret.conciergeStartupDelay = 60 * time.Second
-	ret.theatreCooldown = new(time.Duration)
-	*ret.theatreCooldown = theatre.DefaultCooldown
-	ret.theatreMaxCalls = new(int)
-	*ret.theatreMaxCalls = theatre.DefaultDirectorBudget
-	ret.theatreWallClock = new(time.Duration)
-	*ret.theatreWallClock = theatre.DefaultWallClock
-	ret.theatreGlobalCalls = new(int)
-	*ret.theatreGlobalCalls = theatre.DefaultGlobalBudget
 	ret.startupWriteDelay = new(time.Duration)
 	*ret.startupWriteDelay = 30 * time.Second
 	ret.butlerDebounce = new(time.Duration)
@@ -321,17 +318,17 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeStartupDelay = fs.Duration("conciergeStartupDelay", 60*time.Second, "delay before first concierge run, 0 runs immediately")
-	c.theatreModel = fs.String("theatre", "", "set to LLM text model used to write the intro splash story. If unset, a deterministic composer is used instead.")
-	c.theatreCooldown = fs.Duration("theatreCooldown", theatre.DefaultCooldown, "minimum time between intro story generations, so refreshes don't each cost an LLM call")
-	c.theatreMaxCalls = fs.Int("theatreMaxCalls", theatre.DefaultDirectorBudget, "maximum tool calls for the intro-story director within one generation")
-	c.theatreWallClock = fs.Duration("theatreWallClock", theatre.DefaultWallClock, "wall-clock cap for one intro-story generation; the company refuses new work past it")
-	c.theatreGlobalCalls = fs.Int("theatreGlobalCalls", theatre.DefaultGlobalBudget, "global LLM call cap across all roles for one intro-story generation")
 	c.startupWriteDelay = fs.Duration("startupWriteDelay", 30*time.Second, "delay before store writes are flushed to disk, 0 writes immediately")
 	c.butlerDebounce = fs.Duration("butlerDebounce", 30*time.Second, "minimum interval between butler suggestion cascades; triggers within the window are dropped")
 	c.butlerCacheTTL = fs.Duration("butlerCacheTTL", 6*time.Hour, "how long a cached suggestion set is served before re-querying the butler; 0 disables caching")
 	c.pongGrace = fs.Duration("pongGrace", 10*time.Second, "grace period after a pong timeout before a disconnect cascade fires; 0 disables")
 	c.conciergeInterval = fs.Duration("conciergeInterval", 6*time.Hour, "interval between concierge runs")
 	c.conciergeTimeout = fs.Duration("conciergeTimeout", 10*time.Minute, "wall-clock cap for a single concierge run; a run stuck on a looping model is aborted after this and the next run happens at the next interval")
+
+	// The troupe: the director + critic run one generation per cooldown,
+	// gated on the shared notebook. Two flags only (decision 19).
+	c.troupeModel = fs.String("troupeModel", "", "set to LLM text model you'd like to use for the troupe (director + critic). Supports multiple vendors automatically via clai. If unset, or the shared notebook is disabled, the troupe does not start and the play API returns 404.")
+	c.troupeTokenStoploss = fs.Int("troupeTokenStoploss", 0, "token stoploss for one troupe generation: once the generation's cumulative token usage crosses it, spawn_role refuses new spawns (0 disables)")
 
 	// The shared agent notebook: a supervised SeaweedFS child (the S3 backend)
 	// and the slivingdoc MCP callsign over it. The feature is on when both

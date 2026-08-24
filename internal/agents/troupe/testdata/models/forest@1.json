@@ -1,0 +1,8 @@
+{
+  "kind": "model", "id": "forest", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": {
+    "sound": "rustle@1",
+    "structure": [ { "type": "scatter", "model": "tree@1", "count": 20,
+      "over": { "type": "band", "w": 20, "h": 4 },
+      "jitter": { "scale": 0.3, "rot": 8 }, "seed": 7 } ] } }

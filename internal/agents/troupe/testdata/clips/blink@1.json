@@ -1,0 +1,8 @@
+{
+  "kind": "clip", "id": "blink", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": {
+    "duration": 160, "loop": false,
+    "keyframes": [
+      { "slot": "main", "channel": "opacity", "easing": "linear",
+        "keys": [ { "t": 0, "v": 1 }, { "t": 80, "v": 0.2 }, { "t": 160, "v": 1 } ] } ] } }

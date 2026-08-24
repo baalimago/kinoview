@@ -11,9 +11,8 @@ import (
 
 // Print renders one log message the house way — the format the /log endpoint
 // gives a posted client or agent line: "[<logger>]: <message>" through ancli
-// with the level's severity. Server-side producers (the theatre's session
-// sink) reuse it so the web-visible agent feed and the stdout feed share the
-// same formatting.
+// with the level's severity. The /log endpoint is the only server-side
+// producer today; the troupe's observability may reuse it in a later phase.
 func Print(lm model.LogMessage) {
 	loggerName := lm.Logger
 	if loggerName == "" {

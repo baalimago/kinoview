@@ -14,17 +14,16 @@ import (
 )
 
 // Print renders a log message the same way the POST endpoint does — the
-// house format for agent and client log lines. The theatre's session sink
-// reuses it, so the web-visible agent feed and the stdout feed share the same
-// formatting.
+// house format for agent and client log lines, shared by the web-visible
+// agent feed and the stdout feed.
 func TestPrint_RendersTheHouseFormat(t *testing.T) {
 	ancli.UseColor = false
 	ancli.Newline = false
 
 	lm := model.LogMessage{
 		Level:   model.INFO,
-		Logger:  "theatre.playwright",
-		Message: "corrID: stry_ab12 — delivered draft",
+		Logger:  "kinoview.serve",
+		Message: "corrID: ab12 — delivered",
 	}
 	output := testboil.CaptureStdout(t, func(t *testing.T) {
 		loghandler.Print(lm)
@@ -34,7 +33,7 @@ func TestPrint_RendersTheHouseFormat(t *testing.T) {
 			loghandler.Print(lm)
 		})
 	}
-	testboil.FailTestIfDiff(t, output, "ok: [theatre.playwright]: corrID: stry_ab12 — delivered draft")
+	testboil.FailTestIfDiff(t, output, "ok: [kinoview.serve]: corrID: ab12 — delivered")
 }
 
 func TestPostErrorsHandler(t *testing.T) {

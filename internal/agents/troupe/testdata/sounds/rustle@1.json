@@ -1,0 +1,5 @@
+{
+  "kind": "sound", "id": "rustle", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": { "type": "noise", "freq": [800, 2400], "dur": [0.3, 0.9],
+            "amp": [0.2, 0.5], "env": { "attack": 0.05, "decay": 0.4 } } }

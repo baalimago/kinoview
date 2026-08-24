@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -78,7 +79,11 @@ func (c *classifier) buildAgent(tools []models.LLMTool, internalTools []models.T
 		agent.WithToolGlobs(toolGlobs...),
 	}
 	if out != nil {
-		opts = append(opts, agent.WithOutputTo(out))
+		// clai >= v1.10.23-rc1 replaced the io.Writer terminal output
+		// (WithOutputTo) with a slog channel: the logger receives one record
+		// per completed message, so the per-worker log file is a text-handler
+		// sink instead of a raw writer.
+		opts = append(opts, agent.WithLogger(slog.New(slog.NewTextHandler(out, nil))))
 	}
 	a := agent.New(opts...)
 	c.llm = &a

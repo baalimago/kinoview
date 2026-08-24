@@ -21,7 +21,6 @@ Commands:
 
 var commands = map[string]cmd.Command{
 	"con|concierge": concierge.Command(),
-	"p|production":  productionCommand(),
 }
 
 // runFn is a seam for tests. In production it defaults to cmd.Run.

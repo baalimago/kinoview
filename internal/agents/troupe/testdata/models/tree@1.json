@@ -1,0 +1,6 @@
+{
+  "kind": "model", "id": "tree", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": {
+    "bones": [ { "id": "trunk", "parent": null, "x": 0, "y": 0, "rot": 0, "length": 6 } ],
+    "structure": [ { "type": "attach", "model": "branch@1", "at": "trunk", "scale": 1 } ] } }

@@ -1,5 +1,30 @@
 const media = {}
 
+// ── The troupe stage ──────────────────────────────────────────────────────
+// Phase 9 cutover: the troupe is the only splash path. The engine
+// (engine.js) self-mounts into <div id="troupe"> when a resolved play is
+// present; index.js fetches the newest submitted play from the API and hands
+// it over. An empty stage (404) renders nothing — no seed, no fallback: an
+// empty stage is the signal to investigate.
+(function() {
+  function mountPlay(play) {
+    window.TROUPE_PLAY = play;
+    var el = document.getElementById('troupe');
+    if (el && window.TroupeEngine) window.TroupeEngine.mount(el, play);
+  }
+
+  fetch('/api/v1/troupe/play/resolved')
+    .then(function(res) {
+      if (!res.ok) throw new Error('no play: ' + res.status);
+      return res.json();
+    })
+    .then(mountPlay)
+    .catch(function(err) {
+      // No submitted play — the empty stage. The engine renders nothing.
+      console.info('troupe: ' + err.message);
+    });
+})();
+
 // ── Lag detection ──
 ;(function() {
   var samples = [];
@@ -27,8 +52,6 @@ const media = {}
 
   requestAnimationFrame(measureFrame);
 })();
-
-// ── Intro splash lives in intro.js (loaded first); it owns window.__introMarkLoaded ──
 
 const ogConsoleLog = console.log
 const ogConsoleError = console.error
@@ -159,12 +182,10 @@ fetch('/gallery?start=0&am=1000&mime=video')
     populateMediaDropdown(data.items)
     // Handle deep-link play from shows page
     autoPlayFromQuery();
-    window.__introMarkLoaded();
   })
   .catch(err => {
     console.error('Error fetching gallery:');
     console.error(err)
-    window.__introMarkFailed();
   });
 
 let searchDebounceTimer = null;
@@ -510,7 +531,6 @@ function loadSuggestions() {
     })
     .then(function(payload) {
       renderSuggestionsFromPayload(payload);
-      window.__introMarkLoaded();
     })
     .catch(function(err) {
       console.error("Failed to load suggestions:", err);
@@ -519,7 +539,6 @@ function loadSuggestions() {
       if (container) container.style.display = "block";
       var emptyEl = document.getElementById("suggestions-empty");
       if (emptyEl) emptyEl.style.display = "block";
-      window.__introMarkFailed();
     });
 }
 
@@ -818,12 +837,10 @@ function renderSuggestionsFromPayload(payload) {
             render();
           }
         }
-        window.__introMarkLoaded();
       })
       .catch(function (err) {
         console.error('Sidebar: failed to fetch shows:', err);
         sidebar.innerHTML = '<div class="sidebar-empty">Unavailable</div>';
-        window.__introMarkFailed();
       });
   }
 

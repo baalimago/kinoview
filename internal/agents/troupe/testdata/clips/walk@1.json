@@ -1,0 +1,8 @@
+{
+  "kind": "clip", "id": "walk", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": {
+    "duration": 1200, "loop": true,
+    "oscillations": [
+      { "bone": "frontLeg", "channel": "rotation", "amp": 30, "freq": 2, "phase": 0 },
+      { "bone": "backLeg", "channel": "rotation", "amp": 30, "freq": 2, "phase": 180 } ] } }

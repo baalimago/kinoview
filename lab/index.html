@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<!-- The Troupe lab — a dev-only simulator for engine.js. Not served in
+     production (phase 9 wires the engine into the real frontend instead).
+     Loads the engine from cmd/serve/frontend/engine.js and drives it with an
+     explicit clock so a fixture resolved play can be stepped, scrubbed and
+     replayed by hand. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>The Troupe — engine lab</title>
+  <style>
+    body { margin: 0; padding: 16px; background: #1b1d22; color: #dfe2e8;
+           font: 14px/1.45 system-ui, sans-serif; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    p.hint { color: #9aa1ad; margin: 4px 0 16px; }
+    #stage-wrap { position: relative; width: 640px; height: 360px;
+                  background: #2a2e37; border: 1px solid #3a3f4b;
+                  border-radius: 4px; overflow: hidden; }
+    #troupe { position: absolute; inset: 0; }
+    .controls { display: flex; gap: 10px; align-items: center; margin-top: 12px;
+                flex-wrap: wrap; }
+    select, button { background: #32363f; color: #dfe2e8; border: 1px solid #4a4f5c;
+                     border-radius: 4px; padding: 6px 10px; cursor: pointer; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    input[type="range"] { width: 320px; }
+    #time { font-variant-numeric: tabular-nums; color: #9aa1ad; min-width: 110px; }
+    #status { color: #7fd08a; margin-left: auto; }
+  </style>
+</head>
+<body>
+  <h1>The Troupe — engine lab</h1>
+  <p class="hint">Dev simulator for <code>cmd/serve/frontend/engine.js</code>.
+    Choose a fixture resolved play, then play/pause or scrub. A backward scrub
+    remounts the engine (its step is monotonic).</p>
+
+  <div id="stage-wrap">
+    <div id="troupe"></div>
+  </div>
+
+  <div class="controls">
+    <select id="fixture"></select>
+    <button id="play" disabled>Play</button>
+    <input type="range" id="scrub" min="0" max="0" step="1" value="0" disabled>
+    <span id="time">0 ms / 0 ms</span>
+    <span id="status"></span>
+  </div>
+
+  <script src="../cmd/serve/frontend/engine.js"></script>
+  <script src="lab.js"></script>
+</body>
+</html>

@@ -280,8 +280,6 @@ func classifyAgent(systemContent string) string {
 		return "subtitleSelector"
 	case strings.Contains(lower, "media concierge"):
 		return "concierge"
-	case strings.Contains(lower, "slapstick"):
-		return "theatre"
 	case strings.Contains(lower, "media recommender"):
 		return "recommender"
 	default:

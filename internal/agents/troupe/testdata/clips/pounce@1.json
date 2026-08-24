@@ -1,0 +1,14 @@
+{
+  "kind": "clip", "id": "pounce", "version": 1,
+  "status": "draft", "author": "fixture", "provenance": "fixture",
+  "spec": {
+    "duration": 600, "loop": false,
+    "constraints": [
+      { "type": "reach", "effector": "frontLeg", "target": { "x": 1.5, "y": 0 }, "hint": "front" },
+      { "type": "look", "chain": "spine", "target": { "x": 1.5, "y": 0 } } ],
+    "keyframes": [
+      { "bone": "spine", "channel": "rotation", "easing": "ease-in-out",
+        "keys": [ { "t": 0, "v": 0 }, { "t": 200, "v": 20 }, { "t": 500, "v": 0 } ] } ],
+    "events": [
+      { "at": 400, "voice": true },
+      { "at": 500, "sound": "rustle@1" } ] } }
