@@ -25,6 +25,10 @@ func (i *Indexer) recomendHandler() http.HandlerFunc {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
+		if i.recommender == nil {
+			http.Error(w, "recommender not configured", http.StatusNotImplemented)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		defer r.Body.Close()
 		lr := io.LimitReader(r.Body, 1<<20)

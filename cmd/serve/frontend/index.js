@@ -1,4 +1,4 @@
-const media = {}
+const media = {};
 
 // ── The troupe stage ──────────────────────────────────────────────────────
 // Phase 9 cutover: the troupe is the only splash path. The engine
@@ -9,24 +9,24 @@ const media = {}
 (function() {
   function mountPlay(play) {
     window.TROUPE_PLAY = play;
-    var el = document.getElementById('troupe');
+    var el = document.getElementById("troupe");
     if (el && window.TroupeEngine) window.TroupeEngine.mount(el, play);
   }
 
-  fetch('/api/v1/troupe/play/resolved')
+  fetch("/api/v1/troupe/play/resolved")
     .then(function(res) {
-      if (!res.ok) throw new Error('no play: ' + res.status);
+      if (!res.ok) throw new Error("no play: " + res.status);
       return res.json();
     })
     .then(mountPlay)
     .catch(function(err) {
       // No submitted play — the empty stage. The engine renders nothing.
-      console.info('troupe: ' + err.message);
+      console.info("troupe: " + err.message);
     });
 })();
 
 // ── Lag detection ──
-;(function() {
+(function() {
   var samples = [];
   var MAX_SAMPLES = 20;
   var lastTime = performance.now();
@@ -44,8 +44,8 @@ const media = {}
       for (var i = 0; i < samples.length; i++) sum += samples[i];
       var avg = sum / samples.length;
       if (avg > threshold) {
-        document.body.classList.add('low-perf');
-        console.info('low-perf mode: avg frame ' + avg.toFixed(1) + 'ms');
+        document.body.classList.add("low-perf");
+        console.info("low-perf mode: avg frame " + avg.toFixed(1) + "ms");
       }
     }
   }
@@ -53,46 +53,46 @@ const media = {}
   requestAnimationFrame(measureFrame);
 })();
 
-const ogConsoleLog = console.log
-const ogConsoleError = console.error
+const ogConsoleLog = console.log;
+const ogConsoleError = console.error;
 
-console.log = postInfo
-console.error = postErr
+console.log = postInfo;
+console.error = postErr;
 
 function postLogMsg(level, data) {
-  if (typeof data === 'object') {
+  if (typeof data === "object") {
     data = JSON.stringify(data, null, 2);
   }
 
-  fetch('/gallery/log', {
-    method: 'POST',
+  fetch("/gallery/log", {
+    method: "POST",
     headers: {
-      'Content-Type': 'application/json',
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      "level": level,
-      "message": data,
+      level: level,
+      message: data,
     }),
   })
-    .then(response => {
+    .then((response) => {
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
       return response.text();
     })
-    .catch(error => {
+    .catch((error) => {
       ogConsoleError("Error posting log:", error);
     });
 }
 
 function postErr(data) {
-  postLogMsg("error", data)
-  ogConsoleError(data)
+  postLogMsg("error", data);
+  ogConsoleError(data);
 }
 
 function postInfo(data) {
-  postLogMsg("info", data)
-  ogConsoleLog(data)
+  postLogMsg("info", data);
+  ogConsoleLog(data);
 }
 
 function getPersistedMedia() {
@@ -103,26 +103,26 @@ function getPersistedMedia() {
     }
     return JSON.parse(media);
   } catch (err) {
-    console.error("failed to load media from localStorage", err)
+    console.error("failed to load media from localStorage", err);
   }
-  return {}
+  return {};
 }
 
 function loadPersistedMediaItem(vID) {
   const media = getPersistedMedia();
   const item = media[vID];
   if (!item) {
-    console.error(`media item with id: ${vID} not found in media store`)
-    return {}
+    console.error(`media item with id: ${vID} not found in media store`);
+    return {};
   }
-  return item
+  return item;
 }
 
 function videoNameWithProgress(vID, vidName) {
   let name = vidName;
-  const storedItem = loadPersistedMediaItem(vID)
+  const storedItem = loadPersistedMediaItem(vID);
   if (!storedItem) {
-    return name
+    return name;
   }
   const playTime = storedItem.playedFor;
   if (playTime) {
@@ -138,30 +138,33 @@ function videoNameWithProgress(vID, vidName) {
 //   Shows  → "Show Name · S1·E5" or "Show Name · S1·E5 – Episode Title"
 //   Fallback → cleaned-up filename (dots/underscores → spaces, extension stripped)
 function prettyMediaName(it) {
-  if (!it) return '';
-  var md = (it.Metadata && typeof it.Metadata === 'object') ? it.Metadata : null;
+  if (!it) return "";
+  var md = it.Metadata && typeof it.Metadata === "object" ? it.Metadata : null;
 
   // 1. Classified name (movie title or episode title from metadata)
-  var classifiedName = '';
-  if (md && md.name && typeof md.name === 'string') classifiedName = md.name.trim();
+  var classifiedName = "";
+  if (md && md.name && typeof md.name === "string")
+    classifiedName = md.name.trim();
 
   // 2. Show name from metadata (set during classification or show extraction)
-  var showName = '';
-  if (md && md.showName && typeof md.showName === 'string') showName = md.showName.trim();
+  var showName = "";
+  if (md && md.showName && typeof md.showName === "string")
+    showName = md.showName.trim();
   if (!showName) {
     // Try Metadata.title as a fallback
-    if (md && md.title && typeof md.title === 'string') showName = md.title.trim();
+    if (md && md.title && typeof md.title === "string")
+      showName = md.title.trim();
   }
 
   // 3. Season and episode numbers
-  var season = (md && md.season) ? md.season : 0;
-  var episode = (md && md.episode) ? md.episode : 0;
+  var season = md && md.season ? md.season : 0;
+  var episode = md && md.episode ? md.episode : 0;
 
   // Show episode path: "Show Name · S1·E5" or "Show Name · S1·E5 – Episode Title"
   if (showName && season && episode) {
-    var result = showName + ' \u00B7 S' + season + '\u00B7E' + episode;
+    var result = showName + " \u00B7 S" + season + "\u00B7E" + episode;
     if (classifiedName && classifiedName !== showName) {
-      result += ' \u2013 ' + classifiedName;
+      result += " \u2013 " + classifiedName;
     }
     return result;
   }
@@ -170,22 +173,22 @@ function prettyMediaName(it) {
   if (classifiedName) return classifiedName;
 
   // Fallback: clean up the raw filename
-  var name = it.Name || '';
-  name = name.replace(/\.[^.]+$/, '');       // strip extension
-  name = name.replace(/[._-]/g, ' ').replace(/\s+/g, ' ').trim();
-  return name || (it.Name || '');
+  var name = it.Name || "";
+  name = name.replace(/\.[^.]+$/, ""); // strip extension
+  name = name.replace(/[._-]/g, " ").replace(/\s+/g, " ").trim();
+  return name || it.Name || "";
 }
 
-fetch('/gallery?start=0&am=1000&mime=video')
-  .then(response => response.json())
-  .then(data => {
-    populateMediaDropdown(data.items)
+fetch("/gallery?start=0&am=1000&mime=video")
+  .then((response) => response.json())
+  .then((data) => {
+    populateMediaDropdown(data.items);
     // Handle deep-link play from shows page
     autoPlayFromQuery();
   })
-  .catch(err => {
-    console.error('Error fetching gallery:');
-    console.error(err)
+  .catch((err) => {
+    console.error("Error fetching gallery:");
+    console.error(err);
   });
 
 let searchDebounceTimer = null;
@@ -195,13 +198,13 @@ const MAX_SEARCH_RESULTS = 5;
 // Auto-play an episode when navigated from shows page via ?play=ID
 function autoPlayFromQuery() {
   const params = new URLSearchParams(window.location.search);
-  const playID = params.get('play');
+  const playID = params.get("play");
   if (playID && media[playID]) {
     selectMedia(playID);
     // Clean URL without reload
     const url = new URL(window.location);
-    url.searchParams.delete('play');
-    window.history.replaceState({}, '', url);
+    url.searchParams.delete("play");
+    window.history.replaceState({}, "", url);
   }
 }
 
@@ -209,18 +212,18 @@ function searchMedia() {
   clearTimeout(searchDebounceTimer);
   searchDebounceTimer = setTimeout(() => {
     const query = document.getElementById("searchInput").value.trim();
-    let url = '/gallery?start=0&am=1000&mime=video';
+    let url = "/gallery?start=0&am=1000&mime=video";
     if (query) {
-      url += '&search=' + encodeURIComponent(query);
+      url += "&search=" + encodeURIComponent(query);
     }
     fetch(url)
-      .then(response => response.json())
-      .then(data => {
+      .then((response) => response.json())
+      .then((data) => {
         populateMediaDropdown(data.items);
         populateSearchResults(data.items, query);
       })
-      .catch(err => {
-        console.error('Error searching media:');
+      .catch((err) => {
+        console.error("Error searching media:");
         console.error(err);
       });
   }, SEARCH_DEBOUNCE_MS);
@@ -228,66 +231,65 @@ function searchMedia() {
 
 function populateSearchResults(items, query) {
   const resultsDiv = document.getElementById("searchResults");
-  resultsDiv.innerHTML = '';
+  resultsDiv.innerHTML = "";
 
   if (!query || items.length === 0) {
-    resultsDiv.classList.add('hidden');
+    resultsDiv.classList.add("hidden");
     return;
   }
 
   const topItems = items.slice(0, MAX_SEARCH_RESULTS);
   for (const it of topItems) {
-    const row = document.createElement('div');
-    row.className = 'search-result-item';
+    const row = document.createElement("div");
+    row.className = "search-result-item";
 
-    const nameSpan = document.createElement('span');
-    nameSpan.className = 'result-name';
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "result-name";
     nameSpan.textContent = videoNameWithProgress(it.ID, it.Name);
 
-    const pathSpan = document.createElement('span');
-    pathSpan.className = 'result-path';
-    pathSpan.textContent = it.Path || '';
+    const pathSpan = document.createElement("span");
+    pathSpan.className = "result-path";
+    pathSpan.textContent = it.Path || "";
 
     row.appendChild(nameSpan);
     row.appendChild(pathSpan);
 
-    row.addEventListener('click', () => {
+    row.addEventListener("click", () => {
       selectMedia(it.ID);
       document.getElementById("searchInput").value = it.Name;
-      document.getElementById("searchResults").classList.add('hidden');
+      document.getElementById("searchResults").classList.add("hidden");
     });
 
     resultsDiv.appendChild(row);
   }
 
   if (items.length > MAX_SEARCH_RESULTS) {
-    const more = document.createElement('div');
-    more.className = 'search-results-empty';
+    const more = document.createElement("div");
+    more.className = "search-results-empty";
     more.textContent = `... and ${items.length - MAX_SEARCH_RESULTS} more (refine search)`;
     resultsDiv.appendChild(more);
   }
 
-  resultsDiv.classList.remove('hidden');
+  resultsDiv.classList.remove("hidden");
 }
 
 // populateMediaDropdown indexes video items into the in-memory `media` map and
 // syncs the persisted store. (Historically it also populated a <select>; that
 // crude control was replaced by the search-driven UI.)
 function populateMediaDropdown(items) {
-    items.sort((a, b) => a.Name.localeCompare(b.Name))
-    const persistedMedia = getPersistedMedia()
-    for (const i of items) {
-      if (!i.MIMEType.includes("video")) {
-        continue
-      }
-      media[i.ID] = i
-      const storageItem = loadPersistedMediaItem(i.ID);
-      storageItem.name = i.Name
-      persistedMedia[i.ID] = storageItem
+  items.sort((a, b) => a.Name.localeCompare(b.Name));
+  const persistedMedia = getPersistedMedia();
+  for (const i of items) {
+    if (!i.MIMEType.includes("video")) {
+      continue;
     }
-    localStorage.setItem("media", JSON.stringify(persistedMedia))
+    media[i.ID] = i;
+    const storageItem = loadPersistedMediaItem(i.ID);
+    storageItem.name = i.Name;
+    persistedMedia[i.ID] = storageItem;
+  }
+  localStorage.setItem("media", JSON.stringify(persistedMedia));
 }
-
 
 var mostRecentID = "";
 var sessionID = "";
@@ -308,9 +310,9 @@ function getSessionStartTime() {
 }
 
 function generateUUID() {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, function(c) {
     const r = (Math.random() * 16) | 0;
-    const v = c === 'x' ? r : (r & 0x3) | 0x8;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
     return v.toString(16);
   });
 }
@@ -327,20 +329,18 @@ function selectMedia(id) {
 }
 
 function constuctClientContext() {
-  const viewingHistory = []
-  const persistedMedia = getPersistedMedia()
-  Object.values(persistedMedia).forEach(
-    i => {
-      if (i.viewedAt) {
-        const playedForFloat = i.playedFor
-        i.playedFor = `${playedForFloat} seconds`
-        viewingHistory.push(i)
-      }
+  const viewingHistory = [];
+  const persistedMedia = getPersistedMedia();
+  Object.values(persistedMedia).forEach((i) => {
+    if (i.viewedAt) {
+      const playedForFloat = i.playedFor;
+      i.playedFor = `${playedForFloat} seconds`;
+      viewingHistory.push(i);
     }
-  )
+  });
   return {
-    "viewingHistory": viewingHistory,
-  }
+    viewingHistory: viewingHistory,
+  };
 }
 
 function requestRecommendation() {
@@ -351,20 +351,26 @@ function requestRecommendation() {
     status.innerText = "Tell the concierge what you feel like watching first.";
     return;
   }
-  const req = JSON.stringify({ request: inp.value, context: constuctClientContext() });
-  console.info("Sending:", req)
+  const req = JSON.stringify({
+    request: inp.value,
+    context: constuctClientContext(),
+  });
+  console.info("Sending:", req);
   status.innerText = "Consulting the concierge… (this may take a moment)";
-  if (btn) { btn.classList.add("loading"); btn.querySelector("span").innerText = "Thinking…"; }
+  if (btn) {
+    btn.classList.add("loading");
+    btn.querySelector("span").innerText = "Thinking…";
+  }
   fetch("/gallery/recommend", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: req,
   })
-    .then(r => {
+    .then((r) => {
       if (!r.ok) throw new Error("status " + r.status);
       return r.json();
     })
-    .then(item => {
+    .then((item) => {
       if (!item || !item.ID) {
         status.innerText = "No recommendation found — try rephrasing.";
         return;
@@ -372,34 +378,41 @@ function requestRecommendation() {
       status.innerText = "▶ Now playing: " + prettyMediaName(item);
       selectMedia(item.ID);
     })
-    .catch(err => {
+    .catch((err) => {
       console.error("recommend error:");
-      console.error(err)
+      console.error(err);
       status.innerText = "Error — check kinoview server logs, or console logs";
     })
     .finally(() => {
-      if (btn) { btn.classList.remove("loading"); btn.querySelector("span").innerText = "Recommend"; }
+      if (btn) {
+        btn.classList.remove("loading");
+        btn.querySelector("span").innerText = "Recommend";
+      }
     });
 }
 
 function loadStreams(id) {
   fetch(`/gallery/streams/${id}`)
-    .then(response => response.json())
-    .then(data => {
-      console.log(`Attempting to load streams for: ${id}`)
+    .then((response) => response.json())
+    .then((data) => {
+      console.log(`Attempting to load streams for: ${id}`);
 
       const subMenu = document.getElementById("subsMenu");
       const audioMenu = document.getElementById("audioMenu");
 
-      if (subMenu) subMenu.innerHTML = '';
-      if (audioMenu) audioMenu.innerHTML = '';
+      if (subMenu) subMenu.innerHTML = "";
+      if (audioMenu) audioMenu.innerHTML = "";
 
       // Add "Off" option for subtitles
       if (subMenu) {
-        const offBtn = createDropdownItem("Off", () => {
-          selectSubtitle('off');
-          updateActiveItem(subMenu, offBtn);
-        }, true);
+        const offBtn = createDropdownItem(
+          "Off",
+          () => {
+            selectSubtitle("off");
+            updateActiveItem(subMenu, offBtn);
+          },
+          true,
+        );
         subMenu.appendChild(offBtn);
       }
 
@@ -410,28 +423,36 @@ function loadStreams(id) {
       if (data.streams) {
         for (const i of data.streams) {
           // Audio
-          if (i.codec_type === 'audio') {
+          if (i.codec_type === "audio") {
             hasAudio = true;
             const currentAudioTrackIndex = audioTrackIndex;
             audioTrackIndex++;
-            const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
-            const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
+            const lang =
+              i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
+            const title =
+              i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
 
             const isDefault = i.disposition && i.disposition.default;
             if (audioMenu) {
-              const btn = createDropdownItem(title, () => {
-                selectAudio(currentAudioTrackIndex);
-                updateActiveItem(audioMenu, btn);
-              }, isDefault);
+              const btn = createDropdownItem(
+                title,
+                () => {
+                  selectAudio(currentAudioTrackIndex);
+                  updateActiveItem(audioMenu, btn);
+                },
+                isDefault,
+              );
               audioMenu.appendChild(btn);
             }
           }
 
           // Subtitles
-          if (i.codec_type === 'subtitle') {
+          if (i.codec_type === "subtitle") {
             // Relaxed check: include even if no language tag
-            const lang = i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
-            const title = i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
+            const lang =
+              i.tags && i.tags.language ? i.tags.language : `Track ${i.index}`;
+            const title =
+              i.tags && i.tags.title ? `${i.tags.title} (${lang})` : lang;
 
             if (subMenu) {
               const btn = createDropdownItem(title, () => {
@@ -448,28 +469,30 @@ function loadStreams(id) {
         const btn = createDropdownItem("Default Audio", () => { }, true);
         audioMenu.appendChild(btn);
       }
-    })
+    });
 }
 
 function toggleMenu(menuId) {
   const menu = document.getElementById(menuId);
   if (!menu) return;
 
-  document.querySelectorAll('.popover').forEach(m => {
-    if (m.id !== menuId) m.classList.add('hidden');
+  document.querySelectorAll(".popover").forEach((m) => {
+    if (m.id !== menuId) m.classList.add("hidden");
   });
 
-  menu.classList.toggle('hidden');
+  menu.classList.toggle("hidden");
 }
 
 // Close menus when clicking outside
-document.addEventListener('click', (e) => {
-  if (!e.target.closest('.ctrl-menu')) {
-    document.querySelectorAll('.popover').forEach(m => m.classList.add('hidden'));
+document.addEventListener("click", (e) => {
+  if (!e.target.closest(".ctrl-menu")) {
+    document
+      .querySelectorAll(".popover")
+      .forEach((m) => m.classList.add("hidden"));
   }
-  if (!e.target.closest('.header-search')) {
-    const sr = document.getElementById('searchResults');
-    if (sr) sr.classList.add('hidden');
+  if (!e.target.closest(".header-search")) {
+    const sr = document.getElementById("searchResults");
+    if (sr) sr.classList.add("hidden");
   }
 });
 
@@ -483,16 +506,18 @@ function createDropdownItem(text, onClick, isActive = false) {
 }
 
 function updateActiveItem(container, activeItem) {
-  container.querySelectorAll('.dropdown-item').forEach(item => item.classList.remove('active'));
-  activeItem.classList.add('active');
-  container.classList.add('hidden');
+  container
+    .querySelectorAll(".dropdown-item")
+    .forEach((item) => item.classList.remove("active"));
+  activeItem.classList.add("active");
+  container.classList.add("hidden");
 }
 
 function selectAudio(index) {
   const video = document.getElementById("screen");
   if (video.audioTracks) {
     for (let i = 0; i < video.audioTracks.length; i++) {
-      video.audioTracks[i].enabled = (i === index);
+      video.audioTracks[i].enabled = i === index;
     }
   }
   console.log(`Selected audio stream: ${index}`);
@@ -501,20 +526,22 @@ function selectAudio(index) {
 function selectSubtitle(id) {
   const track = document.getElementById("subs");
 
-  if (id === 'off' || id === "") {
+  if (id === "off" || id === "") {
     console.log("Disabling subtitles");
     track.src = "";
     track.removeAttribute("src");
     if (track.track) track.track.mode = "disabled";
   } else {
-    console.log(`Attempting to set subs to: /gallery/streams/${mostRecentID}/stream/${id}`)
+    console.log(
+      `Attempting to set subs to: /gallery/streams/${mostRecentID}/stream/${id}`,
+    );
     track.src = `/gallery/streams/${mostRecentID}/stream/${id}`;
     if (track.track) track.track.mode = "showing";
   }
 }
 
 // Integrate events.js
-(function () {
+(function() {
   const script = document.createElement("script");
   script.src = "events.js";
   script.async = true;
@@ -564,10 +591,14 @@ function handleSuggestionsEvent(payload) {
 
 function suggestionKindLabel(kind) {
   switch (kind) {
-    case "movie": return "Movie";
-    case "episode": return "Episode";
-    case "extras": return "Extras";
-    default: return "Media";
+    case "movie":
+      return "Movie";
+    case "episode":
+      return "Episode";
+    case "extras":
+      return "Extras";
+    default:
+      return "Media";
   }
 }
 
@@ -578,14 +609,16 @@ function suggestionKindLabel(kind) {
 function buildSuggestionCard(rec) {
   var card = document.createElement("div");
   card.className = "suggestion-item";
-  card.onclick = function () {
+  card.onclick = function() {
     selectMedia(rec.ID);
     if (rec.subtitleID) {
-      setTimeout(function () { selectSubtitle(rec.subtitleID); }, 500);
+      setTimeout(function() {
+        selectSubtitle(rec.subtitleID);
+      }, 500);
     }
   };
 
-  var view = (rec.view && typeof rec.view === "object") ? rec.view : null;
+  var view = rec.view && typeof rec.view === "object" ? rec.view : null;
   if (!view || !view.title) {
     var legacyTitle = document.createElement("strong");
     legacyTitle.className = "suggestion-title";
@@ -675,12 +708,14 @@ function renderSuggestionsFromPayload(payload) {
     if (list) {
       list.style.display = "block";
       list.innerHTML = "";
-      suggestions.forEach(function (rec) {
+      suggestions.forEach(function(rec) {
         list.appendChild(buildSuggestionCard(rec));
       });
     }
     if (ageEl) {
-      ageEl.innerText = generated ? "Chosen " + formatAge(generated) : "Chosen for you";
+      ageEl.innerText = generated
+        ? "Chosen " + formatAge(generated)
+        : "Chosen for you";
     }
   } else if (state === "computing") {
     container.style.display = "block";
@@ -689,7 +724,7 @@ function renderSuggestionsFromPayload(payload) {
     if (suggestions.length > 0 && list) {
       list.style.display = "block";
       list.innerHTML = "";
-      suggestions.forEach(function (rec) {
+      suggestions.forEach(function(rec) {
         list.appendChild(buildSuggestionCard(rec));
       });
     }
@@ -700,13 +735,13 @@ function renderSuggestionsFromPayload(payload) {
 }
 
 // ── Sidebar Shows Browser ──
-(function () {
-  const sidebar = document.getElementById('sidebarBody');
+(function() {
+  const sidebar = document.getElementById("sidebarBody");
   if (!sidebar) return;
 
   var sidebarShows = [];
-  var activeShowIdx = -1;       // which show is expanded (-1 = none)
-  var activeSeasonIdx = {};     // show index → season index (-1 = none selected)
+  var activeShowIdx = -1; // which show is expanded (-1 = none)
+  var activeSeasonIdx = {}; // show index → season index (-1 = none selected)
   var initialRenderDone = false;
   var continueEpisodeCache = {}; // show index → {ep, reason, seasonIdx}
 
@@ -714,11 +749,12 @@ function renderSuggestionsFromPayload(payload) {
 
   function findContinueEpisode(show, showIdx) {
     // Use cache if already computed this render cycle
-    if (continueEpisodeCache[showIdx] !== undefined) return continueEpisodeCache[showIdx];
+    if (continueEpisodeCache[showIdx] !== undefined)
+      return continueEpisodeCache[showIdx];
 
     var m = getPersistedMedia();
     var bestProgress = null; // {ep, viewedAt, seasonIdx, epIdx}
-    var bestWatched = null;  // {ep, viewedAt, seasonIdx, epIdx}
+    var bestWatched = null; // {ep, viewedAt, seasonIdx, epIdx}
 
     for (var si = 0; si < show.seasons.length; si++) {
       var season = show.seasons[si];
@@ -728,7 +764,11 @@ function renderSuggestionsFromPayload(payload) {
         if (!item || !item.playedFor) continue;
 
         var totalSec = 0;
-        if (ep.Metadata && typeof ep.Metadata === 'object' && ep.Metadata.duration_min) {
+        if (
+          ep.Metadata &&
+          typeof ep.Metadata === "object" &&
+          ep.Metadata.duration_min
+        ) {
           totalSec = parseFloat(ep.Metadata.duration_min) * 60;
         }
 
@@ -737,14 +777,28 @@ function renderSuggestionsFromPayload(payload) {
         else if (totalSec === 0 && item.playedFor > 300) isWatched = true;
 
         if (item.playedFor >= 5 && !isWatched) {
-          if (!bestProgress || (item.viewedAt && (!bestProgress.viewedAt || item.viewedAt > bestProgress.viewedAt))) {
-            bestProgress = {ep: ep, viewedAt: item.viewedAt || '', seasonIdx: si, epIdx: ei};
+          if (
+            !bestProgress ||
+            (item.viewedAt &&
+              (!bestProgress.viewedAt || item.viewedAt > bestProgress.viewedAt))
+          ) {
+            bestProgress = {
+              ep: ep,
+              viewedAt: item.viewedAt || "",
+              seasonIdx: si,
+              epIdx: ei,
+            };
           }
         }
 
         if (isWatched && item.viewedAt) {
           if (!bestWatched || item.viewedAt > bestWatched.viewedAt) {
-            bestWatched = {ep: ep, viewedAt: item.viewedAt, seasonIdx: si, epIdx: ei};
+            bestWatched = {
+              ep: ep,
+              viewedAt: item.viewedAt,
+              seasonIdx: si,
+              epIdx: ei,
+            };
           }
         }
       }
@@ -752,7 +806,11 @@ function renderSuggestionsFromPayload(payload) {
 
     // In-progress episode → continue
     if (bestProgress) {
-      var result = {ep: bestProgress.ep, reason: 'continue', seasonIdx: bestProgress.seasonIdx};
+      var result = {
+        ep: bestProgress.ep,
+        reason: "continue",
+        seasonIdx: bestProgress.seasonIdx,
+      };
       continueEpisodeCache[showIdx] = result;
       return result;
     }
@@ -763,13 +821,21 @@ function renderSuggestionsFromPayload(payload) {
       var ei = bestWatched.epIdx;
       var season = show.seasons[si];
       if (ei + 1 < season.episodes.length) {
-        var result = {ep: season.episodes[ei + 1], reason: 'next', seasonIdx: si};
+        var result = {
+          ep: season.episodes[ei + 1],
+          reason: "next",
+          seasonIdx: si,
+        };
         continueEpisodeCache[showIdx] = result;
         return result;
       } else if (si + 1 < show.seasons.length) {
         var nextSeason = show.seasons[si + 1];
         if (nextSeason.episodes.length > 0) {
-          var result = {ep: nextSeason.episodes[0], reason: 'next', seasonIdx: si + 1};
+          var result = {
+            ep: nextSeason.episodes[0],
+            reason: "next",
+            seasonIdx: si + 1,
+          };
           continueEpisodeCache[showIdx] = result;
           return result;
         }
@@ -778,7 +844,11 @@ function renderSuggestionsFromPayload(payload) {
 
     // Nothing watched → first episode
     if (show.seasons.length > 0 && show.seasons[0].episodes.length > 0) {
-      var result = {ep: show.seasons[0].episodes[0], reason: 'start', seasonIdx: 0};
+      var result = {
+        ep: show.seasons[0].episodes[0],
+        reason: "start",
+        seasonIdx: 0,
+      };
       continueEpisodeCache[showIdx] = result;
       return result;
     }
@@ -790,7 +860,7 @@ function renderSuggestionsFromPayload(payload) {
   function findCurrentShowIdx() {
     var m = getPersistedMedia();
     var bestIdx = -1;
-    var bestTime = '';
+    var bestTime = "";
 
     for (var si = 0; si < sidebarShows.length; si++) {
       var show = sidebarShows[si];
@@ -810,17 +880,17 @@ function renderSuggestionsFromPayload(payload) {
   }
 
   function positionLabel(ep) {
-    return 'S' + ep.season + '\u00B7E' + ep.episode;
+    return "S" + ep.season + "\u00B7E" + ep.episode;
   }
 
   function fetchShows() {
     sidebar.innerHTML = '<div class="sidebar-loading">Loading…</div>';
-    fetch('/gallery/shows')
-      .then(function (r) {
-        if (!r.ok) throw new Error('HTTP ' + r.status);
+    fetch("/gallery/shows")
+      .then(function(r) {
+        if (!r.ok) throw new Error("HTTP " + r.status);
         return r.json();
       })
-      .then(function (data) {
+      .then(function(data) {
         sidebarShows = data.shows || [];
         activeSeasonIdx = {};
         for (var i = 0; i < sidebarShows.length; i++) activeSeasonIdx[i] = -1;
@@ -838,36 +908,40 @@ function renderSuggestionsFromPayload(payload) {
           }
         }
       })
-      .catch(function (err) {
-        console.error('Sidebar: failed to fetch shows:', err);
+      .catch(function(err) {
+        console.error("Sidebar: failed to fetch shows:", err);
         sidebar.innerHTML = '<div class="sidebar-empty">Unavailable</div>';
       });
   }
 
   function episodeDisplayName(ep) {
-    if (ep.Metadata && typeof ep.Metadata === 'object' && ep.Metadata.name) {
+    if (ep.Metadata && typeof ep.Metadata === "object" && ep.Metadata.name) {
       var mn = ep.Metadata.name;
-      if (!/[Ss]\d{1,2}[Ee]\d{1,3}/.test(mn) && !/\d{1,2}x\d{1,3}/i.test(mn)) return mn;
+      if (!/[Ss]\d{1,2}[Ee]\d{1,3}/.test(mn) && !/\d{1,2}x\d{1,3}/i.test(mn))
+        return mn;
     }
-    var raw = ep.Name || '';
-    raw = raw.replace(/\.[^.]+$/, '');
-    raw = raw.replace(/[._-]/g, ' ').replace(/\s+/g, ' ').trim();
+    var raw = ep.Name || "";
+    raw = raw.replace(/\.[^.]+$/, "");
+    raw = raw.replace(/[._-]/g, " ").replace(/\s+/g, " ").trim();
     return raw || ep.Name;
   }
 
   function episodeWatched(epID, epMeta) {
     var m = getPersistedMedia();
     var item = m[epID];
-    if (!item || !item.playedFor || item.playedFor < 5) return { status: 'none' };
+    if (!item || !item.playedFor || item.playedFor < 5)
+      return { status: "none" };
     // Determine total duration in seconds from metadata
     var totalSec = 0;
-    if (epMeta && typeof epMeta === 'object' && epMeta.duration_min) {
+    if (epMeta && typeof epMeta === "object" && epMeta.duration_min) {
       totalSec = parseFloat(epMeta.duration_min) * 60;
     }
     // Consider watched if ≥90% of duration has been played, or if no duration metadata and played > 5 min
-    if (totalSec > 0 && item.playedFor >= totalSec * 0.9) return { status: 'watched', playedFor: item.playedFor };
-    if (totalSec === 0 && item.playedFor > 300) return { status: 'watched', playedFor: item.playedFor };
-    return { status: 'progress', playedFor: item.playedFor };
+    if (totalSec > 0 && item.playedFor >= totalSec * 0.9)
+      return { status: "watched", playedFor: item.playedFor };
+    if (totalSec === 0 && item.playedFor > 300)
+      return { status: "watched", playedFor: item.playedFor };
+    return { status: "progress", playedFor: item.playedFor };
   }
 
   function selectSeason(si, ssi) {
@@ -883,7 +957,7 @@ function renderSuggestionsFromPayload(payload) {
     // Clear continue cache each render cycle
     continueEpisodeCache = {};
 
-    sidebar.innerHTML = '';
+    sidebar.innerHTML = "";
     if (sidebarShows.length === 0) {
       sidebar.innerHTML = '<div class="sidebar-empty">No shows detected</div>';
       return;
@@ -891,71 +965,90 @@ function renderSuggestionsFromPayload(payload) {
     for (var si = 0; si < sidebarShows.length; si++) {
       var show = sidebarShows[si];
       if (activeSeasonIdx[si] === undefined) activeSeasonIdx[si] = -1;
-      var isOpen = (si === activeShowIdx);
+      var isOpen = si === activeShowIdx;
       var hasEpisodes = isOpen && activeSeasonIdx[si] >= 0;
 
-      var div = document.createElement('div');
-      div.className = 'sidebar-show' + (isOpen ? ' open' : '');
+      var div = document.createElement("div");
+      div.className = "sidebar-show" + (isOpen ? " open" : "");
       var continueInfo = findContinueEpisode(show, si);
 
       // Show header
-      var hdr = document.createElement('div');
-      hdr.className = 'sidebar-show-header';
+      var hdr = document.createElement("div");
+      hdr.className = "sidebar-show-header";
 
       // Name with optional position badge
-      var nameSpan = document.createElement('span');
+      var nameSpan = document.createElement("span");
       nameSpan.textContent = show.name;
       hdr.appendChild(nameSpan);
 
       // Position indicator + continue button (visible when collapsed too)
       if (continueInfo) {
-        var posSpan = document.createElement('span');
-        posSpan.className = 'sidebar-show-position';
+        var posSpan = document.createElement("span");
+        posSpan.className = "sidebar-show-position";
         posSpan.textContent = positionLabel(continueInfo.ep);
         hdr.appendChild(posSpan);
 
-        var contBtn = document.createElement('button');
-        contBtn.className = 'sidebar-show-continue';
-        contBtn.title = continueInfo.reason === 'continue' ? 'Continue watching' : 'Play next';
-        contBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
-        contBtn.onclick = (function(epID) { return function(e) { e.stopPropagation(); selectMedia(epID); }; })(continueInfo.ep.ID);
+        var contBtn = document.createElement("button");
+        contBtn.className = "sidebar-show-continue";
+        contBtn.title =
+          continueInfo.reason === "continue"
+            ? "Continue watching"
+            : "Play next";
+        contBtn.innerHTML =
+          '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"></polygon></svg>';
+        contBtn.onclick = (function(epID) {
+          return function(e) {
+            e.stopPropagation();
+            selectMedia(epID);
+          };
+        })(continueInfo.ep.ID);
         hdr.appendChild(contBtn);
       }
 
       var epCount = 0;
-      for (var sc = 0; sc < show.seasons.length; sc++) epCount += show.seasons[sc].episodes.length;
-      var metaSpan = document.createElement('span');
-      metaSpan.style.cssText = 'font-size:0.7rem;color:var(--text-secondary);margin-left:auto;margin-right:6px';
+      for (var sc = 0; sc < show.seasons.length; sc++)
+        epCount += show.seasons[sc].episodes.length;
+      var metaSpan = document.createElement("span");
+      metaSpan.style.cssText =
+        "font-size:0.7rem;color:var(--text-secondary);margin-left:auto;margin-right:6px";
       metaSpan.textContent = epCount;
       hdr.appendChild(metaSpan);
 
-      var chevron = document.createElement('span');
-      chevron.innerHTML = '<svg class="sidebar-show-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>';
+      var chevron = document.createElement("span");
+      chevron.innerHTML =
+        '<svg class="sidebar-show-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"></polyline></svg>';
       hdr.appendChild(chevron);
-      hdr.onclick = function (idx) {
-        return function () {
-          if (activeShowIdx === idx) { activeShowIdx = -1; }
-          else { activeShowIdx = idx; }
+      hdr.onclick = (function(idx) {
+        return function() {
+          if (activeShowIdx === idx) {
+            activeShowIdx = -1;
+          } else {
+            activeShowIdx = idx;
+          }
           render();
         };
-      }(si);
+      })(si);
       div.appendChild(hdr);
 
       if (isOpen) {
-        var body = document.createElement('div');
-        body.className = 'sidebar-show-body';
+        var body = document.createElement("div");
+        body.className = "sidebar-show-body";
 
         // Season pills
-        var seasonRow = document.createElement('div');
-        seasonRow.className = 'sidebar-seasons';
+        var seasonRow = document.createElement("div");
+        seasonRow.className = "sidebar-seasons";
         for (var ssi = 0; ssi < show.seasons.length; ssi++) {
           var ssn = show.seasons[ssi];
-          var pill = document.createElement('button');
-          pill.className = 'sidebar-season-pill';
-          if (ssi === activeSeasonIdx[si]) pill.classList.add('active');
-          pill.textContent = 'S' + ssn.season + ' (' + ssn.episodes.length + ')';
-          pill.onclick = (function (sIdx, ssIdx) {
-            return function (e) { e.stopPropagation(); selectSeason(sIdx, ssIdx); };
+          var pill = document.createElement("button");
+          pill.className = "sidebar-season-pill";
+          if (ssi === activeSeasonIdx[si]) pill.classList.add("active");
+          pill.textContent =
+            "S" + ssn.season + " (" + ssn.episodes.length + ")";
+          pill.onclick = (function(sIdx, ssIdx) {
+            return function(e) {
+              e.stopPropagation();
+              selectSeason(sIdx, ssIdx);
+            };
           })(si, ssi);
           seasonRow.appendChild(pill);
         }
@@ -963,52 +1056,63 @@ function renderSuggestionsFromPayload(payload) {
 
         // Episodes (only if a season is selected)
         if (hasEpisodes) {
-          var epContainer = document.createElement('div');
-          epContainer.className = 'sidebar-episodes';
+          var epContainer = document.createElement("div");
+          epContainer.className = "sidebar-episodes";
           var activeSeas = show.seasons[activeSeasonIdx[si]];
           if (activeSeas) {
             for (var ei = 0; ei < activeSeas.episodes.length; ei++) {
               var ep = activeSeas.episodes[ei];
-              var epRow = document.createElement('div');
-              epRow.className = 'sidebar-ep';
-              if (continueInfo && ep.ID === continueInfo.ep.ID) epRow.classList.add('next-up');
-              if (ep.ID === mostRecentID) epRow.classList.add('playing');
+              var epRow = document.createElement("div");
+              epRow.className = "sidebar-ep";
+              if (continueInfo && ep.ID === continueInfo.ep.ID)
+                epRow.classList.add("next-up");
+              if (ep.ID === mostRecentID) epRow.classList.add("playing");
 
-              var num = document.createElement('span');
-              num.className = 'sidebar-ep-num';
+              var num = document.createElement("span");
+              num.className = "sidebar-ep-num";
               num.textContent = ep.episode;
               epRow.appendChild(num);
 
-              var name = document.createElement('span');
-              name.className = 'sidebar-ep-name';
+              var name = document.createElement("span");
+              name.className = "sidebar-ep-name";
               name.textContent = episodeDisplayName(ep);
               epRow.appendChild(name);
 
               var ws = episodeWatched(ep.ID, ep.Metadata);
-              if (ws.status === 'watched') {
-                var dot = document.createElement('span');
-                dot.className = 'sidebar-ep-watched';
+              if (ws.status === "watched") {
+                var dot = document.createElement("span");
+                dot.className = "sidebar-ep-watched";
                 epRow.appendChild(dot);
-                epRow.style.opacity = '0.7';
-              } else if (ws.status === 'progress') {
+                epRow.style.opacity = "0.7";
+              } else if (ws.status === "progress") {
                 var pct = 0;
-                if (ep.Metadata && typeof ep.Metadata === 'object' && ep.Metadata.duration_min) {
+                if (
+                  ep.Metadata &&
+                  typeof ep.Metadata === "object" &&
+                  ep.Metadata.duration_min
+                ) {
                   var totalSec = parseFloat(ep.Metadata.duration_min) * 60;
-                  if (totalSec > 0) pct = Math.min(100, Math.round((ws.playedFor / totalSec) * 100));
+                  if (totalSec > 0)
+                    pct = Math.min(
+                      100,
+                      Math.round((ws.playedFor / totalSec) * 100),
+                    );
                 }
-                var prog = document.createElement('span');
-                prog.className = 'sidebar-ep-progress-text';
-                prog.textContent = Math.round(ws.playedFor / 60) + 'm';
+                var prog = document.createElement("span");
+                prog.className = "sidebar-ep-progress-text";
+                prog.textContent = Math.round(ws.playedFor / 60) + "m";
                 epRow.appendChild(prog);
                 // Thin progress bar
-                var bar = document.createElement('span');
-                bar.className = 'sidebar-ep-progress-bar';
+                var bar = document.createElement("span");
+                bar.className = "sidebar-ep-progress-bar";
                 bar.innerHTML = '<span style="width:' + pct + '%"></span>';
                 epRow.appendChild(bar);
               }
 
-              epRow.onclick = (function (epID) {
-                return function () { selectMedia(epID); };
+              epRow.onclick = (function(epID) {
+                return function() {
+                  selectMedia(epID);
+                };
               })(ep.ID);
               epContainer.appendChild(epRow);
             }
@@ -1022,20 +1126,21 @@ function renderSuggestionsFromPayload(payload) {
 
     // Scroll to next-up episode if a show is expanded
     if (activeShowIdx >= 0) {
-      var nextUp = sidebar.querySelector('.sidebar-ep.next-up');
-      if (nextUp) nextUp.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+      var nextUp = sidebar.querySelector(".sidebar-ep.next-up");
+      if (nextUp)
+        nextUp.scrollIntoView({ block: "nearest", behavior: "smooth" });
     }
   }
 
   function esc(s) {
-    var d = document.createElement('div');
+    var d = document.createElement("div");
     d.textContent = s;
     return d.innerHTML;
   }
 
   // Refresh watch dots periodically
   // Refresh watch dots periodically (but don't change expansion state)
-  setInterval(function () {
+  setInterval(function() {
     if (sidebarShows.length > 0) render();
   }, 30000);
 
@@ -1051,7 +1156,7 @@ function renderSuggestionsFromPayload(payload) {
 // behave the same in fullscreen as they do inline. The server handles
 // on-the-fly MKV→MP4 transcoding transparently.
 // ─────────────────────────────────────────────────────────────────────────
-(function () {
+(function() {
   const el = document.getElementById("player");
   const video = document.getElementById("screen");
   if (!el || !video) return;
@@ -1082,15 +1187,20 @@ function renderSuggestionsFromPayload(payload) {
 
   const state = {
     id: "",
-    duration: 0,      // best-known total seconds (0 = unknown)
+    duration: 0, // best-known total seconds (0 = unknown)
     wasPlaying: true,
-    resumeAt: 0,      // pending native resume applied on loadedmetadata
+    resumeAt: 0, // pending native resume applied on loadedmetadata
     dragging: false,
   };
 
   function itemDurationSec(id) {
     const it = media[id];
-    if (it && it.Metadata && typeof it.Metadata === "object" && it.Metadata.duration_min) {
+    if (
+      it &&
+      it.Metadata &&
+      typeof it.Metadata === "object" &&
+      it.Metadata.duration_min
+    ) {
       const s = parseFloat(it.Metadata.duration_min) * 60;
       if (isFinite(s) && s > 0) return s;
     }
@@ -1158,7 +1268,11 @@ function renderSuggestionsFromPayload(payload) {
     const tot = total();
     let t = Math.max(0, target);
     if (tot > 0) t = Math.min(t, tot - 0.5);
-    try { video.currentTime = t; } catch (e) { /* not seekable yet */ }
+    try {
+      video.currentTime = t;
+    } catch (e) {
+      /* not seekable yet */
+    }
   }
 
   function nudge(delta) {
@@ -1168,7 +1282,7 @@ function renderSuggestionsFromPayload(payload) {
 
   function togglePlay() {
     if (!state.id) return;
-    if (video.paused) video.play().catch(() => {});
+    if (video.paused) video.play().catch(() => { });
     else video.pause();
   }
 
@@ -1177,8 +1291,8 @@ function renderSuggestionsFromPayload(payload) {
     const dt = displayTime();
     if (tot > 0) {
       const frac = Math.max(0, Math.min(1, dt / tot));
-      scrubFill.style.width = (frac * 100) + "%";
-      scrubThumb.style.left = (frac * 100) + "%";
+      scrubFill.style.width = frac * 100 + "%";
+      scrubThumb.style.left = frac * 100 + "%";
     } else {
       scrubFill.style.width = "0%";
       scrubThumb.style.left = "0%";
@@ -1234,26 +1348,43 @@ function renderSuggestionsFromPayload(payload) {
       state.duration = video.duration;
     }
     if (state.resumeAt > 0) {
-      try { video.currentTime = state.resumeAt; } catch (e) {}
+      try {
+        video.currentTime = state.resumeAt;
+      } catch (e) { }
       state.resumeAt = 0;
     }
     updateProgress();
   });
   video.addEventListener("canplay", () => {
     el.classList.remove("buffering");
-    if (state.wasPlaying) video.play().catch(() => {});
+    if (state.wasPlaying) video.play().catch(() => { });
   });
-  video.addEventListener("play", () => { el.classList.add("playing"); showUI(); });
-  video.addEventListener("pause", () => { el.classList.remove("playing"); showUI(); });
+  video.addEventListener("play", () => {
+    el.classList.add("playing");
+    showUI();
+  });
+  video.addEventListener("pause", () => {
+    el.classList.remove("playing");
+    showUI();
+  });
   video.addEventListener("waiting", () => el.classList.add("buffering"));
-  video.addEventListener("playing", () => { el.classList.remove("buffering"); el.classList.add("playing"); });
-  video.addEventListener("timeupdate", () => { if (!state.dragging) updateProgress(); persist(); });
+  video.addEventListener("playing", () => {
+    el.classList.remove("buffering");
+    el.classList.add("playing");
+  });
+  video.addEventListener("timeupdate", () => {
+    if (!state.dragging) updateProgress();
+    persist();
+  });
   video.addEventListener("progress", updateProgress);
   video.addEventListener("volumechange", () => {
     el.classList.toggle("muted", video.muted || video.volume === 0);
     volSlider.value = video.muted ? 0 : video.volume;
   });
-  video.addEventListener("ended", () => { el.classList.remove("playing"); showUI(); });
+  video.addEventListener("ended", () => {
+    el.classList.remove("playing");
+    showUI();
+  });
 
   // ── Button wiring ──
   bigPlay.addEventListener("click", togglePlay);
@@ -1262,14 +1393,19 @@ function renderSuggestionsFromPayload(payload) {
   back10.addEventListener("click", () => nudge(-NUDGE_SEC));
   fwd10.addEventListener("click", () => nudge(NUDGE_SEC));
   skipIntroBtn.addEventListener("click", () => nudge(SKIP_INTRO_SEC));
-  muteBtn.addEventListener("click", () => { video.muted = !video.muted; });
-  volSlider.addEventListener("input", () => { video.volume = parseFloat(volSlider.value); video.muted = video.volume === 0; });
+  muteBtn.addEventListener("click", () => {
+    video.muted = !video.muted;
+  });
+  volSlider.addEventListener("input", () => {
+    video.volume = parseFloat(volSlider.value);
+    video.muted = video.volume === 0;
+  });
 
   fsBtn.addEventListener("click", () => {
     if (document.fullscreenElement) {
       document.exitFullscreen();
     } else if (el.requestFullscreen) {
-      el.requestFullscreen().catch(() => {});
+      el.requestFullscreen().catch(() => { });
     } else if (video.webkitEnterFullscreen) {
       video.webkitEnterFullscreen(); // iOS Safari
     }
@@ -1284,11 +1420,11 @@ function renderSuggestionsFromPayload(payload) {
     const tot = total();
     if (tot <= 0) return;
     const frac = fractionFromEvent(e);
-    hoverTime.style.left = (frac * 100) + "%";
+    hoverTime.style.left = frac * 100 + "%";
     hoverTime.textContent = fmt(frac * tot);
     if (state.dragging) {
-      scrubFill.style.width = (frac * 100) + "%";
-      scrubThumb.style.left = (frac * 100) + "%";
+      scrubFill.style.width = frac * 100 + "%";
+      scrubThumb.style.left = frac * 100 + "%";
       timeCur.textContent = fmt(frac * tot);
     }
   });
@@ -1310,14 +1446,35 @@ function renderSuggestionsFromPayload(payload) {
   document.addEventListener("keydown", (e) => {
     if (!state.id) return;
     const tag = (e.target.tagName || "").toLowerCase();
-    if (tag === "input" || tag === "textarea" || e.target.isContentEditable) return;
+    if (tag === "input" || tag === "textarea" || e.target.isContentEditable)
+      return;
     switch (e.key) {
       case " ":
-      case "k": e.preventDefault(); togglePlay(); showUI(); break;
-      case "ArrowLeft": e.preventDefault(); nudge(-NUDGE_SEC); showUI(); break;
-      case "ArrowRight": e.preventDefault(); nudge(NUDGE_SEC); showUI(); break;
-      case "f": el.requestFullscreen ? (document.fullscreenElement ? document.exitFullscreen() : el.requestFullscreen()) : null; break;
-      case "m": video.muted = !video.muted; break;
+      case "k":
+        e.preventDefault();
+        togglePlay();
+        showUI();
+        break;
+      case "ArrowLeft":
+        e.preventDefault();
+        nudge(-NUDGE_SEC);
+        showUI();
+        break;
+      case "ArrowRight":
+        e.preventDefault();
+        nudge(NUDGE_SEC);
+        showUI();
+        break;
+      case "f":
+        el.requestFullscreen
+          ? document.fullscreenElement
+            ? document.exitFullscreen()
+            : el.requestFullscreen()
+          : null;
+        break;
+      case "m":
+        video.muted = !video.muted;
+        break;
     }
   });
 

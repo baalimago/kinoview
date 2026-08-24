@@ -115,6 +115,26 @@ func TestRecommendHandler_EmptyRequest(t *testing.T) {
 	}
 }
 
+func TestRecommendHandler_NilRecommender(t *testing.T) {
+	i := newRecommendIndexer(t)
+	i.store = &mockStore{}
+	i.recommender = nil
+
+	h := i.recomendHandler()
+	body := bytes.NewBufferString(
+		`{"Request":"watch drama","Context":{}}`,
+	)
+	req := httptest.NewRequest(http.MethodPost, "/recommend", body)
+	rr := httptest.NewRecorder()
+
+	h(rr, req)
+
+	if rr.Code != http.StatusNotImplemented {
+		t.Fatalf("got %d, want %d",
+			rr.Code, http.StatusNotImplemented)
+	}
+}
+
 func TestRecommendHandler_Success(t *testing.T) {
 	items := []model.Item{
 		{ID: "1", Name: "A", MIMEType: "video/mp4"},
