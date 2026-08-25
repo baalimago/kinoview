@@ -276,14 +276,6 @@
     }
     var rng = makeRng(playSeed); // play-level draws: audio picks
 
-    el.style.position = 'relative';
-    el.style.overflow = 'hidden';
-    // Size the host to the resolved stage: an unsized mount point
-    // (production <div id="troupe"> has no CSS rule) would otherwise
-    // clip the absolute stage to zero height.
-    el.style.width = W + 'px';
-    el.style.height = H + 'px';
-
     // ── Selector resolution ────────────────────────────────────────────────
     // A selector is `model:<id>@<version>` or a `/`-joined path of
     // `id#*`/`id#<index>` instance segments; a plain final segment names a
@@ -1188,12 +1180,31 @@
     }
 
     // Self-driving loop (auto mode). The lab mounts with auto:false and calls
-    // step() itself from its own clock.
+    // step() itself from its own clock. Production loops the play: once the
+    // timeline's total duration elapses it restarts from t=0, so the splash
+    // never freezes on a finished one-shot.
     var rafId = null;
     var playing = true;
+    var loopEpoch = 0;
+    function restartPlay() {
+      ptr = 0;
+      lastT = 0;
+      for (var i = 0; i < instances.length; i++) {
+        var pi = instances[i];
+        pi.activeClips = [];
+        pi.gag = null;
+        pi.tween = null;
+        resetAllChannels(pi, pi.node);
+      }
+    }
     function loop() {
       if (!playing) return;
-      step(clock());
+      var now = clock();
+      if (duration > 0 && now - loopEpoch >= duration) {
+        loopEpoch = now;
+        restartPlay();
+      }
+      step(now - loopEpoch);
       rafId = requestFrame(loop);
     }
     function requestFrame(fn) {

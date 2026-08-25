@@ -675,31 +675,42 @@ test('bootstrap self-mounts a resolved play into #troupe', function() {
     ['cat', 'dog', 'forest']);
 });
 
-test('bootstrap sizes an unsized #troupe (production host has no CSS height)', function() {
-  // Production index.html ships <div id="troupe"></div> with no CSS rule, so
-  // clientHeight is 0. The engine must give the host its stage height, or
-  // overflow:hidden clips the absolutely-positioned stage to nothing.
-  var troupeEl = makeEl();
-  troupeEl.clientWidth = 1280;
-  troupeEl.clientHeight = 0;
-  var src = fs.readFileSync(ENGINE, 'utf8');
+test('auto mode loops the play when the timeline duration elapses', function() {
+  // One instance tweens x from 0.5 to 0.9 over 100ms (play duration 100ms).
+  // The auto loop must restart the play from t=0 once that elapses, so the
+  // fullscreen splash never freezes on a finished one-shot.
+  var play = playWith(
+    { bones: [{ id: 'root', parent: null, x: 0, y: 0, rot: 0, length: 0 }] },
+    { keyframes: [], duration: 50 },
+    [{ at: 0, on: 'a', tween: { to: { x: 0.9 }, over: 100 } }]
+  );
+  var mountEl = makeEl();
+  mountEl.clientWidth = 640;
+  mountEl.clientHeight = 360;
+  var rafQueue = [];
+  var t = 0;
   var windowStub = {
-    document: {
-      readyState: 'complete',
-      getElementById: function(id) { return id === 'troupe' ? troupeEl : null; },
-      createElement: function() { return makeEl(); },
-      addEventListener: function() {}
-    },
-    performance: { now: function() { return 0; } },
-    requestAnimationFrame: function() { return 0; },
-    cancelAnimationFrame: function() {},
-    TROUPE_PLAY: readFixture('story_20260820T161500Z.resolved.json')
+    document: makeDocument(),
+    performance: { now: function() { return t; } },
+    requestAnimationFrame: function(fn) { rafQueue.push(fn); return rafQueue.length; },
+    cancelAnimationFrame: function() {}
   };
-  new Function('window', src)(windowStub);
-  var stage = findOne(troupeEl, function(n) { return n.getAttribute('data-stage') === 'troupe'; });
-  assert.ok(stage, 'bootstrap must mount the stage');
-  assert.strictEqual(troupeEl.style.height, '360px',
-    'an unsized host must gain the engine fallback height so the stage is not clipped');
+  new Function('window', fs.readFileSync(ENGINE, 'utf8'))(windowStub);
+  var handle = windowStub.TroupeEngine.mount(mountEl, play, {
+    auto: true,
+    clock: function() { return t; }
+  });
+  var a = findOne(mountEl, function(n) { return n.getAttribute('data-instance') === 'a'; });
+
+  // Mid-tween frame: the instance is partway to the target (linear, f=0.5).
+  t = 50; rafQueue.splice(0).forEach(function(fn) { fn(); });
+  approx(parseTransform(a.style).tx, 0.7 * 640, 1, 'tween must be running mid-play');
+
+  // A frame past the duration restarts the play: the instance returns to its
+  // authored x, not the held tween target.
+  t = 150; rafQueue.splice(0).forEach(function(fn) { fn(); });
+  approx(parseTransform(a.style).tx, 0.5 * 640, 1, 'loop must restart the play from t=0');
+  handle.destroy();
 });
 
 test('bootstrap leaves the stage empty without a play', function() {

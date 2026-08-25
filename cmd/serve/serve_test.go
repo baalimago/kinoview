@@ -184,3 +184,27 @@ func TestRun(t *testing.T) {
 		}
 	})
 }
+
+func TestTroupeMountPointIsFullscreen(t *testing.T) {
+	// The troupe replaces the old fullscreen intro overlay: #troupe must be a
+	// fixed, viewport-filling layer, or the engine renders into a 0-height box
+	// and the splash is invisible / a thin strip.
+	css, err := frontendFiles.ReadFile("frontend/style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+	body := string(css)
+	if !strings.Contains(body, "#troupe") {
+		t.Fatal("style.css has no #troupe rule")
+	}
+	for _, want := range []string{
+		"position: fixed",
+		"width: 100%",
+		"height: 100%",
+		"overflow: hidden",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("#troupe rule is missing %q", want)
+		}
+	}
+}

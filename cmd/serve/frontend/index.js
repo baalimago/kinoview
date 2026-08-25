@@ -7,10 +7,27 @@ const media = {};
 // it over. An empty stage (404) renders nothing — no seed, no fallback: an
 // empty stage is the signal to investigate.
 (function() {
+  var el = document.getElementById("troupe");
+
   function mountPlay(play) {
     window.TROUPE_PLAY = play;
-    var el = document.getElementById("troupe");
     if (el && window.TroupeEngine) window.TroupeEngine.mount(el, play);
+  }
+
+  // Dismiss the fullscreen splash: click or any key fades it out and releases
+  // the pointer, then the element is removed so the gallery underneath is
+  // fully interactive (the old intro's skip behaviour).
+  function dismiss() {
+    if (!el || el.getAttribute("data-dismissed")) return;
+    el.setAttribute("data-dismissed", "1");
+    el.classList.add("dismiss");
+    setTimeout(function() {
+      if (el.parentNode) el.parentNode.removeChild(el);
+    }, 600);
+  }
+  if (el) {
+    document.addEventListener("click", dismiss, false);
+    document.addEventListener("keydown", dismiss, false);
   }
 
   fetch("/api/v1/troupe/play/resolved")
