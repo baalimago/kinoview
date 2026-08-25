@@ -675,6 +675,33 @@ test('bootstrap self-mounts a resolved play into #troupe', function() {
     ['cat', 'dog', 'forest']);
 });
 
+test('bootstrap sizes an unsized #troupe (production host has no CSS height)', function() {
+  // Production index.html ships <div id="troupe"></div> with no CSS rule, so
+  // clientHeight is 0. The engine must give the host its stage height, or
+  // overflow:hidden clips the absolutely-positioned stage to nothing.
+  var troupeEl = makeEl();
+  troupeEl.clientWidth = 1280;
+  troupeEl.clientHeight = 0;
+  var src = fs.readFileSync(ENGINE, 'utf8');
+  var windowStub = {
+    document: {
+      readyState: 'complete',
+      getElementById: function(id) { return id === 'troupe' ? troupeEl : null; },
+      createElement: function() { return makeEl(); },
+      addEventListener: function() {}
+    },
+    performance: { now: function() { return 0; } },
+    requestAnimationFrame: function() { return 0; },
+    cancelAnimationFrame: function() {},
+    TROUPE_PLAY: readFixture('story_20260820T161500Z.resolved.json')
+  };
+  new Function('window', src)(windowStub);
+  var stage = findOne(troupeEl, function(n) { return n.getAttribute('data-stage') === 'troupe'; });
+  assert.ok(stage, 'bootstrap must mount the stage');
+  assert.strictEqual(troupeEl.style.height, '360px',
+    'an unsized host must gain the engine fallback height so the stage is not clipped');
+});
+
 test('bootstrap leaves the stage empty without a play', function() {
   var troupeEl = makeEl();
   troupeEl.clientWidth = 640;

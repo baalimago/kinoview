@@ -278,6 +278,11 @@
 
     el.style.position = 'relative';
     el.style.overflow = 'hidden';
+    // Size the host to the resolved stage: an unsized mount point
+    // (production <div id="troupe"> has no CSS rule) would otherwise
+    // clip the absolute stage to zero height.
+    el.style.width = W + 'px';
+    el.style.height = H + 'px';
 
     // ── Selector resolution ────────────────────────────────────────────────
     // A selector is `model:<id>@<version>` or a `/`-joined path of
