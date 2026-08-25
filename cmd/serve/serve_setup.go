@@ -30,6 +30,10 @@ import (
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
+// seedNotebook materialises the shared notebook into the worktree. It is a
+// var so serve tests can inject a failing seed and pin the degrade path.
+var seedNotebook = slivingdoc.Seed
+
 func (c *command) Setup(ctx context.Context) error {
 	relPath := ""
 
@@ -156,10 +160,10 @@ func (c *command) Setup(ctx context.Context) error {
 			// through the env file clai injects (phase 2 credentials contract);
 			// the env file carries the same region the server advertises.
 			server.EnvFile = c.s3Supervisor.EnvPath()
-			c.slivingdocServer = server
-			if err := slivingdoc.Seed(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile); err != nil {
+			if err := seedNotebook(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile); err != nil {
 				ancli.Warnf("slivingdoc worktree seed failed, agents run without the shared notebook: %v", err)
 			} else {
+				c.slivingdocServer = server
 				ancli.Noticef("slivingdoc notebook ready at %s", slivingdocWorkspaceRoot)
 			}
 
@@ -171,7 +175,7 @@ func (c *command) Setup(ctx context.Context) error {
 			// only (decision 19); the generation cadence is the hardcoded
 			// cooldown, driven by the indexer's troupe loop.
 			////////////
-			if *c.troupeModel != "" {
+			if c.slivingdocServer.Name != "" && *c.troupeModel != "" {
 				notebook := slivingdoc.NewNotebook(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile)
 				commit := func(filename string) error {
 					return notebook.Commit("append " + filename)

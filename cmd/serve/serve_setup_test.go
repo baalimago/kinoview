@@ -2,6 +2,7 @@ package serve
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 	"github.com/baalimago/kinoview/internal/s3embed"
 )
 
@@ -236,5 +238,88 @@ func TestSetup_TroupeFlags_Registered(t *testing.T) {
 	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/troupe/play/resolved", nil))
 	if rec.Code != http.StatusNotFound {
 		t.Errorf("disabled troupe API = %d, want 404", rec.Code)
+	}
+}
+
+// notebookCommand builds a command whose slivingdoc block is reachable
+// without spawning a real weed child: PATH is empty so the injected
+// supervisor survives ResolveBinary, and -slivingdocCommand points at a stub
+// so resolveSlivingdoc succeeds. The supervisor is constructed but never
+// started — Setup only reads its endpoint and env paths.
+func notebookCommand(t *testing.T) *command {
+	t.Helper()
+	withoutWeed(t)
+	slivingdocBin := filepath.Join(t.TempDir(), "slivingdoc")
+	if err := os.WriteFile(slivingdocBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	c := Command()
+	fs := c.Flagset()
+	if err := fs.Parse([]string{"-troupe", "gpt-5", "-slivingdocCommand", slivingdocBin}); err != nil {
+		t.Fatal(err)
+	}
+	c.s3Supervisor = s3embed.New(s3embed.WithDataDir(t.TempDir()))
+	c.configDir = new(t.TempDir())
+	c.cacheDir = new(t.TempDir())
+	c.slivingdocWorkspace = new(t.TempDir())
+	empty := ""
+	c.classificationModel = &empty
+	c.recommenderModel = &empty
+	c.butlerModel = &empty
+	c.conciergeModel = &empty
+	c.classificationWorkers = new(1)
+	return c
+}
+
+// TestSetup_SeedFailure_DisablesNotebookAndTroupe pins the degrade path: a
+// failed seed leaves the callsign zero and the troupe unmounted (404), even
+// with -troupe set — the notebook gate, not the model flag, is authoritative.
+func TestSetup_SeedFailure_DisablesNotebookAndTroupe(t *testing.T) {
+	c := notebookCommand(t)
+	prev := seedNotebook
+	seedNotebook = func(slivingdoc.Runner, string, string, string) error {
+		return errors.New("seed failed")
+	}
+	t.Cleanup(func() { seedNotebook = prev })
+
+	if err := c.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup with failing seed: %v", err)
+	}
+	if c.slivingdocServer.Name != "" {
+		t.Errorf("slivingdoc callsign must stay zero when the seed fails, got %+v", c.slivingdocServer)
+	}
+	if c.troupeEnabled {
+		t.Error("the troupe must not start when the seed fails")
+	}
+	mux, err := c.setupMux()
+	if err != nil {
+		t.Fatalf("setupMux: %v", err)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/troupe/play/resolved", nil))
+	if rec.Code != http.StatusNotFound {
+		t.Errorf("seed-failed troupe API = %d, want 404", rec.Code)
+	}
+}
+
+// TestSetup_SeedSuccess_EnablesTroupe pins the happy path: a successful seed
+// sets the callsign and, with -troupe set, wires the troupe.
+func TestSetup_SeedSuccess_EnablesTroupe(t *testing.T) {
+	c := notebookCommand(t)
+	prev := seedNotebook
+	seedNotebook = func(slivingdoc.Runner, string, string, string) error {
+		return nil
+	}
+	t.Cleanup(func() { seedNotebook = prev })
+
+	if err := c.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup with successful seed: %v", err)
+	}
+	if c.slivingdocServer.Name == "" {
+		t.Error("slivingdoc callsign must be set when the seed succeeds")
+	}
+	if !c.troupeEnabled {
+		t.Error("the troupe must start when the seed succeeds and -troupe is set")
 	}
 }
