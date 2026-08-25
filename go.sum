@@ -1,5 +1,5 @@
-github.com/baalimago/clai v1.10.23-rc1 h1:f2YGv4QnAMhP1C4AqVCbdb633o/fv688A2Qr25MYaVQ=
-github.com/baalimago/clai v1.10.23-rc1/go.mod h1:IrWKZexAb789EtymGaNr6Ac2SPbFxkWlpNbbw6+Urf8=
+github.com/baalimago/clai v1.10.23 h1:rgHjTPdI+UHN86AxgEeCnVDy6zWqWFVZel/lNaiDhHA=
+github.com/baalimago/clai v1.10.23/go.mod h1:IrWKZexAb789EtymGaNr6Ac2SPbFxkWlpNbbw6+Urf8=
 github.com/baalimago/go_away_boilerplate v1.33.9 h1:hMLo8YnYFKM0SPiJYBAJ2Vd/4TNpkpADlZyz24ojRfM=
 github.com/baalimago/go_away_boilerplate v1.33.9/go.mod h1:F+JZUsPD+dzq5EqCEHQ61Xa1NwyucY8rmhz1TJm08yY=
 github.com/baalimago/wd-41 v1.0.1 h1:fUP4eAIa2WiQEereTKt0G1KF/fKdypLp6bG1D64n75w=
