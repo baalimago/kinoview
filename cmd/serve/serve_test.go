@@ -207,4 +207,16 @@ func TestTroupeMountPointIsFullscreen(t *testing.T) {
 			t.Errorf("#troupe rule is missing %q", want)
 		}
 	}
+	// The splash is gated on `.live`: an empty stage (no submitted play) must
+	// not paint a black wall over the gallery. The blocking audience control
+	// must be styled too.
+	for _, want := range []string{
+		"#troupe.live",
+		".troupe-feedback",
+		".troupe-feedback-thumb",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("troupe frontend is missing %q", want)
+		}
+	}
 }

@@ -1180,31 +1180,37 @@
     }
 
     // Self-driving loop (auto mode). The lab mounts with auto:false and calls
-    // step() itself from its own clock. Production loops the play: once the
-    // timeline's total duration elapses it restarts from t=0, so the splash
-    // never freezes on a finished one-shot.
+    // step() itself from its own clock. Production plays the play ONCE: when
+    // the timeline's total duration elapses the play holds its final frame,
+    // the loop stops and opts.onEnd(duration) fires exactly once — index.js
+    // shows the blocking feedback control there. A play with no timeline
+    // entries (a static scene) ends on the first frame, never looping forever.
     var rafId = null;
     var playing = true;
-    var loopEpoch = 0;
-    function restartPlay() {
-      ptr = 0;
-      lastT = 0;
-      for (var i = 0; i < instances.length; i++) {
-        var pi = instances[i];
-        pi.activeClips = [];
-        pi.gag = null;
-        pi.tween = null;
-        resetAllChannels(pi, pi.node);
-      }
+    var ended = false;
+    var startT = null;
+    function elapsed() {
+      return startT === null ? 0 : clock() - startT;
+    }
+    function finish() {
+      if (ended) return;
+      ended = true;
+      playing = false;
+      if (opts.onEnd) { try { opts.onEnd(duration); } catch (e) {} }
     }
     function loop() {
       if (!playing) return;
       var now = clock();
-      if (duration > 0 && now - loopEpoch >= duration) {
-        loopEpoch = now;
-        restartPlay();
+      if (startT === null) startT = now;
+      var t = now - startT;
+      if (duration > 0) {
+        if (t >= duration) { step(duration); finish(); return; }
+      } else {
+        step(0);
+        finish();
+        return;
       }
-      step(now - loopEpoch);
+      step(t);
       rafId = requestFrame(loop);
     }
     function requestFrame(fn) {
@@ -1217,7 +1223,7 @@
         // backgrounded tab should not keep burning a weak device.
         global.document.addEventListener('visibilitychange', function() {
           if (global.document.hidden) playing = false;
-          else if (!playing) { playing = true; loop(); }
+          else if (!playing && !ended) { playing = true; loop(); }
         }, false);
       }
       loop();
@@ -1226,6 +1232,15 @@
     var handle = {
       step: step,
       duration: duration,
+      // Current play position in ms, clamped to the play's duration; frozen
+      // at duration once the play has ended. index.js reads it for the
+      // dismissal note's atMs.
+      time: function() {
+        if (ended) return duration;
+        var t = elapsed();
+        if (t < 0) return 0;
+        return duration > 0 && t > duration ? duration : t;
+      },
       audio: audio,
       destroy: function() {
         if (rafId !== null) {
@@ -1233,6 +1248,7 @@
           else clearTimeout(rafId);
         }
         playing = false;
+        ended = true;
         if (stageEl.parentNode) stageEl.parentNode.removeChild(stageEl);
         for (var si = 0; si < stages.length; si++) {
           if (stages[si].handle === handle) { stages.splice(si, 1); break; }

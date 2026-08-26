@@ -1,33 +1,127 @@
 const media = {};
 
 // ── The troupe stage ──────────────────────────────────────────────────────
-// Phase 9 cutover: the troupe is the only splash path. The engine
-// (engine.js) self-mounts into <div id="troupe"> when a resolved play is
-// present; index.js fetches the newest submitted play from the API and hands
-// it over. An empty stage (404) renders nothing — no seed, no fallback: an
-// empty stage is the signal to investigate.
+// Phase 9 cutover: the troupe is the only splash path. index.js fetches the
+// newest submitted play, mounts it fullscreen, and after the play runs once
+// it shows a BLOCKING feedback control (thumbs + note, the audience-note
+// contract in internal/agents/troupe/feedback.go). The gallery is unreachable
+// until the audience leaves through a thumb; a click/key before the play ends
+// skips it and records a dismissal note. An empty stage (404) leaves #troupe
+// hidden — no black wall, no fallback.
 (function() {
   var el = document.getElementById("troupe");
+  var FEEDBACK_URL = "/api/v1/troupe/feedback";
+  var NOTE_MAX = 240;
+  var handle = null;
+  var playId = null;
+  var feedbackPending = false;
+  var dismissed = false;
+  var listenersOn = false;
 
-  function mountPlay(play) {
-    window.TROUPE_PLAY = play;
-    if (el && window.TroupeEngine) window.TroupeEngine.mount(el, play);
+  // Fire-and-forget: feedback must never break the splash. Failure is silent
+  // — the director reads whatever arrives.
+  function postFeedback(type, data) {
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open("POST", FEEDBACK_URL, true);
+      xhr.setRequestHeader("Content-Type", "application/json");
+      xhr.send(JSON.stringify({ playId: playId, type: type, data: data }));
+    } catch (e) {}
   }
 
-  // Dismiss the fullscreen splash: click or any key fades it out and releases
-  // the pointer, then the element is removed so the gallery underneath is
-  // fully interactive (the old intro's skip behaviour).
-  function dismiss() {
-    if (!el || el.getAttribute("data-dismissed")) return;
-    el.setAttribute("data-dismissed", "1");
+  // Stop the engine and fade the splash out, then remove it so the gallery
+  // underneath is fully interactive. Idempotent.
+  function removeSplash() {
+    if (!el || dismissed) return;
+    dismissed = true;
+    if (handle) { handle.destroy(); handle = null; }
     el.classList.add("dismiss");
     setTimeout(function() {
       if (el.parentNode) el.parentNode.removeChild(el);
     }, 600);
   }
-  if (el) {
+
+  // Outside dismissal — click or any key. Blocked while the feedback control
+  // is live: the audience leaves through a thumb, never a stray key.
+  function dismiss() {
+    if (dismissed || !el) return;
+    if (feedbackPending) return;
+    postFeedback("dismissal", { atMs: handle ? handle.time() : 0 });
+    removeSplash();
+  }
+
+  // Only start listening once a play is mounted: before then #troupe is
+  // hidden and clicks belong to the gallery, never the splash.
+  function attachDismiss() {
+    if (listenersOn) return;
+    listenersOn = true;
     document.addEventListener("click", dismiss, false);
     document.addEventListener("keydown", dismiss, false);
+  }
+
+  function buildFeedbackControl() {
+    var root = document.createElement("div");
+    root.className = "troupe-feedback";
+    var note = document.createElement("input");
+    note.type = "text";
+    note.className = "troupe-feedback-note";
+    note.placeholder = "a note for the director";
+    note.maxLength = String(NOTE_MAX);
+    var up = document.createElement("button");
+    up.type = "button";
+    up.className = "troupe-feedback-thumb up";
+    up.title = "Loved it";
+    up.textContent = "\uD83D\uDC4D"; // thumbs up
+    var down = document.createElement("button");
+    down.type = "button";
+    down.className = "troupe-feedback-thumb down";
+    down.title = "Not for me";
+    down.textContent = "\uD83D\uDC4E"; // thumbs down
+
+    root.appendChild(note);
+    root.appendChild(up);
+    root.appendChild(down);
+
+    // One delegated listener per event type: any click or key inside the
+    // control — focusing the note, tapping a thumb, pressing OK on a focused
+    // thumb — is the control's business, never the document's dismissal.
+    root.addEventListener("click", function(e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+    }, false);
+    root.addEventListener("keydown", function(e) {
+      if (e && e.stopPropagation) e.stopPropagation();
+    }, false);
+
+    function send(rating) {
+      postFeedback("rating", { rating: rating, comment: note.value || "" });
+      feedbackPending = false;
+      root.classList.add("sent");
+      removeSplash();
+    }
+
+    up.addEventListener("click", function() { send(1); }, false);
+    down.addEventListener("click", function() { send(-1); }, false);
+
+    el.appendChild(root);
+    // Cross a frame so the fade-in transition actually runs.
+    setTimeout(function() { root.classList.add("show"); }, 0);
+  }
+
+  function mountPlay(play) {
+    window.TROUPE_PLAY = play;
+    playId = play.play && play.play.id ? play.play.id : null;
+    if (el && window.TroupeEngine) {
+      el.classList.add("live");
+      attachDismiss();
+      handle = window.TroupeEngine.mount(el, play, {
+        auto: true,
+        onEnd: function(durationMs) {
+          postFeedback("completion", { durationMs: durationMs || 0 });
+          feedbackPending = true;
+          buildFeedbackControl();
+        }
+      });
+    }
   }
 
   fetch("/api/v1/troupe/play/resolved")
@@ -37,7 +131,7 @@ const media = {};
     })
     .then(mountPlay)
     .catch(function(err) {
-      // No submitted play — the empty stage. The engine renders nothing.
+      // No submitted play — the empty stage. #troupe stays hidden.
       console.info("troupe: " + err.message);
     });
 })();

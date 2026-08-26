@@ -675,10 +675,10 @@ test('bootstrap self-mounts a resolved play into #troupe', function() {
     ['cat', 'dog', 'forest']);
 });
 
-test('auto mode loops the play when the timeline duration elapses', function() {
+test('auto mode plays once and fires onEnd at the timeline duration', function() {
   // One instance tweens x from 0.5 to 0.9 over 100ms (play duration 100ms).
-  // The auto loop must restart the play from t=0 once that elapses, so the
-  // fullscreen splash never freezes on a finished one-shot.
+  // The auto loop must run to the end, hold the final frame, and fire onEnd
+  // exactly once with the duration — never restart from t=0.
   var play = playWith(
     { bones: [{ id: 'root', parent: null, x: 0, y: 0, rot: 0, length: 0 }] },
     { keyframes: [], duration: 50 },
@@ -689,6 +689,7 @@ test('auto mode loops the play when the timeline duration elapses', function() {
   mountEl.clientHeight = 360;
   var rafQueue = [];
   var t = 0;
+  var ended = [];
   var windowStub = {
     document: makeDocument(),
     performance: { now: function() { return t; } },
@@ -698,7 +699,8 @@ test('auto mode loops the play when the timeline duration elapses', function() {
   new Function('window', fs.readFileSync(ENGINE, 'utf8'))(windowStub);
   var handle = windowStub.TroupeEngine.mount(mountEl, play, {
     auto: true,
-    clock: function() { return t; }
+    clock: function() { return t; },
+    onEnd: function(d) { ended.push(d); }
   });
   var a = findOne(mountEl, function(n) { return n.getAttribute('data-instance') === 'a'; });
 
@@ -706,10 +708,45 @@ test('auto mode loops the play when the timeline duration elapses', function() {
   t = 50; rafQueue.splice(0).forEach(function(fn) { fn(); });
   approx(parseTransform(a.style).tx, 0.7 * 640, 1, 'tween must be running mid-play');
 
-  // A frame past the duration restarts the play: the instance returns to its
-  // authored x, not the held tween target.
+  // A frame past the duration ends the play: the instance holds the target
+  // (not the rest pose), onEnd fired once with the duration, the loop stops,
+  // and handle.time() freezes at the duration.
   t = 150; rafQueue.splice(0).forEach(function(fn) { fn(); });
-  approx(parseTransform(a.style).tx, 0.5 * 640, 1, 'loop must restart the play from t=0');
+  approx(parseTransform(a.style).tx, 0.9 * 640, 1, 'play must hold the final tween target');
+  assert.deepStrictEqual(ended, [100], 'onEnd must fire exactly once with the duration');
+  assert.strictEqual(rafQueue.length, 0, 'the loop must stop after the play ends');
+  assert.strictEqual(handle.time(), 100, 'time must freeze at the duration once ended');
+  handle.destroy();
+});
+
+test('auto mode ends a static play (no timeline) on the first frame', function() {
+  // A play with instances but no timeline entries has duration 0. It must
+  // end immediately — never loop forever waiting for a duration that is 0.
+  var play = playWith(
+    { bones: [{ id: 'root', parent: null, x: 0, y: 0, rot: 0, length: 0 }] },
+    { keyframes: [], duration: 50 },
+    []
+  );
+  var mountEl = makeEl();
+  mountEl.clientWidth = 640;
+  mountEl.clientHeight = 360;
+  var rafQueue = [];
+  var windowStub = {
+    document: makeDocument(),
+    performance: { now: function() { return 0; } },
+    requestAnimationFrame: function(fn) { rafQueue.push(fn); return rafQueue.length; },
+    cancelAnimationFrame: function() {}
+  };
+  new Function('window', fs.readFileSync(ENGINE, 'utf8'))(windowStub);
+  var ended = 0;
+  var handle = windowStub.TroupeEngine.mount(mountEl, play, {
+    auto: true,
+    clock: function() { return 0; },
+    onEnd: function() { ended++; }
+  });
+  assert.strictEqual(ended, 1, 'a static play must end on the first frame, not loop forever');
+  assert.strictEqual(rafQueue.length, 0, 'a static play must not schedule another frame');
+  assert.strictEqual(handle.time(), 0, 'time is 0 for a static play');
   handle.destroy();
 });
 
