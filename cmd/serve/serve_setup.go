@@ -26,7 +26,6 @@ import (
 	"github.com/baalimago/kinoview/internal/media/storage"
 	"github.com/baalimago/kinoview/internal/media/stream"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
-	"github.com/baalimago/kinoview/internal/s3embed"
 	wd41serve "github.com/baalimago/wd-41/cmd/serve"
 )
 
@@ -106,143 +105,123 @@ func (c *command) Setup(ctx context.Context) error {
 	c.storeWait = store.Wait
 
 	////////////
-	// SeaweedFS supervisor setup — the S3 backend for the slivingdoc notebook
+	// slivingdoc setup — the shared agent notebook (callsign + worktree) over
+	// an external S3 backend. kinoview no longer spawns or supervises
+	// SeaweedFS: the backend is a standalone Docker SeaweedFS (see
+	// docker-compose.yml) and the operator supplies the matching credentials in
+	// the standard AWS env vars. The feature is on when those resolve and
+	// -slivingdocDisable is false; any other state logs one warning and the
+	// server runs without the notebook.
 	////////////
-	// The notebook is off when the operator disables it (-slivingdocDisable)
-	// or when no weed binary resolves: either state logs one warning and the
-	// server runs without the notebook. Resolution comes first so a missing
-	// dependency never even creates the data dir.
 	if !*c.slivingdocDisable {
-		weedBin, err := s3embed.ResolveBinary(*c.s3ServerPath)
-		if err != nil {
-			ancli.Warnf("running without the S3-backed agent notebook: %v", err)
-		} else {
-			s3Supervisor := s3embed.New(
-				s3embed.WithBinary(weedBin),
-				s3embed.WithDataDir(*c.s3ServerDir),
-				s3embed.WithS3Port(*c.s3ServerPort),
-				s3embed.WithMasterPort(*c.s3MasterPort),
-				s3embed.WithVolumePort(*c.s3VolumePort),
-				s3embed.WithFilerPort(*c.s3FilerPort),
-				s3embed.WithBucket(*c.slivingdocBucket),
-				s3embed.WithRegion(*c.slivingdocRegion),
-			)
-			if err := s3Supervisor.Start(ctx); err != nil {
-				ancli.Warnf("running without the S3-backed agent notebook: %v", err)
-			} else {
-				c.s3Supervisor = s3Supervisor
-				ancli.Noticef("SeaweedFS S3 ready at %s (bucket %q)", s3Supervisor.Endpoint(), s3Supervisor.Bucket())
-			}
-		}
-	}
-
-	////////////
-	// slivingdoc setup — the shared agent notebook (callsign + worktree)
-	////////////
-	if c.s3Supervisor != nil {
-		runner, err := resolveSlivingdoc(*c.slivingdocCommand)
-		if err != nil {
+		accessKey, secretKey := os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY")
+		if accessKey == "" || secretKey == "" {
+			ancli.Warnf("running without the S3-backed agent notebook: AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY are not set")
+		} else if runner, err := resolveSlivingdoc(*c.slivingdocCommand); err != nil {
 			ancli.Warnf("running without the slivingdoc agent notebook: %v", err)
 		} else {
 			privateRoot := path.Join(*c.cacheDir, "slivingdoc-private")
-			server := slivingdoc.Server(
-				runner,
-				*c.slivingdocBucket,
-				*c.slivingdocRegion,
-				// The MCP child talks to the S3 gateway at the explicit
-				// -slivingdocEndpoint, or at the supervisor's own endpoint
-				// (http://127.0.0.1:<s3ServerPort>) when unset (decision D-4).
-				notebookEndpoint(*c.slivingdocEndpoint, c.s3Supervisor),
-				slivingdocWorkspaceRoot,
-				privateRoot,
-			)
-			// The S3 credentials the supervisor generated reach the MCP child
-			// through the env file clai injects (phase 2 credentials contract);
-			// the env file carries the same region the server advertises.
-			server.EnvFile = c.s3Supervisor.EnvPath()
-			if err := seedNotebook(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile); err != nil {
-				ancli.Warnf("slivingdoc worktree seed failed, agents run without the shared notebook: %v", err)
+			envFile := path.Join(*c.configDir, "slivingdoc", "credentials.env")
+			if err := os.MkdirAll(path.Dir(envFile), 0o755); err != nil {
+				ancli.Warnf("running without the slivingdoc agent notebook: %v", err)
+			} else if err := slivingdoc.WriteEnvFile(envFile, *c.slivingdocEndpoint, *c.slivingdocBucket, *c.slivingdocRegion, accessKey, secretKey); err != nil {
+				ancli.Warnf("running without the slivingdoc agent notebook: %v", err)
 			} else {
-				c.slivingdocServer = server
-				ancli.Noticef("slivingdoc notebook ready at %s", slivingdocWorkspaceRoot)
-			}
+				server := slivingdoc.Server(
+					runner,
+					*c.slivingdocBucket,
+					*c.slivingdocRegion,
+					*c.slivingdocEndpoint,
+					slivingdocWorkspaceRoot,
+					privateRoot,
+				)
+				// The S3 credentials reach the MCP child through the env file
+				// clai injects; the seed/pull/commit CLI runs read the same file.
+				server.EnvFile = envFile
+				if err := seedNotebook(runner, slivingdocWorkspaceRoot, privateRoot, envFile); err != nil {
+					ancli.Warnf("slivingdoc worktree seed failed, agents run without the shared notebook: %v", err)
+				} else {
+					c.slivingdocServer = server
+					ancli.Noticef("slivingdoc notebook ready at %s", slivingdocWorkspaceRoot)
+				}
 
-			////////////
-			// Troupe setup — the director + swarm + critic over the shared
-			// notebook (phase 9 cutover: the troupe is the only splash path).
-			// Gated on the notebook and -troupe: with either missing the
-			// troupe does not start and the play API returns 404. Two flags
-			// only (decision 19); the generation cadence is the hardcoded
-			// cooldown, driven by the indexer's troupe loop.
-			////////////
-			if c.slivingdocServer.Name != "" && *c.troupeModel != "" {
-				notebook := slivingdoc.NewNotebook(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile)
-				commit := func(filename string) error {
-					return notebook.Commit("append " + filename)
+				////////////
+				// Troupe setup — the director + swarm + critic over the shared
+				// notebook (phase 9 cutover: the troupe is the only splash path).
+				// Gated on the notebook and -troupe: with either missing the
+				// troupe does not start and the play API returns 404. Two flags
+				// only (decision 19); the generation cadence is the hardcoded
+				// cooldown, driven by the indexer's troupe loop.
+				////////////
+				if c.slivingdocServer.Name != "" && *c.troupeModel != "" {
+					notebook := slivingdoc.NewNotebook(runner, slivingdocWorkspaceRoot, privateRoot, envFile)
+					commit := func(filename string) error {
+						return notebook.Commit("append " + filename)
+					}
+					budget := troupe.NewBudget(troupe.WithStoploss(*c.troupeTokenStoploss))
+					spawner, err := troupe.NewSpawner(
+						troupe.WithModel(*c.troupeModel),
+						troupe.WithConfigDir(*c.configDir),
+						troupe.WithNotebook(c.slivingdocServer, slivingdocWorkspaceRoot),
+						troupe.WithBudget(budget),
+						// The live role source: roles are notes the director authors
+						// during the generation, so the swarm must read them from the
+						// worktree at spawn time, never a setup-time snapshot.
+						troupe.WithRoleSource(troupe.NewWorktreeRoleSource(slivingdocWorkspaceRoot)),
+					)
+					if err != nil {
+						return fmt.Errorf("troupe spawner: %w", err)
+					}
+					submitter, err := troupe.NewSubmitter(slivingdocWorkspaceRoot)
+					if err != nil {
+						return fmt.Errorf("troupe submitter: %w", err)
+					}
+					director, err := troupe.NewDirector(
+						troupe.WithSwarm(spawner),
+						troupe.WithSubmitter(submitter),
+						troupe.WithGenerationBudget(budget),
+						troupe.WithDirectorModel(*c.troupeModel),
+						troupe.WithDirectorConfigDir(*c.configDir),
+						troupe.WithDirectorNotebook(c.slivingdocServer, slivingdocWorkspaceRoot),
+					)
+					if err != nil {
+						return fmt.Errorf("troupe director: %w", err)
+					}
+					criticismWriter, err := troupe.NewCriticismWriter(slivingdocWorkspaceRoot,
+						troupe.WithCriticismCommit(commit))
+					if err != nil {
+						return fmt.Errorf("troupe criticism writer: %w", err)
+					}
+					critic, err := troupe.NewCritic(
+						troupe.WithCriticismWriter(criticismWriter),
+						troupe.WithCriticModel(*c.troupeModel),
+						troupe.WithCriticConfigDir(*c.configDir),
+					)
+					if err != nil {
+						return fmt.Errorf("troupe critic: %w", err)
+					}
+					troupeFacade, err = troupe.NewTroupe(
+						troupe.WithGenerationDirector(director),
+						troupe.WithGenerationCritic(critic),
+						troupe.WithMaterialise(func(ctx context.Context) error {
+							return slivingdoc.Pull(runner, slivingdocWorkspaceRoot, privateRoot, envFile)
+						}),
+					)
+					if err != nil {
+						return fmt.Errorf("troupe facade: %w", err)
+					}
+					troupeFeedback, err = troupe.NewFeedbackWriter(slivingdocWorkspaceRoot,
+						troupe.WithFeedbackCommit(commit))
+					if err != nil {
+						return fmt.Errorf("troupe feedback writer: %w", err)
+					}
+					troupeLib, err = troupe.NewPlayLibrary(slivingdocWorkspaceRoot)
+					if err != nil {
+						return fmt.Errorf("troupe play library: %w", err)
+					}
+					c.troupeEnabled = true
+					ancli.Noticef("troupe ready over the shared notebook at %s", slivingdocWorkspaceRoot)
 				}
-				budget := troupe.NewBudget(troupe.WithStoploss(*c.troupeTokenStoploss))
-				spawner, err := troupe.NewSpawner(
-					troupe.WithModel(*c.troupeModel),
-					troupe.WithConfigDir(*c.configDir),
-					troupe.WithNotebook(c.slivingdocServer, slivingdocWorkspaceRoot),
-					troupe.WithBudget(budget),
-					// The live role source: roles are notes the director authors
-					// during the generation, so the swarm must read them from the
-					// worktree at spawn time, never a setup-time snapshot.
-					troupe.WithRoleSource(troupe.NewWorktreeRoleSource(slivingdocWorkspaceRoot)),
-				)
-				if err != nil {
-					return fmt.Errorf("troupe spawner: %w", err)
-				}
-				submitter, err := troupe.NewSubmitter(slivingdocWorkspaceRoot)
-				if err != nil {
-					return fmt.Errorf("troupe submitter: %w", err)
-				}
-				director, err := troupe.NewDirector(
-					troupe.WithSwarm(spawner),
-					troupe.WithSubmitter(submitter),
-					troupe.WithGenerationBudget(budget),
-					troupe.WithDirectorModel(*c.troupeModel),
-					troupe.WithDirectorConfigDir(*c.configDir),
-					troupe.WithDirectorNotebook(c.slivingdocServer, slivingdocWorkspaceRoot),
-				)
-				if err != nil {
-					return fmt.Errorf("troupe director: %w", err)
-				}
-				criticismWriter, err := troupe.NewCriticismWriter(slivingdocWorkspaceRoot,
-					troupe.WithCriticismCommit(commit))
-				if err != nil {
-					return fmt.Errorf("troupe criticism writer: %w", err)
-				}
-				critic, err := troupe.NewCritic(
-					troupe.WithCriticismWriter(criticismWriter),
-					troupe.WithCriticModel(*c.troupeModel),
-					troupe.WithCriticConfigDir(*c.configDir),
-				)
-				if err != nil {
-					return fmt.Errorf("troupe critic: %w", err)
-				}
-				troupeFacade, err = troupe.NewTroupe(
-					troupe.WithGenerationDirector(director),
-					troupe.WithGenerationCritic(critic),
-					troupe.WithMaterialise(func(ctx context.Context) error {
-						return slivingdoc.Pull(runner, slivingdocWorkspaceRoot, privateRoot, server.EnvFile)
-					}),
-				)
-				if err != nil {
-					return fmt.Errorf("troupe facade: %w", err)
-				}
-				troupeFeedback, err = troupe.NewFeedbackWriter(slivingdocWorkspaceRoot,
-					troupe.WithFeedbackCommit(commit))
-				if err != nil {
-					return fmt.Errorf("troupe feedback writer: %w", err)
-				}
-				troupeLib, err = troupe.NewPlayLibrary(slivingdocWorkspaceRoot)
-				if err != nil {
-					return fmt.Errorf("troupe play library: %w", err)
-				}
-				c.troupeEnabled = true
-				ancli.Noticef("troupe ready over the shared notebook at %s", slivingdocWorkspaceRoot)
 			}
 		}
 	}
@@ -377,19 +356,6 @@ func (c *command) Setup(ctx context.Context) error {
 	}
 
 	return nil
-}
-
-// notebookEndpoint is the S3 endpoint the notebook talks to: the explicit
-// -slivingdocEndpoint flag when set, else the supervised SeaweedFS child's
-// own endpoint (the http://127.0.0.1:<s3ServerPort> form, decision D-4).
-func notebookEndpoint(flagEndpoint string, s3 *s3embed.Supervisor) string {
-	if flagEndpoint != "" {
-		return flagEndpoint
-	}
-	if s3 == nil {
-		return ""
-	}
-	return s3.Endpoint()
 }
 
 // resolveSlivingdoc returns how to invoke the slivingdoc CLI: the explicit

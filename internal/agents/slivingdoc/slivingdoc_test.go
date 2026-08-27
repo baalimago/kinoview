@@ -289,6 +289,40 @@ func TestSeed_EnvReachesChild(t *testing.T) {
 	}
 }
 
+// WriteEnvFile produces the credentials env file the slivingdoc CLI sources:
+// the AWS SDK variables plus the notebook bucket and path-style flag. The
+// file holds the S3 secret, so it must be written 0600.
+func TestWriteEnvFile_Contract(t *testing.T) {
+	envFile := filepath.Join(t.TempDir(), "credentials.env")
+	if err := WriteEnvFile(envFile, "http://127.0.0.1:8333", "slivingdoc", "us-east-1", "kinoview", "kinoview-notebook-secret"); err != nil {
+		t.Fatalf("WriteEnvFile: %v", err)
+	}
+	info, err := os.Stat(envFile)
+	if err != nil {
+		t.Fatalf("stat env file: %v", err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("env file mode = %o, want 0600", perm)
+	}
+	b, err := os.ReadFile(envFile)
+	if err != nil {
+		t.Fatalf("read env file: %v", err)
+	}
+	content := string(b)
+	for _, want := range []string{
+		"AWS_ACCESS_KEY_ID=kinoview",
+		"AWS_SECRET_ACCESS_KEY=kinoview-notebook-secret",
+		"AWS_REGION=us-east-1",
+		"AWS_ENDPOINT_URL_S3=http://127.0.0.1:8333",
+		"SLIVINGDOC_BUCKET=slivingdoc",
+		"SLIVINGDOC_PATH_STYLE=true",
+	} {
+		if !strings.Contains(content, want) {
+			t.Errorf("env file missing %q:\n%s", want, content)
+		}
+	}
+}
+
 // TestPull_MaterialisesWithoutAuthoring pins the troupe's Warm seam: Pull
 // runs the pull only — no bulletin seeding, no commit — and materialises
 // the worktree state the pull writes.

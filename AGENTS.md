@@ -12,7 +12,7 @@ components (classifier, butler, recommender, concierge) are opt-in via
 CLI flags and plug into the indexer via interface contracts defined in
 `internal/agents/interfaces.go`. The concierge also
 communicates through the shared **slivingdoc** notebook — a git-backed UTF-8
-text notebook synced through a supervised SeaweedFS S3 child (see Data
+text notebook synced through an external SeaweedFS S3 backend (see Data
 Flow).
 
 ### Package Map
@@ -85,8 +85,6 @@ internal/
 │   ├── media.go         # MediaInfo, Stream (codec/language/subtitle metadata)
 │   ├── event.go         # Event types for SSE broadcast
 │   └── log.go           # Structured log types for LLM agent introspection
-├── s3embed/             # SeaweedFS supervisor: spawns/stops the weed S3 child, IAM + credentials
-│   │                    #   env file, bucket creation (the notebook's S3 backend)
 └── loghandler/          # HTTP handler for agent log streaming (SSE)
 ```
 
@@ -129,19 +127,19 @@ internal/
 ```
 
 The agent conversation happens in the shared slivingdoc notebook, backed by
-a supervised SeaweedFS child:
+a standalone SeaweedFS S3 gateway (a Docker stack, see docker-compose.yml):
 
 ```text
-┌──────────────┐   spawns/stops   ┌──────────────────────────┐
-│ kinoview     │─────────────────►│ weed server -s3          │
-│ (serve)      │                  │ 127.0.0.1:<s3Port>       │
-└──────┬───────┘                  │ bucket "slivingdoc"      │
-       │ pull / commit            └────────────┬─────────────┘
-       ▼                                       │ S3
-┌──────────────────────────────────────────────┴───────────┐
-│        shared worktree  <cache>/slivingdoc/              │
-│   bulletin.md · agent notes                              │
-└───────▲──────────────────────────────────────────────────┘
+┌──────────────┐   S3 (pull / commit)   ┌──────────────────────────┐
+│ kinoview     │───────────────────────►│ SeaweedFS S3 gateway     │
+│ (serve)      │                        │ http://<host>:8333       │
+└──────┬───────┘                        │ bucket "slivingdoc"     │
+       │ pull / commit                  └──────────────────────────┘
+       ▼
+┌─────────────────────────────────────────────────────────────┐
+│        shared worktree  <cache>/slivingdoc/                 │
+│   bulletin.md · agent notes                                 │
+└───────▲─────────────────────────────────────────────────────┘
         │ file tools (cat, rows_between, ls, rg, write_file, apply_patch, mkdir)
 ┌───────┴────────┐
 │  concierge     │
@@ -156,11 +154,12 @@ concurrent changes with visible conflict markers.
 
 All agentic components are **opt-in** — each has its own `-model` flag. When unset,
 that agent is nil and the indexer skips the corresponding feature path. The
-shared notebook is opt-in too: `serve` enables it when the `weed` binary resolves,
-the slivingdoc command resolves (`npx -y slivingdoc` by default, or a prebuilt
-binary via `-slivingdocCommand`) and `-slivingdocDisable` is unset. A missing
-dependency logs one warning and the notebook is off — agents fall back to
-their old single-shot behaviour. The old intro splash was removed in
+shared notebook is opt-in too: `serve` enables it when the AWS credentials
+(`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) resolve, the slivingdoc command
+resolves (`npx -y slivingdoc` by default, or a prebuilt binary via
+`-slivingdocCommand`) and `-slivingdocDisable` is unset. A missing dependency
+logs one warning and the notebook is off — agents fall back to their old
+single-shot behaviour. The old intro splash was removed in
 worklog 2026-08-17-the-troupe phase 0; the troupe (director + swarm + critic)
 replaces it from phase 7 onward.
 
@@ -175,12 +174,12 @@ replaces it from phase 7 onward.
   `mcp_slivingdoc_notes_commit`. The loop is one shared `NOTES` prompt
   partial, byte-identical across every agent with only the workspace path
   substituted.
-- **The notebook's S3 backend is a supervised SeaweedFS child.** `serve`
-  resolves the static `weed` binary, spawns `weed server -s3` bound to
-  loopback, waits for S3 readiness, creates the bucket, writes an IAM config
-  and a credentials env file, and SIGTERMs the child on shutdown (escalating
-  to SIGKILL on timeout). Missing `weed` or the slivingdoc command disables
-  the notebook with one warning: agents fall back to their old single-shot
+- **The notebook's S3 backend is a standalone Docker SeaweedFS.** kinoview
+  no longer spawns or supervises SeaweedFS: it connects to the S3 gateway
+  published by `docker-compose.yml` with the operator's AWS
+  credentials, and writes the credentials env file the slivingdoc CLI and MCP
+  child source. Missing credentials or the slivingdoc command disables the
+  notebook with one warning: agents fall back to their old single-shot
   behaviour.
 - **The classifier uses a cloned-agent model.** Each worker goroutine gets its own
   `Classifier.Clone()`, eliminating shared mutable state and LLM session races.
@@ -337,26 +336,23 @@ usual "nil result on error" everywhere else.
 - All agent components are opt-in via their own `-model` flag.
 - Defaults are documented in the flag help text.
 
-The shared agent notebook (slivingdoc over the supervised SeaweedFS child) is
-configured by twelve `serve` flags:
+The shared agent notebook (slivingdoc over the standalone SeaweedFS S3 backend,
+see docker-compose.yml) is configured by these `serve` flags:
 
 | Flag                   | Default              | Purpose                                                                                            |
 | ---------------------- | -------------------- | -------------------------------------------------------------------------------------------------- |
-| `-s3ServerPath`        | auto-discover        | weed binary: next to the kinoview binary, then `weed` on PATH                                      |
-| `-s3ServerPort`        | 8333                 | S3 gateway listen port                                                                             |
-| `-s3ServerDir`         | `<configDir>/s3`     | SeaweedFS data dir                                                                                 |
-| `-s3MasterPort`        | 9333                 | SeaweedFS master HTTP port                                                                         |
-| `-s3VolumePort`        | 8080                 | SeaweedFS volume server HTTP port                                                                  |
-| `-s3FilerPort`         | 8888                 | SeaweedFS filer HTTP port                                                                          |
 | `-slivingdocCommand`   | `npx -y slivingdoc`  | path to a prebuilt slivingdoc binary; empty runs the npm package through npx (`npx -y slivingdoc`) |
 | `-slivingdocBucket`    | `slivingdoc`         | S3 bucket backing the notebook                                                                     |
 | `-slivingdocRegion`    | `us-east-1`          | AWS region label (SigV4 signing, env file, MCP `--region`)                                         |
-| `-slivingdocEndpoint`  | derived              | S3 endpoint; empty derives `http://127.0.0.1:<s3ServerPort>`                                       |
+| `-slivingdocEndpoint`  | `http://127.0.0.1:8333` | S3 endpoint for the notebook (the Docker SeaweedFS S3 gateway)                                  |
 | `-slivingdocWorkspace` | `<cache>/slivingdoc` | shared worktree every agent materialises the notebook into                                         |
-| `-slivingdocDisable`   | false                | force-disable the notebook even when the weed binary and the slivingdoc command are available      |
+| `-slivingdocDisable`   | false                | force-disable the notebook even when the AWS credentials and slivingdoc command resolve            |
 
-The notebook is on when the weed binary and the slivingdoc command resolve and
-`-slivingdocDisable` is false; any other state logs one warning and the
+The credentials are not flags: kinoview reads `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` from its environment (matching `.env`)
+and writes the credentials env file the slivingdoc CLI and MCP child source.
+The notebook is on when those credentials and the slivingdoc command resolve
+and `-slivingdocDisable` is false; any other state logs one warning and the
 server runs without it.
 
 ### Testing

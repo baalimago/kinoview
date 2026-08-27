@@ -1,0 +1,27 @@
+# SeaweedFS as the standalone S3 backend for the slivingdoc agent notebook.
+# kinoview no longer spawns or supervises SeaweedFS; it connects to this
+# published S3 gateway with the credentials in .env (see SEAWEEDFS.md).
+#
+#   docker compose up -d
+#
+# The S3 gateway (8333) binds 0.0.0.0 so a workstation on the LAN can inspect
+# the prod bucket without port forwarding. kinoview itself always dials the
+# local gateway (http://127.0.0.1:8333); the 0.0.0.0 bind exists for checkout
+# and debug only, never for the server's runtime path.
+services:
+  seaweedfs:
+    image: chrislusf/seaweedfs:4.42
+    restart: unless-stopped
+    entrypoint: /bin/sh
+    command:
+      - -c
+      - |
+        echo "{\"identities\":[{\"name\":\"kinoview\",\"credentials\":[{\"accessKey\":\"${AWS_ACCESS_KEY_ID}\",\"secretKey\":\"${AWS_SECRET_ACCESS_KEY}\"}],\"actions\":[\"Admin\",\"Read\",\"Write\",\"List\",\"Tagging\"]}]}" > /etc/seaweedfs/iam.json
+        exec weed server -s3 -s3.config /etc/seaweedfs/iam.json -dir /data -master.port=9333 -volume.port=8080 -filer -filer.port=8888 -s3.port=8333 -master.telemetry=false -s3.port.iceberg=0 -volume.preStopSeconds=0
+    ports:
+      - "0.0.0.0:8333:8333"   # S3 gateway — kinoview (loopback) and LAN checkout
+    volumes:
+      - seaweedfs-data:/data
+
+volumes:
+  seaweedfs-data:

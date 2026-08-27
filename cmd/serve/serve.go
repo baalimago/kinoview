@@ -14,7 +14,15 @@ import (
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
-	"github.com/baalimago/kinoview/internal/s3embed"
+)
+
+// The shared agent notebook's external S3 backend (a Docker SeaweedFS, see
+// docker-compose.yml) defaults. kinoview dials the published S3 gateway on the
+// local host; the credentials arrive in the operator's AWS_* environment.
+const (
+	defaultSlivingdocEndpoint = "http://127.0.0.1:8333"
+	defaultSlivingdocBucket   = "slivingdoc"
+	defaultSlivingdocRegion   = "us-east-1"
 )
 
 //go:embed frontend/*
@@ -34,13 +42,9 @@ type command struct {
 	// storeWait blocks until the store's background goroutines (deferred-write
 	// flush included) have exited. Set during Setup; nil if Setup did not run.
 	storeWait func()
-	// s3Supervisor owns the SeaweedFS child providing the S3-backed agent
-	// notebook. Set during Setup when the weed binary resolved and the child
-	// became ready; nil otherwise (the server runs without the notebook).
-	s3Supervisor *s3embed.Supervisor
 	// slivingdocServer is the MCP callsign for the shared agent notebook,
-	// built during Setup when both the weed binary and the slivingdoc command
-	// resolved. A zero value means the notebook is disabled and the agents run
+	// built during Setup when the AWS credentials and the slivingdoc command
+	// resolve. A zero value means the notebook is disabled and the agents run
 	// without it.
 	slivingdocServer models.McpServer
 
@@ -82,14 +86,7 @@ type command struct {
 	// API is mounted only then, and a missing notebook or model leaves it
 	// unmounted (404).
 	troupeEnabled bool
-	// S3 backend for the shared agent notebook: the supervised SeaweedFS child.
-	s3ServerPath *string
-	s3ServerPort *int
-	s3ServerDir  *string
-	s3MasterPort *int
-	s3VolumePort *int
-	s3FilerPort  *int
-	// Shared agent notebook: the slivingdoc CLI over the S3 backend.
+	// Shared agent notebook: the slivingdoc CLI over the external S3 backend.
 	slivingdocCommand   *string
 	slivingdocBucket    *string
 	slivingdocRegion    *string
@@ -132,21 +129,13 @@ func Command() *command {
 	*ret.conciergeInterval = 6 * time.Hour
 	ret.conciergeTimeout = new(time.Duration)
 	*ret.conciergeTimeout = 10 * time.Minute
-	ret.s3ServerPath = new(string)
-	ret.s3ServerPort = new(int)
-	*ret.s3ServerPort = s3embed.DefaultS3Port
-	ret.s3MasterPort = new(int)
-	*ret.s3MasterPort = s3embed.DefaultMasterPort
-	ret.s3VolumePort = new(int)
-	*ret.s3VolumePort = s3embed.DefaultVolumePort
-	ret.s3FilerPort = new(int)
-	*ret.s3FilerPort = s3embed.DefaultFilerPort
 	ret.slivingdocCommand = new(string)
 	ret.slivingdocBucket = new(string)
-	*ret.slivingdocBucket = s3embed.DefaultBucket
+	*ret.slivingdocBucket = defaultSlivingdocBucket
 	ret.slivingdocRegion = new(string)
-	*ret.slivingdocRegion = s3embed.DefaultRegion
+	*ret.slivingdocRegion = defaultSlivingdocRegion
 	ret.slivingdocEndpoint = new(string)
+	*ret.slivingdocEndpoint = defaultSlivingdocEndpoint
 	ret.slivingdocDisable = new(bool)
 	configDir, err := os.UserConfigDir()
 	if err != nil {
@@ -175,11 +164,9 @@ func Command() *command {
 	ret.binPath = r
 	ret.configDir = &kinoviewConfigDir
 	ret.cacheDir = &kinoviewCacheDir
-	// The S3 data dir and the notebook worktree default under the config and
-	// cache dirs; the Flagset registrations read these computed defaults so
-	// -help shows the concrete paths.
-	ret.s3ServerDir = new(string)
-	*ret.s3ServerDir = path.Join(kinoviewConfigDir, "s3")
+	// The notebook worktree defaults under the cache dir; the Flagset
+	// registration reads this computed default so -help shows the concrete
+	// path.
 	ret.slivingdocWorkspace = new(string)
 	*ret.slivingdocWorkspace = path.Join(kinoviewCacheDir, "slivingdoc")
 	return &ret
@@ -268,14 +255,6 @@ func (c *command) Run(ctx context.Context) error {
 	if err != nil {
 		ancli.Errf("failed to shutdown error: %v", err)
 	}
-	// Stop the S3 child on every exit path — a supervised child must never be
-	// orphaned. Its Stop uses its own bounded window, so a cancelled context
-	// does not skip the graceful SIGTERM.
-	if c.s3Supervisor != nil {
-		if err := c.s3Supervisor.Stop(context.Background()); err != nil {
-			ancli.Errf("failed to stop SeaweedFS: %v", err)
-		}
-	}
 	// On a normal shutdown the context is cancelled, which stops the store's
 	// goroutines. Wait for them so deferred writes flush before we exit. The
 	// error paths leave the context alive, so waiting there would hang.
@@ -330,22 +309,16 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.troupeModel = fs.String("troupe", "", "set to LLM text model you'd like to use for the troupe (director + critic). Supports multiple vendors automatically via clai. If unset, or the shared notebook is disabled, the troupe does not start and the play API returns 404.")
 	c.troupeTokenStoploss = fs.Int("troupeTokenStoploss", 0, "token stoploss for one troupe generation: once the generation's cumulative token usage crosses it, spawn_role refuses new spawns (0 disables)")
 
-	// The shared agent notebook: a supervised SeaweedFS child (the S3 backend)
-	// and the slivingdoc MCP callsign over it. The feature is on when both
-	// binaries resolve and -slivingdocDisable is false; any other state logs
-	// one warning and the server runs without the notebook.
-	c.s3ServerPath = fs.String("s3ServerPath", "", "path to the weed binary; empty auto-discovers next to the kinoview binary, then weed on PATH")
-	c.s3ServerPort = fs.Int("s3ServerPort", s3embed.DefaultS3Port, "S3 gateway listen port for the SeaweedFS child")
-	fs.StringVar(c.s3ServerDir, "s3ServerDir", *c.s3ServerDir, "SeaweedFS data dir (default <configDir>/s3)")
-	c.s3MasterPort = fs.Int("s3MasterPort", s3embed.DefaultMasterPort, "SeaweedFS master HTTP listen port")
-	c.s3VolumePort = fs.Int("s3VolumePort", s3embed.DefaultVolumePort, "SeaweedFS volume server HTTP listen port")
-	c.s3FilerPort = fs.Int("s3FilerPort", s3embed.DefaultFilerPort, "SeaweedFS filer HTTP listen port")
+	// The shared agent notebook: an external S3 backend (a Docker SeaweedFS)
+	// plus the slivingdoc MCP callsign over it. The feature is on when the
+	// AWS credentials resolve and -slivingdocDisable is false; any other
+	// state logs one warning and the server runs without the notebook.
 	c.slivingdocCommand = fs.String("slivingdocCommand", "", "path to a prebuilt slivingdoc binary; empty runs npx -y slivingdoc")
-	c.slivingdocBucket = fs.String("slivingdocBucket", s3embed.DefaultBucket, "S3 bucket backing the shared agent notebook")
-	c.slivingdocRegion = fs.String("slivingdocRegion", s3embed.DefaultRegion, "AWS region label for the notebook bucket")
-	c.slivingdocEndpoint = fs.String("slivingdocEndpoint", "", "S3 endpoint for the notebook; empty derives http://127.0.0.1:<s3ServerPort> from the supervised SeaweedFS child")
+	c.slivingdocBucket = fs.String("slivingdocBucket", defaultSlivingdocBucket, "S3 bucket backing the shared agent notebook")
+	c.slivingdocRegion = fs.String("slivingdocRegion", defaultSlivingdocRegion, "AWS region label for the notebook bucket")
+	c.slivingdocEndpoint = fs.String("slivingdocEndpoint", defaultSlivingdocEndpoint, "S3 endpoint for the notebook (the Docker SeaweedFS S3 gateway)")
 	fs.StringVar(c.slivingdocWorkspace, "slivingdocWorkspace", *c.slivingdocWorkspace, "shared worktree every agent materialises the notebook into (default <cache>/slivingdoc)")
-	c.slivingdocDisable = fs.Bool("slivingdocDisable", false, "force-disable the shared agent notebook even when the weed and slivingdoc binaries exist")
+	c.slivingdocDisable = fs.Bool("slivingdocDisable", false, "force-disable the shared agent notebook even when the AWS credentials and slivingdoc command resolve")
 
 	c.flagset = fs
 	return fs

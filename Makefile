@@ -6,3 +6,12 @@ qa:
 	go vet ./...
 	go fix ./...
 	go run github.com/mibk/dupl@latest -t 80 .
+
+# The slivingdoc S3 backend (docker-compose.yml) as a standalone Docker stack.
+.PHONY: s3-up s3-down s3-logs
+s3-up:
+	docker compose up -d
+s3-down:
+	docker compose down
+s3-logs:
+	docker compose logs -f

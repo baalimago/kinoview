@@ -233,6 +233,29 @@ func loadEnvFile(path string) ([]string, error) {
 	return env, nil
 }
 
+// WriteEnvFile writes the credentials env file the slivingdoc CLI sources for
+// its S3 calls: the standard AWS SDK variables plus the notebook bucket and
+// the path-style flag. kinoview writes it once at setup from the operator's
+// credentials and the -slivingdocEndpoint/-slivingdocBucket/-slivingdocRegion
+// flags; the MCP server (EnvFile) and every Seed/Pull/Commit read it back
+// through loadEnvFile.
+func WriteEnvFile(path, endpoint, bucket, region, accessKey, secretKey string) error {
+	content := strings.Join([]string{
+		"# kinoview slivingdoc notebook S3 credentials",
+		"AWS_ACCESS_KEY_ID=" + accessKey,
+		"AWS_SECRET_ACCESS_KEY=" + secretKey,
+		"AWS_REGION=" + region,
+		"AWS_ENDPOINT_URL_S3=" + endpoint,
+		"SLIVINGDOC_BUCKET=" + bucket,
+		"SLIVINGDOC_PATH_STYLE=true",
+		"",
+	}, "\n")
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		return fmt.Errorf("slivingdoc: write credentials env: %w", err)
+	}
+	return nil
+}
+
 // runCLI executes the slivingdoc npm package through npx with the given
 // environment. The
 // child inherits the parent environment so host logging and proxy

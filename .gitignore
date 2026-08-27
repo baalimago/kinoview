@@ -4,4 +4,7 @@ coverage.out
 # This is for my personal home server, pointless to expose
 .agents/skills/debug-kinoview
 
+# SeaweedFS S3 credentials for the slivingdoc notebook (docker-compose.yml)
+.env
+
 kinoview
