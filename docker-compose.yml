@@ -10,16 +10,11 @@
 # and debug only, never for the server's runtime path.
 services:
   seaweedfs:
-    image: chrislusf/seaweedfs:4.42
+    image: chrislusf/seaweedfs
     restart: unless-stopped
-    entrypoint: /bin/sh
-    command:
-      - -c
-      - |
-        echo "{\"identities\":[{\"name\":\"kinoview\",\"credentials\":[{\"accessKey\":\"${AWS_ACCESS_KEY_ID}\",\"secretKey\":\"${AWS_SECRET_ACCESS_KEY}\"}],\"actions\":[\"Admin\",\"Read\",\"Write\",\"List\",\"Tagging\"]}]}" > /etc/seaweedfs/iam.json
-        exec weed server -s3 -s3.config /etc/seaweedfs/iam.json -dir /data -master.port=9333 -volume.port=8080 -filer -filer.port=8888 -s3.port=8333 -master.telemetry=false -s3.port.iceberg=0 -volume.preStopSeconds=0
+    env_file: .env
     ports:
-      - "0.0.0.0:8333:8333"   # S3 gateway — kinoview (loopback) and LAN checkout
+      - "0.0.0.0:8333:8333" # S3 gateway — kinoview (loopback) and LAN checkout
     volumes:
       - seaweedfs-data:/data
 
