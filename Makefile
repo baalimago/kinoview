@@ -10,7 +10,7 @@ qa:
 # The slivingdoc S3 backend (docker-compose.yml) as a standalone Docker stack.
 .PHONY: s3-up s3-down s3-logs
 s3-up:
-	docker compose up -d
+	docker compose up -d --build
 s3-down:
 	docker compose down
 s3-logs:

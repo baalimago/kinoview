@@ -2,7 +2,13 @@
 # kinoview no longer spawns or supervises SeaweedFS; it connects to this
 # published S3 gateway with the credentials in .env (see SEAWEEDFS.md).
 #
-#   docker compose up -d
+# The image is built locally (docker/Dockerfile) rather than pulled, because
+# the official chrislusf/seaweedfs image panics on 32-bit ARM (rpie): a
+# misaligned 64-bit atomic in weed/cluster.LiveLock. Building from source lets
+# us apply the one-line alignment fix, and each host builds its own native
+# architecture, so the same stack works on rpie (armv7) and amd64.
+#
+#   docker compose up -d --build
 #
 # The S3 gateway (8333) binds 0.0.0.0 so a workstation on the LAN can inspect
 # the prod bucket without port forwarding. kinoview itself always dials the
@@ -10,7 +16,9 @@
 # and debug only, never for the server's runtime path.
 services:
   seaweedfs:
-    image: chrislusf/seaweedfs
+    build:
+      context: docker
+    image: kinoview-seaweedfs
     restart: unless-stopped
     env_file: .env
     ports:
