@@ -18,9 +18,6 @@ FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
 ARG SEAWEEDFS_VERSION=4.48
 ARG TARGETOS TARGETARCH TARGETVARIANT
 
-RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
-
 WORKDIR /src
 RUN curl -fsSL "https://github.com/seaweedfs/seaweedfs/archive/refs/tags/${SEAWEEDFS_VERSION}.tar.gz" \
     | tar -xz --strip-components=1 -C /src
@@ -31,8 +28,7 @@ RUN cd /src/weed && \
     CGO_ENABLED=0 go build -trimpath -ldflags "-s -w -extldflags -static" -o /out/weed .
 
 FROM --platform=$TARGETPLATFORM debian:bookworm-slim
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates \
-    && rm -rf /var/lib/apt/lists/*
+COPY --from=build /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
 COPY --from=build /out/weed /usr/bin/weed
 COPY entrypoint.sh /usr/local/bin/seaweedfs-entrypoint
 RUN chmod +x /usr/local/bin/seaweedfs-entrypoint && mkdir -p /data /etc/seaweedfs
