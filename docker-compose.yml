@@ -1,29 +1,13 @@
-# SeaweedFS as the standalone S3 backend for the slivingdoc agent notebook.
-# kinoview no longer spawns or supervises SeaweedFS; it connects to this
-# published S3 gateway with the credentials in .env (see SEAWEEDFS.md).
-#
-# The image is built locally (docker/Dockerfile) rather than pulled: the
-# official chrislusf/seaweedfs image is Alpine based, and musl's 32-bit ARM
-# clock handling breaks inside containers on rpie. Each host builds its own
-# native architecture from a pinned upstream release, so the same stack works
-# on rpie (armv7) and amd64.
-#
-#   docker compose up -d --build
-#
-# The S3 gateway (8333) binds 0.0.0.0 so a workstation on the LAN can inspect
-# the prod bucket without port forwarding. kinoview itself always dials the
-# local gateway (http://127.0.0.1:8333); the 0.0.0.0 bind exists for checkout
-# and debug only, never for the server's runtime path.
 services:
   seaweedfs:
-    build:
-      context: docker
-    image: kinoview-seaweedfs
+    image: chrislusf/seaweedfs:4.48
     restart: unless-stopped
     env_file: .env
+    entrypoint: ["/bin/sh", "/usr/local/bin/kinoview-entrypoint"]
     ports:
       - "0.0.0.0:8333:8333" # S3 gateway — kinoview (loopback) and LAN checkout
     volumes:
+      - ./docker/entrypoint.sh:/usr/local/bin/kinoview-entrypoint:ro
       - seaweedfs-data:/data
 
 volumes:
