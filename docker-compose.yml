@@ -2,11 +2,11 @@
 # kinoview no longer spawns or supervises SeaweedFS; it connects to this
 # published S3 gateway with the credentials in .env (see SEAWEEDFS.md).
 #
-# The image is built locally (docker/Dockerfile) rather than pulled, because
-# the official chrislusf/seaweedfs image panics on 32-bit ARM (rpie): a
-# misaligned 64-bit atomic in weed/cluster.LiveLock. Building from source lets
-# us apply the one-line alignment fix, and each host builds its own native
-# architecture, so the same stack works on rpie (armv7) and amd64.
+# The image is built locally (docker/Dockerfile) rather than pulled: the
+# official chrislusf/seaweedfs image is Alpine based, and musl's 32-bit ARM
+# clock handling breaks inside containers on rpie. Each host builds its own
+# native architecture from a pinned upstream release, so the same stack works
+# on rpie (armv7) and amd64.
 #
 #   docker compose up -d --build
 #

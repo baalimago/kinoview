@@ -1,28 +1,29 @@
 # syntax=docker/dockerfile:1.7
 
-# Build the weed binary from SeaweedFS source with the 32-bit ARM alignment
-# fix applied (seaweedfs-arm32-align.patch). The official chrislusf/seaweedfs
-# image panics on armv7 ("unaligned 64-bit atomic operation" in
-# weed/cluster.LiveLock.generation), so we build our own with the one-line fix.
+# Build the weed binary from a pinned SeaweedFS release. We build from source
+# instead of pulling the official image because the official image is Alpine
+# based, and rpie's Raspberry Pi vendor kernel returns garbage from the 32-bit
+# ARM clock_gettime64 syscall, which musl 1.2 relies on for time; that breaks
+# TLS inside Alpine containers on rpie, so apk add and any other TLS traffic
+# fail there. Debian (glibc) uses the legacy clock and works. Each host builds
+# its own native architecture, so docker compose up -d --build works on rpie
+# (armv7) and amd64 alike without a registry.
 #
-# We use Debian (glibc) base images, not Alpine. rpie's Raspberry Pi vendor
-# kernel returns garbage from the 32-bit ARM clock_gettime64 syscall, which
-# musl 1.2 relies on for time; that breaks TLS inside Alpine containers on
-# rpie, so apk add / git clone fail there. glibc uses the legacy clock and
-# works. Each host builds its own native architecture, so docker compose
-# up -d --build works on rpie (armv7) and amd64 alike without a registry.
-FROM --platform=$BUILDPLATFORM golang:1.25-bookworm AS build
-ARG SEAWEEDFS_VERSION=4.42
+# The 32-bit ARM alignment fix we used to carry as seaweedfs-arm32-align.patch
+# (weed/cluster.LiveLock.generation landed on a 4-byte address, so the atomic
+# 64-bit fencing token panicked with "unaligned 64-bit atomic operation") is
+# upstream since 4.45: https://github.com/seaweedfs/seaweedfs/pull/11028
+# Do not pin below 4.45 on armv7.
+FROM --platform=$BUILDPLATFORM golang:1.26-bookworm AS build
+ARG SEAWEEDFS_VERSION=4.48
 ARG TARGETOS TARGETARCH TARGETVARIANT
 
-RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates \
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /src
-RUN git clone --depth 1 --branch "${SEAWEEDFS_VERSION}" https://github.com/seaweedfs/seaweedfs .
-
-COPY seaweedfs-arm32-align.patch /tmp/seaweedfs-arm32-align.patch
-RUN git apply --whitespace=nowarn /tmp/seaweedfs-arm32-align.patch
+RUN curl -fsSL "https://github.com/seaweedfs/seaweedfs/archive/refs/tags/${SEAWEEDFS_VERSION}.tar.gz" \
+    | tar -xz --strip-components=1 -C /src
 
 RUN cd /src/weed && \
     export GOOS="${TARGETOS}" GOARCH="${TARGETARCH}" && \

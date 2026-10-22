@@ -6,27 +6,23 @@ S3 gateway this stack publishes, with the credentials in `.env`.
 
 ## Why we build the image instead of pulling it
 
-The official `chrislusf/seaweedfs` image panics on 32-bit ARM (rpie is
-`armv7l`):
+We build from source for the base image, not for the code. The official
+`chrislusf/seaweedfs` image is Alpine based, and rpie is `armv7l` on a Raspberry
+Pi vendor kernel that returns garbage from the 32-bit ARM `clock_gettime64`
+syscall. musl 1.2 relies on that syscall for time, so TLS inside Alpine
+containers fails on rpie and `apk add` / `git clone` do not work there. Debian
+(glibc) uses the legacy clock and works. `docker/Dockerfile` therefore builds
+`weed` from a pinned upstream release on `debian:bookworm-slim`, natively for
+the host architecture, so rpie (armv7) and amd64 use the same stack without a
+registry.
 
-```
-panic: unaligned 64-bit atomic operation
-internal/runtime/atomic.Store64(...)
-github.com/seaweedfs/seaweedfs/weed/cluster.(*LiveLock).doLock.func1(...)
-```
-
-`weed/cluster.LiveLock.generation` is a 64-bit field accessed with
-`atomic.StoreInt64`/`atomic.LoadInt64`, but it is the *last* field of the struct,
-so on 32-bit ARM (where `int64` is 4-byte aligned) it lands on a non-8-byte
-address and every lock acquisition panics. The S3 gateway's bucket-size-metrics
-loop takes the `s3.leader` lock ~10 s after startup, so the container
-crash-loops before kinoview ever connects. The bug is present upstream in every
-4.x release.
-
-`docker/Dockerfile` builds `weed` from source with `docker/seaweedfs-arm32-align.patch`
-applied (moves `generation` to the first field, which Go guarantees 8-byte
-aligned). Because the build compiles natively for each host architecture, the
-same stack works on rpie (armv7) and amd64 without a registry.
+We used to also carry `docker/seaweedfs-arm32-align.patch`, because
+`weed/cluster.LiveLock.generation` was the *last* field of the struct: on 32-bit
+ARM (`int64` is 4-byte aligned) it landed on a non-8-byte address and every lock
+acquisition panicked with `unaligned 64-bit atomic operation`. That fix is
+upstream since **4.45** ([PR #11028](https://github.com/seaweedfs/seaweedfs/pull/11028)),
+so the patch is gone and the Dockerfile pins 4.48. Do not pin below 4.45 on
+armv7.
 
 ## Bring it up
 
