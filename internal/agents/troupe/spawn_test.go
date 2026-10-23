@@ -6,8 +6,22 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 )
+
+// notebookServer is a configured slivingdoc callsign: the tests need the
+// callsign in the tool set, not a live bucket behind it.
+func notebookServer() models.McpServer {
+	return slivingdoc.Server(slivingdoc.Config{
+		Command:       "slivingdoc",
+		Bucket:        "b",
+		Region:        "r",
+		Endpoint:      "http://127.0.0.1:8333",
+		WorkspaceRoot: "/cache/slivingdoc",
+		PrivateRoot:   "/priv",
+	})
+}
 
 // fakeRoles is an in-memory RoleSource for spawner tests: the contract the
 // snapshot-backed source implements, without the filesystem.
@@ -108,7 +122,7 @@ func TestSpawner_ToolSet(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var s *Spawner
 			if tt.notebook {
-				server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+				server := notebookServer()
 				s = newTestSpawner(t, fakeRoles{}, WithNotebook(server, "/cache/slivingdoc"))
 			} else {
 				s = newTestSpawner(t, fakeRoles{})
@@ -161,7 +175,7 @@ func TestSpawner_Prompt(t *testing.T) {
 		}
 	})
 	t.Run("notebook names the workspace", func(t *testing.T) {
-		server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+		server := notebookServer()
 		s := newTestSpawner(t, fakeRoles{}, WithNotebook(server, "/cache/slivingdoc"))
 		got := s.prompt(Role{Prompt: rolePrompt}, task)
 		if !strings.Contains(got, "Pull the shared notebook into /cache/slivingdoc before you start.") {
@@ -176,7 +190,7 @@ func TestSpawner_Prompt(t *testing.T) {
 // TestSpawner_NotebookWorkspace pins the workspace resolution: the explicit
 // option wins, the callsign args are the fallback.
 func TestSpawner_NotebookWorkspace(t *testing.T) {
-	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := notebookServer()
 
 	s := newTestSpawner(t, fakeRoles{}, WithNotebook(server, "/explicit"))
 	if got := s.notebookWorkspace(); got != "/explicit" {

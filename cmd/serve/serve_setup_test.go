@@ -14,20 +14,20 @@ import (
 	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 )
 
-// The slivingdoc command resolves from the explicit -slivingdocCommand flag
-// (a prebuilt binary), else npx on PATH (the npx -y slivingdoc default).
-// Tests cannot rely on the flag, so the not-found case pins an empty PATH and
-// the found case puts a fake npx on PATH.
+// The slivingdoc command resolves from the explicit -slivingdocCommand flag,
+// else the release binary on PATH. Tests cannot rely on the flag, so the
+// not-found case pins an empty PATH and the found case puts a fake slivingdoc
+// on PATH.
 func TestResolveSlivingdoc_NotFound(t *testing.T) {
 	t.Setenv("PATH", "")
 	if got, err := resolveSlivingdoc(""); err == nil {
-		t.Fatalf("expected error with empty PATH, got %+v", got)
+		t.Fatalf("expected error with empty PATH, got %q", got)
 	}
 }
 
 func TestResolveSlivingdoc_FoundOnPath(t *testing.T) {
 	binDir := t.TempDir()
-	fake := filepath.Join(binDir, "npx")
+	fake := filepath.Join(binDir, "slivingdoc")
 	if err := os.WriteFile(fake, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -36,18 +36,14 @@ func TestResolveSlivingdoc_FoundOnPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.Command != fake {
-		t.Errorf("resolved %q, want %q", got.Command, fake)
-	}
-	if got.Prebuilt {
-		t.Error("PATH resolution must not report a prebuilt binary")
+	if got != fake {
+		t.Errorf("resolved %q, want %q", got, fake)
 	}
 }
 
-// The explicit -slivingdocCommand path is a prebuilt binary: it wins over
-// PATH and runs directly, without the npx -y slivingdoc prefix. An explicit
-// missing path fails naming it, so an operator typo is diagnosable.
-func TestResolveSlivingdoc_ExplicitPrebuiltWins(t *testing.T) {
+// The explicit -slivingdocCommand path wins over PATH. An explicit missing
+// path fails naming it, so an operator typo is diagnosable.
+func TestResolveSlivingdoc_ExplicitWins(t *testing.T) {
 	t.Setenv("PATH", "")
 	explicit := filepath.Join(t.TempDir(), "slivingdoc")
 	if err := os.WriteFile(explicit, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -57,11 +53,8 @@ func TestResolveSlivingdoc_ExplicitPrebuiltWins(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if got.Command != explicit {
-		t.Errorf("resolved %q, want %q", got.Command, explicit)
-	}
-	if !got.Prebuilt {
-		t.Error("explicit path must report a prebuilt binary")
+	if got != explicit {
+		t.Errorf("resolved %q, want %q", got, explicit)
 	}
 }
 
@@ -223,7 +216,7 @@ func notebookCommand(t *testing.T) *command {
 func TestSetup_SeedFailure_DisablesNotebookAndTroupe(t *testing.T) {
 	c := notebookCommand(t)
 	prev := seedNotebook
-	seedNotebook = func(slivingdoc.Runner, string, string, string) error {
+	seedNotebook = func(slivingdoc.Config) error {
 		return errors.New("seed failed")
 	}
 	t.Cleanup(func() { seedNotebook = prev })
@@ -253,7 +246,7 @@ func TestSetup_SeedFailure_DisablesNotebookAndTroupe(t *testing.T) {
 func TestSetup_SeedSuccess_EnablesTroupe(t *testing.T) {
 	c := notebookCommand(t)
 	prev := seedNotebook
-	seedNotebook = func(slivingdoc.Runner, string, string, string) error {
+	seedNotebook = func(slivingdoc.Config) error {
 		return nil
 	}
 	t.Cleanup(func() { seedNotebook = prev })

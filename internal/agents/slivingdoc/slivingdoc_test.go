@@ -10,16 +10,30 @@ import (
 	"github.com/baalimago/clai/pkg/text/models"
 )
 
+// testConfig is the notebook config every seam test drives: one release
+// binary, one S3 target and the worktree pair handed in.
+func testConfig(workspace, private, envFile string) Config {
+	return Config{
+		Command:       "/opt/slivingdoc",
+		Bucket:        "slivingdoc",
+		Region:        "us-east-1",
+		Endpoint:      "http://127.0.0.1:8333",
+		WorkspaceRoot: workspace,
+		PrivateRoot:   private,
+		EnvFile:       envFile,
+	}
+}
+
 func TestServer_Args(t *testing.T) {
 	t.Run("endpoint sets path-style", func(t *testing.T) {
-		got := Server(NpxRunner("npx"), "slivingdoc", "us-east-1", "http://127.0.0.1:8333", "/ws", "/priv")
+		got := Server(testConfig("/ws", "/priv", "/cfg/credentials.env"))
 		want := []string{
-			"-y", "slivingdoc", "serve",
+			"serve",
+			"--workspace-root", "/ws",
+			"--private-root", "/priv",
 			"--bucket", "slivingdoc",
 			"--region", "us-east-1",
 			"--endpoint", "http://127.0.0.1:8333", "--path-style",
-			"--workspace-root", "/ws",
-			"--private-root", "/priv",
 		}
 		if !slices.Equal(got.Args, want) {
 			t.Errorf("Args = %v, want %v", got.Args, want)
@@ -27,19 +41,24 @@ func TestServer_Args(t *testing.T) {
 		if got.Name != Callsign {
 			t.Errorf("Name = %q, want %q", got.Name, Callsign)
 		}
-		if got.Command != "npx" {
-			t.Errorf("Command = %q, want %q", got.Command, "npx")
+		if got.Command != "/opt/slivingdoc" {
+			t.Errorf("Command = %q, want the binary the config names", got.Command)
+		}
+		if got.EnvFile != "/cfg/credentials.env" {
+			t.Errorf("EnvFile = %q, want the credentials env file", got.EnvFile)
 		}
 	})
 
 	t.Run("empty endpoint omits path-style", func(t *testing.T) {
-		got := Server(NpxRunner("npx"), "b", "r", "", "/ws", "/priv")
+		cfg := testConfig("/ws", "/priv", "/cfg/credentials.env")
+		cfg.Endpoint = ""
+		got := Server(cfg)
 		want := []string{
-			"-y", "slivingdoc", "serve",
-			"--bucket", "b",
-			"--region", "r",
+			"serve",
 			"--workspace-root", "/ws",
 			"--private-root", "/priv",
+			"--bucket", "slivingdoc",
+			"--region", "us-east-1",
 		}
 		if !slices.Equal(got.Args, want) {
 			t.Errorf("Args = %v, want %v", got.Args, want)
@@ -48,30 +67,9 @@ func TestServer_Args(t *testing.T) {
 }
 
 func TestServer_Timeout(t *testing.T) {
-	got := Server(NpxRunner("npx"), "b", "r", "", "/ws", "/priv")
+	got := Server(testConfig("/ws", "/priv", "/cfg/credentials.env"))
 	if got.TimeoutSeconds != 300 {
 		t.Errorf("TimeoutSeconds = %d, want 300", got.TimeoutSeconds)
-	}
-}
-
-// A prebuilt binary runner (the production arm path) runs the CLI directly:
-// the command is the binary and the args start with the subcommand, not with
-// the npx -y slivingdoc prefix.
-func TestServer_PrebuiltRunner(t *testing.T) {
-	got := Server(BinaryRunner("/opt/slivingdoc"), "b", "r", "http://127.0.0.1:8333", "/ws", "/priv")
-	if got.Command != "/opt/slivingdoc" {
-		t.Errorf("Command = %q, want %q", got.Command, "/opt/slivingdoc")
-	}
-	want := []string{
-		"serve",
-		"--bucket", "b",
-		"--region", "r",
-		"--endpoint", "http://127.0.0.1:8333", "--path-style",
-		"--workspace-root", "/ws",
-		"--private-root", "/priv",
-	}
-	if !slices.Equal(got.Args, want) {
-		t.Errorf("Args = %v, want %v", got.Args, want)
 	}
 }
 
@@ -112,7 +110,7 @@ func TestNotesPartial_SubstitutesWorkspace(t *testing.T) {
 // WorkspaceRoot reads the shared worktree path back from the callsign args,
 // so a prompt names the same path the MCP child materialises into.
 func TestWorkspaceRoot_FromCallsignArgs(t *testing.T) {
-	server := Server(NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := Server(testConfig("/cache/slivingdoc", "/priv", "/cfg/e.env"))
 	if got := WorkspaceRoot(server); got != "/cache/slivingdoc" {
 		t.Errorf("WorkspaceRoot = %q, want %q", got, "/cache/slivingdoc")
 	}
@@ -136,13 +134,9 @@ type fakeCLI struct {
 func (f *fakeCLI) run(_ string, env []string, args ...string) error {
 	f.calls = append(f.calls, append([]string(nil), args...))
 	f.envs = append(f.envs, append([]string(nil), env...))
-	// The subcommand is index 0 for a prebuilt binary and index 2 for npx
-	// (-y slivingdoc <subcommand>).
 	sub := ""
-	if len(args) > 0 && (args[0] == "pull" || args[0] == "commit") {
+	if len(args) > 0 {
 		sub = args[0]
-	} else if len(args) > 2 {
-		sub = args[2]
 	}
 	if sub == f.failOn {
 		return os.ErrNotExist
@@ -176,13 +170,13 @@ func TestSeed_PullsAndCommitsBulletin(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Seed(NpxRunner("npx"), workspace, private, envFile); err != nil {
+	if err := Seed(testConfig(workspace, private, envFile)); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
 
 	// pull, then commit — the bulletin was created.
-	wantPull := []string{"-y", "slivingdoc", "pull", "--workspace-root", workspace, "--private-root", private, workspace}
-	wantCommit := []string{"-y", "slivingdoc", "commit", "--workspace-root", workspace, "--private-root", private, workspace, "-m", seedMessage}
+	wantPull := []string{"pull", "--workspace-root", workspace, "--private-root", private, workspace}
+	wantCommit := []string{"commit", "--workspace-root", workspace, "--private-root", private, workspace, "-m", seedMessage}
 	if len(fake.calls) != 2 {
 		t.Fatalf("expected pull + commit, got %v", fake.calls)
 	}
@@ -212,11 +206,11 @@ func TestSeed_ExistingBulletin_NoCommit(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Seed(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), envFile); err != nil {
+	if err := Seed(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), envFile)); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
 
-	if len(fake.calls) != 1 || fake.calls[0][2] != "pull" {
+	if len(fake.calls) != 1 || fake.calls[0][0] != "pull" {
 		t.Fatalf("expected a single pull, got %v", fake.calls)
 	}
 	b, err := os.ReadFile(filepath.Join(workspace, bulletinName))
@@ -248,7 +242,7 @@ func TestSeed_StepFailure_Propagates(t *testing.T) {
 			if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=k\nAWS_SECRET_ACCESS_KEY=s\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			err := Seed(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile)
+			err := Seed(testConfig(filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile))
 			if err == nil {
 				t.Fatal("expected error from failed " + tt.step)
 			}
@@ -262,7 +256,7 @@ func TestSeed_StepFailure_Propagates(t *testing.T) {
 func TestSeed_MissingEnvFile_Fails(t *testing.T) {
 	withFakeCLI(t, &fakeCLI{})
 
-	err := Seed(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env"))
+	err := Seed(testConfig(filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env")))
 	if err == nil {
 		t.Fatal("expected error from missing env file")
 	}
@@ -276,7 +270,7 @@ func TestSeed_EnvReachesChild(t *testing.T) {
 	if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=KEY\nAWS_SECRET_ACCESS_KEY=SECRET\nSLIVINGDOC_PATH_STYLE=true\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := Seed(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile); err != nil {
+	if err := Seed(testConfig(filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile)); err != nil {
 		t.Fatalf("Seed: %v", err)
 	}
 	if len(fake.envs) == 0 {
@@ -340,12 +334,12 @@ func TestPull_MaterialisesWithoutAuthoring(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Pull(NpxRunner("npx"), workspace, private, envFile); err != nil {
+	if err := Pull(testConfig(workspace, private, envFile)); err != nil {
 		t.Fatalf("Pull: %v", err)
 	}
 
 	// Exactly one pull: no bulletin seeding, no commit — Pull never authors.
-	want := []string{"-y", "slivingdoc", "pull", "--workspace-root", workspace, "--private-root", private, workspace}
+	want := []string{"pull", "--workspace-root", workspace, "--private-root", private, workspace}
 	if len(fake.calls) != 1 || !slices.Equal(fake.calls[0], want) {
 		t.Fatalf("calls = %v, want exactly the pull %v", fake.calls, want)
 	}
@@ -371,7 +365,7 @@ func TestPull_FailurePropagates(t *testing.T) {
 	if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=k\nAWS_SECRET_ACCESS_KEY=s\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := Pull(NpxRunner("npx"), filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile)
+	err := Pull(testConfig(filepath.Join(t.TempDir(), "ws"), filepath.Join(t.TempDir(), "priv"), envFile))
 	if err == nil || !strings.Contains(err.Error(), "pull") {
 		t.Fatalf("err = %v, want a pull error", err)
 	}
@@ -380,7 +374,7 @@ func TestPull_FailurePropagates(t *testing.T) {
 // Server builds a complete clai McpServer: callsign, command and args are
 // all set, so agent.WithMcpServers accepts it as-is.
 func TestServer_IsUsableMcpServer(t *testing.T) {
-	got := Server(NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/ws", "/priv")
+	got := Server(testConfig("/ws", "/priv", "/cfg/e.env"))
 	var _ models.McpServer = got // the exact clai type the agents register
 	if got.Name == "" || got.Command == "" || len(got.Args) == 0 {
 		t.Errorf("incomplete McpServer: %+v", got)

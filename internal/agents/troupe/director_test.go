@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"github.com/baalimago/clai/pkg/text/models"
-	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 )
 
 // newTestDirector builds a director over a fake swarm and a seeded
@@ -95,7 +94,7 @@ func TestDirector_ToolSet(t *testing.T) {
 	}
 
 	t.Run("notebook adds the mcp globs", func(t *testing.T) {
-		server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+		server := notebookServer()
 		d, _ := newTestDirector(t, &fakeSwarm{}, WithDirectorNotebook(server, "/cache/slivingdoc"))
 		globs, _ := d.toolSet()
 		for _, want := range []string{"mcp_slivingdoc_notes_pull", "mcp_slivingdoc_notes_commit"} {
@@ -127,7 +126,7 @@ func TestDirector_Prompt(t *testing.T) {
 	}
 
 	t.Run("notebook names the workspace", func(t *testing.T) {
-		server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+		server := notebookServer()
 		d, _ := newTestDirector(t, &fakeSwarm{}, WithDirectorNotebook(server, "/cache/slivingdoc"))
 		p := d.prompt()
 		if !strings.Contains(p, "Pull the shared notebook into /cache/slivingdoc before you start.") {

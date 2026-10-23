@@ -5,9 +5,23 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/kinoview/internal/agents/slivingdoc"
 	"github.com/baalimago/kinoview/internal/model"
 )
+
+// notebookServer is a configured slivingdoc callsign: the tests need the
+// callsign in the tool set, not a live bucket behind it.
+func notebookServer() models.McpServer {
+	return slivingdoc.Server(slivingdoc.Config{
+		Command:       "slivingdoc",
+		Bucket:        "b",
+		Region:        "r",
+		Endpoint:      "http://127.0.0.1:8333",
+		WorkspaceRoot: "/cache/slivingdoc",
+		PrivateRoot:   "/priv",
+	})
+}
 
 type mockItemGetter struct{}
 
@@ -208,7 +222,7 @@ func TestConcierge_Setup_WithUserContextManager(t *testing.T) {
 // tool globs (callsign + file tools) and the full constructor wires the
 // callsign without error.
 func TestConcierge_ToolGlobsIncludeSlivingdoc(t *testing.T) {
-	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := notebookServer()
 	c := concierge{}
 	WithSlivingdocServer(server)(&c)
 	WithSlivingdocWorkspace("/cache/slivingdoc")(&c)
@@ -264,7 +278,7 @@ func TestConcierge_NoServerOmitsSlivingdoc(t *testing.T) {
 // option, or read back from the callsign args when the option is empty — so
 // the model is never asked to guess where the notebook lives.
 func TestConcierge_PromptNamesWorkspace(t *testing.T) {
-	server := slivingdoc.Server(slivingdoc.NpxRunner("npx"), "b", "r", "http://127.0.0.1:8333", "/cache/slivingdoc", "/priv")
+	server := notebookServer()
 
 	t.Run("explicit workspace option", func(t *testing.T) {
 		c := concierge{slivingdocServer: server, slivingdocWorkspace: "/cache/slivingdoc"}

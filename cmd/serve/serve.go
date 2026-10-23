@@ -313,7 +313,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	// plus the slivingdoc MCP callsign over it. The feature is on when the
 	// AWS credentials resolve and -slivingdocDisable is false; any other
 	// state logs one warning and the server runs without the notebook.
-	c.slivingdocCommand = fs.String("slivingdocCommand", "", "path to a prebuilt slivingdoc binary; empty runs npx -y slivingdoc")
+	c.slivingdocCommand = fs.String("slivingdocCommand", "", "path to the slivingdoc binary; empty looks up slivingdoc on PATH")
 	c.slivingdocBucket = fs.String("slivingdocBucket", defaultSlivingdocBucket, "S3 bucket backing the shared agent notebook")
 	c.slivingdocRegion = fs.String("slivingdocRegion", defaultSlivingdocRegion, "AWS region label for the notebook bucket")
 	c.slivingdocEndpoint = fs.String("slivingdocEndpoint", defaultSlivingdocEndpoint, "S3 endpoint for the notebook (the Docker SeaweedFS S3 gateway)")

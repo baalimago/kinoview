@@ -45,7 +45,7 @@ func TestNotebook_AppendJSONLLine(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	notebook := NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
+	notebook := NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 
 	rec := noteRecord{ID: "note_abc12345", Kind: "rating", Comment: "more dog", TS: "2026-08-16T17:00:00Z"}
 	if err := notebook.AppendJSONL(notesName, rec); err != nil {
@@ -55,7 +55,7 @@ func TestNotebook_AppendJSONLLine(t *testing.T) {
 	if len(fake.calls) != 1 {
 		t.Fatalf("expected one commit, got %v", fake.calls)
 	}
-	if fake.calls[0][2] != "commit" {
+	if fake.calls[0][0] != "commit" {
 		t.Errorf("first call = %v, want commit", fake.calls[0])
 	}
 
@@ -85,7 +85,7 @@ func TestNotebook_AppendJSONL_EmptyFieldIsPreserved(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	notebook := NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
+	notebook := NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 
 	if err := notebook.AppendJSONL(notesName, noteRecord{ID: "note_abc12345", Kind: "rating", TS: "2026-08-16T17:00:00Z"}); err != nil {
 		t.Fatalf("AppendJSONL: %v", err)
@@ -115,13 +115,13 @@ func TestNotebook_AppendJSONLDoesNotPull(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	notebook := NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
+	notebook := NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 	if err := notebook.AppendJSONL(notesName, noteRecord{ID: "note_new", Kind: "rating", Comment: "hi", TS: "2026-08-16T17:00:00Z"}); err != nil {
 		t.Fatalf("AppendJSONL: %v", err)
 	}
 
 	for _, call := range fake.calls {
-		if len(call) > 2 && call[2] == "pull" {
+		if len(call) > 0 && call[0] == "pull" {
 			t.Fatalf("append ran a pull, clobbering the shared copy: %v", fake.calls)
 		}
 	}
@@ -145,7 +145,7 @@ func TestNotebook_AppendJSONL_ConcurrentPosts(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	notebook := NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
+	notebook := NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 
 	const posts = 20
 	var wg sync.WaitGroup
@@ -199,10 +199,10 @@ func TestNotebook_AppendJSONL_FailuresPropagate(t *testing.T) {
 		v         any
 		wantError string
 	}{
-		{"worktree unwritable", NewNotebook(NpxRunner("npx"), filepath.Join(blocked, "sub"), filepath.Join(t.TempDir(), "priv"), envFile), notesName, noteRecord{}, "worktree"},
-		{"encode failure", NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), envFile), notesName, func() {}, "encode"},
-		{"open failure", NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), envFile), "missing/notes.jsonl", noteRecord{}, "open"},
-		{"env file missing", NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env")), notesName, noteRecord{}, "env"},
+		{"worktree unwritable", NewNotebook(testConfig(filepath.Join(blocked, "sub"), filepath.Join(t.TempDir(), "priv"), envFile)), notesName, noteRecord{}, "worktree"},
+		{"encode failure", NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), envFile)), notesName, func() {}, "encode"},
+		{"open failure", NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), envFile)), "missing/notes.jsonl", noteRecord{}, "open"},
+		{"env file missing", NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), filepath.Join(t.TempDir(), "missing.env"))), notesName, noteRecord{}, "env"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -224,7 +224,7 @@ func TestNotebook_AppendJSONL_CommitErrorReturnsError(t *testing.T) {
 	withFakeCLI(t, fake)
 
 	workspace := filepath.Join(t.TempDir(), "slivingdoc")
-	notebook := NewNotebook(NpxRunner("npx"), workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t))
+	notebook := NewNotebook(testConfig(workspace, filepath.Join(t.TempDir(), "priv"), notebookEnvFile(t)))
 
 	err := notebook.AppendJSONL(notesName, noteRecord{ID: "note_abc12345", TS: "2026-08-16T17:00:00Z"})
 	if err == nil {
@@ -246,12 +246,12 @@ func TestNotebook_CommitArgsCarryRootsAndEnv(t *testing.T) {
 	if err := os.WriteFile(envFile, []byte("AWS_ACCESS_KEY_ID=KEY\nAWS_SECRET_ACCESS_KEY=SECRET\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	notebook := NewNotebook(NpxRunner("npx"), workspace, "/priv", envFile)
+	notebook := NewNotebook(testConfig(workspace, "/priv", envFile))
 	if err := notebook.AppendJSONL(notesName, noteRecord{ID: "note_abc12345", TS: "2026-08-16T17:00:00Z"}); err != nil {
 		t.Fatalf("AppendJSONL: %v", err)
 	}
 
-	want := []string{"-y", "slivingdoc", "commit", "--workspace-root", workspace, "--private-root", "/priv", workspace, "-m", "append " + notesName}
+	want := []string{"commit", "--workspace-root", workspace, "--private-root", "/priv", workspace, "-m", "append " + notesName}
 	if !slices.Equal(fake.calls[0], want) {
 		t.Errorf("commit call = %v, want %v", fake.calls[0], want)
 	}

@@ -155,8 +155,8 @@ concurrent changes with visible conflict markers.
 All agentic components are **opt-in** — each has its own `-model` flag. When unset,
 that agent is nil and the indexer skips the corresponding feature path. The
 shared notebook is opt-in too: `serve` enables it when the AWS credentials
-(`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) resolve, the slivingdoc command
-resolves (`npx -y slivingdoc` by default, or a prebuilt binary via
+(`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) resolve, the slivingdoc release
+binary resolves (the `slivingdoc` binary on PATH, or a path via
 `-slivingdocCommand`) and `-slivingdocDisable` is unset. A missing dependency
 logs one warning and the notebook is off — agents fall back to their old
 single-shot behaviour. The old intro splash was removed in
@@ -341,12 +341,17 @@ see docker-compose.yml) is configured by these `serve` flags:
 
 | Flag                   | Default              | Purpose                                                                                            |
 | ---------------------- | -------------------- | -------------------------------------------------------------------------------------------------- |
-| `-slivingdocCommand`   | `npx -y slivingdoc`  | path to a prebuilt slivingdoc binary; empty runs the npm package through npx (`npx -y slivingdoc`) |
+| `-slivingdocCommand`   | `slivingdoc` on PATH | path to the slivingdoc release binary; empty resolves `slivingdoc` from PATH                       |
 | `-slivingdocBucket`    | `slivingdoc`         | S3 bucket backing the notebook                                                                     |
 | `-slivingdocRegion`    | `us-east-1`          | AWS region label (SigV4 signing, env file, MCP `--region`)                                         |
 | `-slivingdocEndpoint`  | `http://127.0.0.1:8333` | S3 endpoint for the notebook (the Docker SeaweedFS S3 gateway)                                  |
 | `-slivingdocWorkspace` | `<cache>/slivingdoc` | shared worktree every agent materialises the notebook into                                         |
 | `-slivingdocDisable`   | false                | force-disable the notebook even when the AWS credentials and slivingdoc command resolve            |
+
+The binary is the slivingdoc release asset for the host architecture (v1.2.0
+or later). kinoview never installs, builds or wraps it: an operator drops it
+on PATH (or names it with `-slivingdocCommand`), and the notebook needs no
+runtime package manager.
 
 The credentials are not flags: kinoview reads `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY` from its environment (matching `.env`)
