@@ -1,9 +1,17 @@
+# seccomp is unconfined because dockerd 26.1.4 ships a default profile that
+# predates the 64-bit time syscalls. Go 1.26 calls futex_time64 on 32-bit ARM
+# (rpie), the profile denies it, the syscall returns EPERM, and Go's runtime
+# deliberately crashes the process at futexwakeup: "futexwakeup ... returned -1"
+# then SIGSEGV at 0x1006. Drop this once dockerd's profile lists futex_time64,
+# which current moby/profiles does.
 services:
   seaweedfs:
     image: chrislusf/seaweedfs:4.48
     restart: unless-stopped
     env_file: .env
     entrypoint: ["/bin/sh", "/usr/local/bin/kinoview-entrypoint"]
+    security_opt:
+      - seccomp=unconfined
     ports:
       - "0.0.0.0:8333:8333" # S3 gateway — kinoview (loopback) and LAN checkout
     volumes:
