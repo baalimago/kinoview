@@ -131,10 +131,28 @@ On a 32-bit ARM host (measured on a Raspberry Pi, kernel 5.10):
 | `locator.ariaSnapshot()` | `Target crashed`, kernel logs `Alignment trap` |
 | Playwright `launch` + `goto` + `screenshot` | worked, 46 kB JPEG of the gallery |
 
-A navigation and a screenshot are safe there; the outline is the call to watch.
-Run one `browser_snapshot` against the show and read the container log. If the
-renderer dies, that platform cannot run Playwright's injected scripts, and
-perception there is a screenshot-and-console tool only.
+Those rows hold for a small page. The show is not small: measured on rpie
+(kernel 5.10, Alpine Chromium 142, 2026-11-01), every instrumented call against
+`/` kills the renderer, and the kernel logs one trap per crash:
+
+```text
+Alignment trap: not handling instruction ed806b00 at [<0951c40c>]
+Unhandled fault: alignment exception (0xa21) at 0x000007ff
+```
+
+| Call against `/` | Result |
+|---|---|
+| `browser_navigate` (it takes an aria snapshot) | `Target crashed` after 4-5 s |
+| `page.goto` then `page.evaluate` | `Target crashed` |
+| `page.goto` then `page.screenshot` at 1.8 s | `Target crashed` |
+| the same page with `**/api/v1/troupe/**` aborted | ok, 284 kB screenshot of the gallery |
+| 6000 plain divs, a synthetic 8x130 stage, backdrop-filter, drop-shadow, gradients | ok |
+
+So the crash is the troupe stage, not the tool: a navigation, an evaluate and a
+screenshot all die once a play is mounted. On such a host perception is off in
+effect. The troupe keeps its fallback — roles verify ids against the assets and
+write the gaps into their notes — and `notes/perception-armv7.md` in the shared
+notebook holds the measurements.
 
 ### Prove it
 
@@ -174,6 +192,6 @@ server and the browser, which is the only place a renderer crash shows up.
 | `troupe perception off: … url "…" is not on this host` | the endpoint is not loopback | run the sidecar on the kinoview host |
 | `troupe perception off: … command "…" does not resolve` | a command-based config points at a moved binary | use the `url` config above |
 | a tool result says the server is unreachable | the container is not running | `docker ps`, then `make perception-up` |
-| the renderer dies on `browser_snapshot` | Playwright's injected script on 32-bit ARM (see the limit) | keep to navigate, screenshot and console there |
+| every call against the show says `Target crashed` | the troupe stage on 32-bit ARM (see the limit) | none on that host; the troupe verifies by files and notes the gap |
 | `apk add` fails with `certificate verify failed` during the build | the build step cannot read the clock | rebuild with the `--security=insecure` builder |
 | `GPU process isn't usable. Goodbye.` in the build or the container log | the host cannot run Chromium: an emulated architecture, or a kernel without `ptrace` | build and run on the native architecture |
