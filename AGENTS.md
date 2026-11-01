@@ -370,10 +370,16 @@ see docker-compose.yml) is configured by these `serve` flags:
 | `-slivingdocWorkspace` | `<cache>/slivingdoc` | shared worktree every agent materialises the notebook into                                         |
 | `-slivingdocDisable`   | false                | force-disable the notebook even when the AWS credentials and slivingdoc command resolve            |
 
-The binary is the slivingdoc release asset for the host architecture (v1.2.0
+The binary is the slivingdoc release asset for the host architecture (v1.3.1
 or later). kinoview never installs, builds or wraps it: an operator drops it
 on PATH (or names it with `-slivingdocCommand`), and the notebook needs no
 runtime package manager.
+
+The MCP child runs as `slivingdoc serve … --login never`. slivingdoc ≥ v1.3.0
+starts serve without a credential and signs in when a tool is first called,
+answering that call with an approval page; the child of a server has no person
+to open the page, so `--login never` makes a misconfigured notebook refuse to
+start instead. `pull` and `commit` refuse on their own.
 
 The credentials are not flags: kinoview reads `AWS_ACCESS_KEY_ID` and
 `AWS_SECRET_ACCESS_KEY` from its environment (matching `.env`)

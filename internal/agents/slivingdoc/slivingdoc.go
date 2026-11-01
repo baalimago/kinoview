@@ -60,8 +60,14 @@ func (c Config) args(subcommand string, rest ...string) []string {
 // Server builds the slivingdoc MCP server from cfg: the release binary as the
 // command, the S3 target as flags and the credentials env file the child
 // sources.
+//
+// --login never pins the non-interactive contract slivingdoc v1.3.0 added:
+// without it, a serve child that resolves no credential signs in when a tool
+// is first called and answers that call with an approval page. A child of the
+// server has no person to open the page, so a misconfigured notebook must
+// refuse to start instead.
 func Server(cfg Config) models.McpServer {
-	args := cfg.args("serve", "--bucket", cfg.Bucket, "--region", cfg.Region)
+	args := cfg.args("serve", "--bucket", cfg.Bucket, "--region", cfg.Region, "--login", "never")
 	if cfg.Endpoint != "" {
 		args = append(args, "--endpoint", cfg.Endpoint, "--path-style")
 	}

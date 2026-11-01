@@ -33,6 +33,7 @@ func TestServer_Args(t *testing.T) {
 			"--private-root", "/priv",
 			"--bucket", "slivingdoc",
 			"--region", "us-east-1",
+			"--login", "never",
 			"--endpoint", "http://127.0.0.1:8333", "--path-style",
 		}
 		if !slices.Equal(got.Args, want) {
@@ -59,6 +60,7 @@ func TestServer_Args(t *testing.T) {
 			"--private-root", "/priv",
 			"--bucket", "slivingdoc",
 			"--region", "us-east-1",
+			"--login", "never",
 		}
 		if !slices.Equal(got.Args, want) {
 			t.Errorf("Args = %v, want %v", got.Args, want)
