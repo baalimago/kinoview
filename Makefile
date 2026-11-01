@@ -14,4 +14,4 @@ up:
 down:
 	docker compose down
 logs:
-	docker compose logs -f
+	docker compose logs -f --since="5m"
