@@ -97,7 +97,7 @@ type FeedbackWriter struct {
 	mu       sync.Mutex                  // appends must serialize: the exists-check and the atomic rename
 	worktree string                      // the materialised notebook worktree
 	commit   func(filename string) error // nil: no commit (tests)
-	now      func() time.Time            // test seam; production stamps time.Now
+	now      func() time.Time            // test seam; unset stamps time.Now
 }
 
 // FeedbackWriterOption configures one FeedbackWriter.
@@ -105,7 +105,8 @@ type FeedbackWriterOption func(*FeedbackWriter)
 
 // WithFeedbackCommit sets the commit half of the write+commit unit: a
 // function committing the worktree through the shared notebook after a note
-// is written. Production wires the slivingdoc commit; tests leave it unset.
+// is written. The serve wiring supplies the slivingdoc commit; tests leave it
+// unset.
 // A commit failure surfaces from Write, so the handler answers 500 — a note
 // is never silently dropped.
 func WithFeedbackCommit(fn func(filename string) error) FeedbackWriterOption {
@@ -113,8 +114,8 @@ func WithFeedbackCommit(fn func(filename string) error) FeedbackWriterOption {
 }
 
 // WithFeedbackClock overrides the writer's clock — a test seam only, never
-// an operator surface: the note's ts is always the server time in
-// production, and the filename derives from it.
+// an operator surface: the note's ts is always the server time, and the
+// filename derives from it.
 func WithFeedbackClock(now func() time.Time) FeedbackWriterOption {
 	return func(w *FeedbackWriter) { w.now = now }
 }

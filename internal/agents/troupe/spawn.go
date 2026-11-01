@@ -258,8 +258,8 @@ type spawnRoleTool struct {
 	swarm Swarm
 }
 
-// newSpawnRoleTool builds the spawn_role tool over a swarm — the Spawner in
-// production, a fake in generation tests.
+// newSpawnRoleTool builds the spawn_role tool over a swarm — the Spawner when
+// the troupe runs, a fake in generation tests.
 func newSpawnRoleTool(swarm Swarm) models.LLMTool {
 	return &spawnRoleTool{swarm: swarm}
 }

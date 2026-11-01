@@ -23,7 +23,7 @@ var commands = map[string]cmd.Command{
 	"con|concierge": concierge.Command(),
 }
 
-// runFn is a seam for tests. In production it defaults to cmd.Run.
+// runFn is a seam for tests; it defaults to cmd.Run.
 var runFn = cmd.Run
 
 func run(ctx context.Context, args []string) int {

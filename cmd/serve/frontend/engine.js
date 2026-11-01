@@ -1180,7 +1180,7 @@
     }
 
     // Self-driving loop (auto mode). The lab mounts with auto:false and calls
-    // step() itself from its own clock. Production plays the play ONCE: when
+    // step() itself from its own clock. The engine plays the play ONCE: when
     // the timeline's total duration elapses the play holds its final frame,
     // the loop stops and opts.onEnd(duration) fires exactly once — index.js
     // shows the blocking feedback control there. A play with no timeline

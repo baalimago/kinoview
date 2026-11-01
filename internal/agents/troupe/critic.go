@@ -95,22 +95,23 @@ type CriticismWriter struct {
 	mu       sync.Mutex                  // the critic runs once per generation, but appends must serialize
 	worktree string                      // the materialised notebook worktree
 	commit   func(filename string) error // nil: no commit (tests)
-	now      func() time.Time            // test seam; production stamps time.Now
+	now      func() time.Time            // test seam; unset stamps time.Now
 }
 
 // CriticismWriterOption configures one CriticismWriter.
 type CriticismWriterOption func(*CriticismWriter)
 
 // WithCriticismClock overrides the writer's clock — a test seam only, never
-// an operator surface: the note's ts is always the server time in
-// production, and the filename derives from it.
+// an operator surface: the note's ts is always the server time, and the
+// filename derives from it.
 func WithCriticismClock(now func() time.Time) CriticismWriterOption {
 	return func(w *CriticismWriter) { w.now = now }
 }
 
 // WithCriticismCommit sets the commit half of the write+commit unit: a
 // function committing the worktree through the shared notebook after a note
-// is written. Production wires the slivingdoc commit; tests leave it unset.
+// is written. The serve wiring supplies the slivingdoc commit; tests leave it
+// unset.
 // A commit failure surfaces from Write, so the facade logs the loss — a
 // criticism note is never silently dropped.
 func WithCriticismCommit(fn func(filename string) error) CriticismWriterOption {
@@ -289,8 +290,8 @@ type Critic struct {
 	logger    *slog.Logger
 	writer    *CriticismWriter // the append-only gate
 
-	// runCritic is the seam between the critic and clai: production builds
-	// the bounded clai agent (Setup + Run) with the read-only tool set and
+	// runCritic is the seam between the critic and clai: the serve wiring
+	// builds the bounded clai agent (Setup + Run) with the read-only tool set and
 	// the gate; tests inject a scripted fake that drives the tool objects
 	// directly, so a whole review runs without a model configured.
 	runCritic func(ctx context.Context, p criticParams) (string, error)
@@ -340,8 +341,8 @@ func WithCriticLogger(l *slog.Logger) CriticOption {
 
 // WithRunCritic overrides the critic's agent seam (tests): the scripted fake
 // receives the assembled prompt, globs and tools and drives them directly,
-// so a whole review runs without an LLM. Production leaves it unset and the
-// critic builds and runs the bounded clai agent.
+// so a whole review runs without an LLM. Unset, the critic builds and runs
+// the bounded clai agent.
 func WithRunCritic(fn func(ctx context.Context, p criticParams) (string, error)) CriticOption {
 	return func(c *Critic) { c.runCritic = fn }
 }
@@ -447,7 +448,7 @@ func (c *Critic) prompt(generationID string, outcome Outcome) string {
 	return p
 }
 
-// runAgent is the production critic seam: the bounded clai agent with the
+// runAgent is the default critic seam: the bounded clai agent with the
 // fixed prompt, the read-only tool set plus the gate, and the critic's own
 // tool-call cap. No usage recorder: the critic is not part of the generation
 // budget — it runs after the generation, and an exhausted generation must

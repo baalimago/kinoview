@@ -1,8 +1,8 @@
 # The Troupe — engine lab
 
 A dev-only simulator for `cmd/serve/frontend/engine.js`. It is **not** served
-in production — phase 9 embeds the engine into the production frontend and
-feeds it `/api/v1/troupe/play/resolved`.
+by the server — the engine ships inside the serve frontend, which feeds it
+`/api/v1/troupe/play/resolved`.
 
 ## What it does
 

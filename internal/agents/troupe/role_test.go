@@ -164,8 +164,8 @@ func TestParseRole_PromptCapped(t *testing.T) {
 // read and validated through the same seam the spawner uses.
 // TestNewWorktreeRoleSource pins the live role source: it reads roles/ from
 // the materialised worktree at call time, so a role written during the
-// generation is visible to the swarm immediately — the production shape
-// serve hands the spawner (phase 9).
+// generation is visible to the swarm immediately — the shape serve hands the
+// spawner (phase 9).
 func TestNewWorktreeRoleSource(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "roles"), 0o755); err != nil {

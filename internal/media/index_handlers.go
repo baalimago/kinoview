@@ -127,7 +127,7 @@ func (i *Indexer) triggerCascade(reason disconnectReason) {
 
 // latestClientContext returns the most recent stored client context, or the
 // zero value when nothing has been stored yet. The context manager may be nil
-// only in tests; production always wires one.
+// only in tests; serve always wires one.
 func (i *Indexer) latestClientContext() model.ClientContext {
 	if i.clientContextMgr == nil {
 		return model.ClientContext{}

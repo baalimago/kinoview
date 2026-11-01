@@ -288,7 +288,7 @@ func WithPongGrace(d time.Duration) IndexerOption {
 }
 
 // withClock sets the time source for debounce checks. Only exported for
-// tests; production code uses time.Now.
+// tests; the server uses time.Now.
 func withClock(fn func() time.Time) IndexerOption {
 	return func(i *Indexer) {
 		i.clock = fn

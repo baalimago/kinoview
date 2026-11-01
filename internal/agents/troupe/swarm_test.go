@@ -41,7 +41,7 @@ func (f *fakeSwarm) callsSnapshot() []swarmCall {
 	return append([]swarmCall(nil), f.calls...)
 }
 
-// TestSpawnerImplementsSwarm pins the production swarm contract: the
+// TestSpawnerImplementsSwarm pins the swarm contract: the
 // Spawner satisfies Swarm, so the director's spawn_role tool over the swarm
 // seam runs every spawn through the phase-4 runner under the phase-5 budget.
 func TestSpawnerImplementsSwarm(t *testing.T) {

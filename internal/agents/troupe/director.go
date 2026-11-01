@@ -20,7 +20,7 @@ import (
 // director is sovereign; the stage bounds the generation regardless).
 const directorToolCalls = maxGenerationCalls
 
-// directorPrompt is the fixed director prompt: the production loop as
+// directorPrompt is the fixed director prompt: the real loop as
 // guidance, short-imperative like every other role note (implementation
 // note 3). It names the submit step; the tool descriptions carry the
 // argument lists and the workspace layout. The current UTC time is stamped
@@ -77,7 +77,7 @@ type Director struct {
 	showURL   string           // the rendered show; empty: inspection disabled
 	logger    *slog.Logger
 
-	// runDirector is the seam between the director and clai: production
+	// runDirector is the seam between the director and clai: the serve wiring
 	// builds the bounded clai agent (Setup + Run) exactly like every other
 	// spawn; tests inject a scripted fake that drives the tool objects
 	// directly, so a whole generation runs without a model configured.
@@ -111,8 +111,8 @@ type Outcome struct {
 // DirectorOption configures one Director.
 type DirectorOption func(*Director)
 
-// WithSwarm sets the swarm the director spawns through: the Spawner in
-// production (sharing this generation's budget), a fake in generation tests.
+// WithSwarm sets the swarm the director spawns through: the Spawner when the
+// troupe runs (sharing this generation's budget), a fake in generation tests.
 // The swarm must operate on the same worktree as the submitter.
 func WithSwarm(s Swarm) DirectorOption {
 	return func(d *Director) { d.swarm = s }
@@ -173,8 +173,8 @@ func WithDirectorLogger(l *slog.Logger) DirectorOption {
 
 // WithRunDirector overrides the director's agent seam (tests): the scripted
 // fake receives the assembled prompt, globs and tools and drives them
-// directly, so a whole generation runs without an LLM. Production leaves it
-// unset and the director builds and runs the bounded clai agent.
+// directly, so a whole generation runs without an LLM. Unset, the director
+// builds and runs the bounded clai agent.
 func WithRunDirector(fn func(ctx context.Context, p directorParams) (string, error)) DirectorOption {
 	return func(d *Director) { d.runDirector = fn }
 }
@@ -313,7 +313,7 @@ func (d *Director) notebookWorkspace() string {
 	return slivingdoc.WorkspaceRoot(d.server)
 }
 
-// runAgent is the production director seam: the bounded clai agent with the
+// runAgent is the default director seam: the bounded clai agent with the
 // fixed prompt, the director's tool set, the generation budget as the usage
 // recorder and the notebook callsign when enabled — exactly the shape every
 // spawned agent gets, so the director's own loop is one bounded agent of the

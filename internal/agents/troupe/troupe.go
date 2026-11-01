@@ -20,8 +20,7 @@ const generationCooldown = 6 * time.Hour
 // the critic's review from the play ids the director authors: g_<UTC> for a
 // generation, story_<UTC> for a play. The critic's criticism note names the
 // generation it reviewed through this id; the second-precision stamp is
-// unambiguous because the hardcoded cooldown (6h) separates generations in
-// production.
+// unambiguous because the hardcoded cooldown (6h) separates generations.
 const generationIDPrefix = "g_"
 
 // Troupe is the facade the server talks to: Prepare triggers at most one
@@ -39,7 +38,7 @@ type Troupe struct {
 	cooldown time.Duration
 
 	// materialise pulls the shared notebook into the worktree — Warm's only
-	// job. Production wires the slivingdoc pull over the shared worktree;
+	// job. The serve wiring supplies the slivingdoc pull over the worktree;
 	// tests inject a recording fake. Unset, Warm is a no-op.
 	materialise func(ctx context.Context) error
 
@@ -65,7 +64,7 @@ func WithGenerationCritic(c *Critic) TroupeOption {
 	return func(t *Troupe) { t.critic = c }
 }
 
-// WithMaterialise sets how Warm materialises the notebook: production passes
+// WithMaterialise sets how Warm materialises the notebook: serve passes
 // the slivingdoc pull over the shared worktree; tests inject a recording
 // fake. Unset, Warm materialises nothing.
 func WithMaterialise(fn func(ctx context.Context) error) TroupeOption {

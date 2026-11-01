@@ -324,8 +324,7 @@ func (m *Manager) ExtractSubtitles(item model.Item, streamIndex string) (string,
 
 	// Check if already exists
 	if _, err := os.Stat(destPath); err == nil {
-		// File exists, assume it's good
-		// In a production system we might want to check size > 0
+		// File exists, assume it is complete; no size check.
 		return destPath, nil
 	}
 

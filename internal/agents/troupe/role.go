@@ -137,8 +137,8 @@ type worktreeRoleSource struct {
 }
 
 // NewWorktreeRoleSource returns a RoleSource reading live roles/<id>.json
-// notes from the materialised worktree — the production shape the serve
-// wiring hands the spawner (phase 9).
+// notes from the materialised worktree — the shape the serve wiring hands the
+// spawner (phase 9).
 func NewWorktreeRoleSource(worktree string) RoleSource {
 	return worktreeRoleSource{worktree: worktree}
 }

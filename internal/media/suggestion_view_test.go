@@ -29,7 +29,7 @@ func TestResolveSuggestionView(t *testing.T) {
 			},
 		},
 		{
-			name: "episode where name is the episode title (Stargate production data)",
+			name: "episode where name is the episode title (real Stargate metadata)",
 			item: itemWithMeta("/mnt/usb_b/movies/Stargate.SG-1.S08.1080p.BluRay.DD.5.1.x265-edge2020/Stargate.SG-1.S08E10.Endgame.1080p.BluRay.DD.5.1.x265-edge2020.mkv",
 				`{"name":"Endgame","alt_name":"","year":2004,"season":8,"episode":10,"langugae":"English","duration_min":44,"description":"The Trust steals the Stargate."}`),
 			want: model.SuggestionView{
@@ -45,7 +45,7 @@ func TestResolveSuggestionView(t *testing.T) {
 			},
 		},
 		{
-			name: "episode where name is the series and alt_name the episode title (Office production data)",
+			name: "episode where name is the series and alt_name the episode title (real Office metadata)",
 			item: itemWithMeta("/mnt/usb_b/movies/The.Office.US.S06.1080p.BluRay.x265-RARBG/The.Office.S06E09.1080p.BluRay.x265-RARBG.mp4",
 				`{"name":"The Office","alt_name":"Double Date","year":2009,"season":6,"episode":9,"langugae":"English","duration_min":22}`),
 			want: model.SuggestionView{

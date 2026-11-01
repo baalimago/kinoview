@@ -3,7 +3,7 @@ package troupe
 import "context"
 
 // Swarm spawns sub-agents by role note and gathers their final messages.
-// The Spawner is the production swarm — every spawned agent runs through the
+// The Spawner is the swarm serve uses — every spawned agent runs through the
 // phase-4 runner under the phase-5 termination authority, and each spawn
 // returns the sub-agent's final message for the spawning agent to gather.
 // The director's spawn_role tool spawns through this seam, so a generation
@@ -13,5 +13,5 @@ type Swarm interface {
 	Spawn(ctx context.Context, roleID, task string) (string, error)
 }
 
-// compile-time proof: the spawner is the production swarm.
+// compile-time proof: the spawner implements the swarm.
 var _ Swarm = (*Spawner)(nil)

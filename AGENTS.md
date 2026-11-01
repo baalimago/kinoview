@@ -213,9 +213,9 @@ replaces it from phase 7 onward.
   a role selecting `mcp_playwright` is refused at spawn; `view_image` stays
   available because it needs no server. Each agent also runs under a per-run
   context, because a child MCP server outlives its agent until that context is
-  cancelled. The server and the browser are **one container**, the shape
-  sakfraga runs: `@playwright/mcp` over streamable HTTP, a distro Chromium as
-  its `--executable-path`, one browser context per agent. kinoview holds no
+  cancelled. The server and the browser are **one container**:
+  `@playwright/mcp` over streamable HTTP, a distro Chromium as its
+  `--executable-path`, one browser context per agent. kinoview holds no
   browser code; it reads the same config the agents load and uses it as the
   switch. Playwright ships no armv7 browser, so the image is Alpine's Chromium;
   see `docs/PERCEPTION.md` and `docker/playwright-mcp.Dockerfile`.
@@ -389,6 +389,15 @@ server runs without it.
 - Integration tests use real filesystem fixtures (see `internal/media/storage/mock/`).
 - The `kinoview` binary at repo root can be used for smoke testing.
 
+### Documentation
+
+- Tracked docs and code comments describe the capability, its limits and its
+  proof on any host. Name the concrete referent — the server, the serve wiring,
+  the default seam — and never "production".
+- Deployment specifics belong in the dated records (`worklogs/`,
+  `agent_notebook/`) and in the operator runbooks under `.agents/skills/`, which
+  git does not track.
+
 ---
 
 ## Duplication Policy
@@ -416,7 +425,7 @@ Use these principles to decide whether a reported clone needs fixing.
 
 - **Two or more functions or tests whose bodies differ only in parameterised values.**
   Merge into a table-driven test or extract a parameterised helper.
-- **Production code where the same sequence of operations appears verbatim** with
+- **Non-test code where the same sequence of operations appears verbatim** with
   different call-site constants. Extract a function.
 - **Identical setup + teardown across >3 tests in the same file.** Extract a test
   helper local to that file.

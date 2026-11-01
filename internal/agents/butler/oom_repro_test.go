@@ -18,8 +18,8 @@ import (
 	"github.com/baalimago/kinoview/internal/model"
 )
 
-// TestRepro_EndlessReasoningStreamHonorsDeadline reproduces the production
-// OOM scenario end-to-end through the real clai v1.10.18 stack: the butler's
+// TestRepro_EndlessReasoningStreamHonorsDeadline reproduces the reported OOM
+// scenario end-to-end through the real clai v1.10.18 stack: the butler's
 // picker call runs against a local SSE server that emits one tool call and
 // then streams reasoning tokens forever, never sending [DONE]. runCascade
 // wraps PrepSuggestions in a context.WithTimeout; the test asserts
@@ -106,9 +106,9 @@ func TestRepro_EndlessReasoningStreamHonorsDeadline(t *testing.T) {
 
 // TestRepro_HeapGrowthPerReasoningByte measures how much Go heap the real
 // clai v1.10.18 stack consumes per byte of streamed reasoning content, using
-// the exact production path (butler picker) against a local SSE server that
+// the exact real call path (butler picker) against a local SSE server that
 // streams reasoning forever. This settles whether unbounded reasoning
-// accumulation can explain the production 2.53 GB heap.
+// accumulation can explain the observed 2.53 GB heap.
 //
 // The server streams chunks as fast as the client reads them (no sleep). The
 // test samples runtime.MemStats every 500ms and reports the growth rate.

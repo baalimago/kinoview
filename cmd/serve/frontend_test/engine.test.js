@@ -645,7 +645,7 @@ test('a second mount replaces the stage instead of stacking', function() {
 
 test('bootstrap self-mounts a resolved play into #troupe', function() {
   // Phase 9 cutover: the engine bootstraps when TROUPE_PLAY is present and
-  // #troupe exists — the production frontend sets TROUPE_PLAY from
+  // #troupe exists — the serve frontend sets TROUPE_PLAY from
   // /api/v1/troupe/play/resolved and the engine renders without any other
   // wiring. An absent play leaves the stage empty (no seed, no fallback).
   var troupeEl = makeEl();
