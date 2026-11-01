@@ -24,6 +24,7 @@ type Spawner struct {
 	configDir string
 	server    models.McpServer // zero value: notebook disabled
 	workspace string           // materialised worktree path
+	showURL   string           // the rendered show; empty: inspection disabled
 	roles     RoleSource
 	budget    *Budget // the generation's termination authority
 	logger    *slog.Logger
@@ -56,6 +57,14 @@ func WithNotebook(server models.McpServer, workspace string) SpawnOption {
 // WithRoleSource sets the seam the spawner reads role notes through.
 func WithRoleSource(rs RoleSource) SpawnOption {
 	return func(s *Spawner) { s.roles = rs }
+}
+
+// WithShowURL enables the perception tools: the perception inspection subset
+// becomes selectable from the closed registry and every spawn's prompt carries the
+// SHOW partial naming the rendered show. A non-empty URL is the switch; serve
+// passes it only when the Playwright MCP server is configured.
+func WithShowURL(url string) SpawnOption {
+	return func(s *Spawner) { s.showURL = url }
 }
 
 // WithBudget sets the generation budget the spawner enforces: the
@@ -100,6 +109,12 @@ func (s *Spawner) notebookEnabled() bool {
 	return s.server.Name != ""
 }
 
+// browserEnabled reports whether the perception tools are available: the
+// show URL is configured, so the Playwright MCP server exists.
+func (s *Spawner) browserEnabled() bool {
+	return s.showURL != ""
+}
+
 // notebookWorkspace is the worktree path substituted into the NOTES prompt
 // partial: the explicit option, or the path read back from the callsign
 // args.
@@ -136,6 +151,12 @@ func (s *Spawner) Spawn(ctx context.Context, roleID, task string) (string, error
 		return "", fmt.Errorf("troupe: spawn %s: %w", roleID, err)
 	}
 	a := s.newAgent(role, task, globs, tools)
+	// A child MCP server lives exactly as long as the context the agent was
+	// set up with: clai's manager returns only on ctx.Done and kills each
+	// child through exec.CommandContext. A per-spawn context therefore keeps
+	// one spawn's browser and notebook processes from outliving the spawn.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if err := a.Setup(ctx); err != nil {
 		return "", fmt.Errorf("troupe: spawn %s: %w", roleID, err)
 	}
@@ -158,11 +179,14 @@ func (s *Spawner) toolSet(role Role) (globs []string, tools []models.LLMTool, er
 		if !ok {
 			return nil, nil, fmt.Errorf("troupe: role %s selects %q which is not in the closed tool registry", role.ID, name)
 		}
-		if e.glob != "" {
+		if len(e.globs) > 0 {
 			if e.notebook && !s.notebookEnabled() {
 				return nil, nil, fmt.Errorf("troupe: role %s selects %s but the notebook is disabled", role.ID, name)
 			}
-			globs = append(globs, e.glob)
+			if e.browser && !s.browserEnabled() {
+				return nil, nil, fmt.Errorf("troupe: role %s selects %s but the browser is disabled", role.ID, name)
+			}
+			globs = append(globs, e.globs...)
 			continue
 		}
 		tools = append(tools, e.build(s))
@@ -203,10 +227,26 @@ func (s *Spawner) prompt(role Role, task string) string {
 	if task != "" {
 		p += "\n\nTASK\n" + task
 	}
+	if s.browserEnabled() && s.roleInspects(role) {
+		p += "\n" + showPartial(s.showURL)
+	}
 	if s.notebookEnabled() {
 		p += "\n" + slivingdoc.NotesPartial(s.notebookWorkspace())
 	}
 	return p
+}
+
+// roleInspects reports whether the role can render the show at all: only a
+// role note that selected the perception entry carries the tools the SHOW
+// partial tells it to use. A role with file tools alone gets its commission
+// without an instruction it cannot follow.
+func (s *Spawner) roleInspects(role Role) bool {
+	for _, name := range role.Tools {
+		if e, ok := lookupTool(name); ok && e.browser {
+			return true
+		}
+	}
+	return false
 }
 
 // spawnRoleTool is the recursive spawn_role tool: it reads the named role

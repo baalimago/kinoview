@@ -30,6 +30,7 @@ cmd/
 ├── debug/               # Standalone CLI for store inspection and debugging
 ├── media/               # Standalone CLI for media listing
 ├── llm/                 # LLM usage analytics CLI
+├── perception/          # MCP server on stdio: the troupe's browser tools over CDP
 └── (main.go)            # Root command dispatcher: flags → cmd.Run with shutdown.MonitorV2
 
 internal/
@@ -56,6 +57,7 @@ internal/
 │   ├── troupe/          # The fixed stage: frozen grammar (grammar.go/validate.go),
 │   │                    #   STAGE.md (the human-readable grammar note), and the
 │   │                    #   resolver/tools/roles of later phases
+│   ├── perception/      # The troupe's eye: MCP stdio server + a CDP browser (chromedp)
 │   └── tools/           # Concierge tool implementations (all satisfy clai's LLMTool interface)
 │       ├── add_suggestion.go / remove_suggestion.go / check_suggestions.go
 │       ├── client_context_getter.go / concierge_context_*.go
@@ -198,16 +200,36 @@ replaces it from phase 7 onward.
   partial).
 - **The frontend uses SSE for live updates.** The `index_handlers_eventStream.go`
   broadcasts item changes, suggestions, and logs to connected browsers.
+- **The troupe can see its own show.** When a Playwright MCP server config
+  exists at `<configDir>/clai/mcpServers/playwright.json`, serve enables
+  perception: the director, every spawned role and the critic get the
+  read-only `mcp_playwright` inspection subset (`browser_navigate`,
+  `browser_wait_for`, `browser_snapshot`, `browser_take_screenshot`,
+  `browser_console_messages`, `browser_resize`, `browser_close`) plus the
+  native `view_image` tool, and their prompts carry a `SHOW` partial naming the
+  local render URL (a spawned role only when its note selects `mcp_playwright`).
+  With no server config, a config clai rejects, a command that does not resolve
+  on PATH, a non-loopback endpoint, or an OS-chosen port, perception is off and
+  a role selecting `mcp_playwright` is refused at spawn; `view_image` stays
+  available because it needs no server. Each agent also runs under a per-run
+  context, because a child MCP server outlives its agent until that context is
+  cancelled. The server and the browser are **one container**, the shape
+  sakfraga runs: `@playwright/mcp` over streamable HTTP, a distro Chromium as
+  its `--executable-path`, one browser context per agent. kinoview holds no
+  browser code; it reads the same config the agents load and uses it as the
+  switch. Playwright ships no armv7 browser, so the image is Alpine's Chromium;
+  see `docs/PERCEPTION.md` and `docker/playwright-mcp.Dockerfile`.
 - **clai ≥ v1.10.22-r1 ships the reasoning cap upstream.** A looping model
   can stream reasoning tokens forever; clai ≤ v1.10.21 accumulated them in
   unbounded O(n²) string builders, which OOMed the server on 2026-08-11
   (2.53 GB heap, 476 MiB failed allocation). The fix caps both reasoning
   accumulators (`reasoningContent` in `internal/text/generic/` and
   `reasoningBuf` in `internal/text/`) at 1 MiB, keeping the tail. Kinoview
-  pins ≥ v1.10.23-rc1 (race-safe clai, which also replaced the io.Writer
-  terminal output `WithOutputTo` with the `WithLogger` slog channel — the
-  classifier's per-worker log files are text-handler sinks now); do not
-  downgrade below v1.10.22-r1. Two wall-clock guards back the
+  pins v1.13.0 (race-safe clai, which also replaced the io.Writer terminal
+  output `WithOutputTo` with the `WithLogger` slog channel — the classifier's
+  per-worker log files are text-handler sinks now — and ships the native
+  `view_image` tool the troupe's perception set uses; v1.12.0 is the first
+  release with it); do not downgrade below v1.12.0. Two wall-clock guards back the
   cap up: `-conciergeTimeout` (default 10 min) aborts a stuck concierge run,
   and `-classifierTimeout` (default 5 min) aborts a stuck classification
   call (the attempt still counts). Regression proof:

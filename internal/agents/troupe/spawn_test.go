@@ -81,6 +81,7 @@ func TestSpawner_ToolSet(t *testing.T) {
 		name     string
 		tools    []string
 		notebook bool
+		showURL  string
 		wantGlob []string
 		wantDyn  []string
 		wantErr  string
@@ -117,15 +118,40 @@ func TestSpawner_ToolSet(t *testing.T) {
 			tools:   []string{"website_text"},
 			wantErr: `selects "website_text" which is not in the closed tool registry`,
 		},
+		{
+			name:    "perception tools with the show",
+			tools:   []string{"mcp_playwright", "view_image"},
+			showURL: "http://localhost:8080/",
+			wantGlob: []string{
+				"mcp_playwright_browser_navigate",
+				"mcp_playwright_browser_wait_for",
+				"mcp_playwright_browser_take_screenshot",
+				"mcp_playwright_browser_console_messages",
+				"mcp_playwright_browser_resize",
+				"mcp_playwright_browser_snapshot",
+				"mcp_playwright_browser_close",
+				"view_image",
+			},
+		},
+		{
+			name:     "view_image is ungated",
+			tools:    []string{"view_image"},
+			wantGlob: []string{"view_image"},
+		},
+		{
+			name:    "perception without the show",
+			tools:   []string{"mcp_playwright"},
+			wantErr: "selects mcp_playwright but the browser is disabled",
+		},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
 			var s *Spawner
 			if tt.notebook {
 				server := notebookServer()
-				s = newTestSpawner(t, fakeRoles{}, WithNotebook(server, "/cache/slivingdoc"))
+				s = newTestSpawner(t, fakeRoles{}, WithNotebook(server, "/cache/slivingdoc"), WithShowURL(tt.showURL))
 			} else {
-				s = newTestSpawner(t, fakeRoles{})
+				s = newTestSpawner(t, fakeRoles{}, WithShowURL(tt.showURL))
 			}
 			globs, dyn, err := s.toolSet(Role{ID: "clown", Tools: tt.tools})
 			if tt.wantErr != "" {
@@ -152,8 +178,9 @@ func TestSpawner_ToolSet(t *testing.T) {
 }
 
 // TestSpawner_Prompt pins the prompt assembly: the role's own definition,
-// the commission appended when given, and the shared NOTES partial naming
-// the workspace when the notebook is on.
+// the commission appended when given, the SHOW partial naming the rendered
+// show when perception is on, and the shared NOTES partial naming the
+// workspace when the notebook is on.
 func TestSpawner_Prompt(t *testing.T) {
 	const rolePrompt = "You are the clown."
 	const task = "Invent a pounce gag."
@@ -183,6 +210,29 @@ func TestSpawner_Prompt(t *testing.T) {
 		}
 		if !strings.Contains(got, "Commit with mcp_slivingdoc_notes_commit with path /cache/slivingdoc when done.") {
 			t.Errorf("prompt must name the commit step with the workspace:\n%s", got)
+		}
+	})
+	t.Run("show names the rendered URL", func(t *testing.T) {
+		s := newTestSpawner(t, fakeRoles{}, WithShowURL("http://localhost:8080/"))
+		got := s.prompt(Role{Prompt: rolePrompt, Tools: []string{"cat", "mcp_playwright"}}, task)
+		if !strings.Contains(got, "SHOW\nThe show renders in a browser at http://localhost:8080/.") {
+			t.Errorf("prompt must carry the SHOW partial naming the show URL:\n%s", got)
+		}
+		if strings.Contains(got, "NOTES") {
+			t.Errorf("no-notebook prompt must omit the NOTES partial:\n%s", got)
+		}
+	})
+	t.Run("no browser tool, no SHOW partial", func(t *testing.T) {
+		s := newTestSpawner(t, fakeRoles{}, WithShowURL("http://localhost:8080/"))
+		got := s.prompt(Role{Prompt: rolePrompt, Tools: []string{"cat", "view_image"}}, task)
+		if strings.Contains(got, "SHOW") {
+			t.Errorf("a role that did not select mcp_playwright cannot inspect the show, so its prompt must omit the SHOW partial:\n%s", got)
+		}
+	})
+	t.Run("no show, no SHOW partial", func(t *testing.T) {
+		s := newTestSpawner(t, fakeRoles{})
+		if got := s.prompt(Role{Prompt: rolePrompt}, task); strings.Contains(got, "SHOW") {
+			t.Errorf("prompt without perception must omit the SHOW partial:\n%s", got)
 		}
 	})
 }

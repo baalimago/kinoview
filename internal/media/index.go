@@ -72,7 +72,14 @@ func (el *errorListener) start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case e := <-el.in:
-			el.out <- fmt.Errorf("%v: %w", el.name, e)
+			// The consumer of out is Indexer.Start, which returns on ctx
+			// cancel; the hand-off must be droppable or the listener parks
+			// on an unread channel forever.
+			select {
+			case el.out <- fmt.Errorf("%v: %w", el.name, e):
+			case <-ctx.Done():
+				return
+			}
 		}
 	}
 }

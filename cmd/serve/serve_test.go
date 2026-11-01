@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/baalimago/go_away_boilerplate/pkg/testboil"
 )
 
 func TestSetup(t *testing.T) {
@@ -216,5 +218,83 @@ func TestTroupeMountPointIsFullscreen(t *testing.T) {
 		if !strings.Contains(body, want) {
 			t.Errorf("troupe frontend is missing %q", want)
 		}
+	}
+}
+
+func TestWaitStore(t *testing.T) {
+	short := 20 * time.Millisecond
+
+	t.Run("nil store wait is a no-op", func(t *testing.T) {
+		c := Command()
+		c.waitStore(context.Background())
+	})
+
+	t.Run("returns when the store goroutines exit", func(t *testing.T) {
+		c := Command()
+		c.storeWait = func() {}
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		c.waitStore(ctx)
+	})
+
+	t.Run("bounded when the store goroutines do not exit", func(t *testing.T) {
+		c := Command()
+		c.shutdownTimeout = &short
+		c.storeWait = func() { select {} }
+		ctx, cancel := context.WithTimeout(context.Background(), short)
+		defer cancel()
+		start := time.Now()
+		c.waitStore(ctx)
+		if elapsed := time.Since(start); elapsed > time.Second {
+			t.Fatalf("waitStore took %v: the drain deadline must bound it", elapsed)
+		}
+	})
+}
+
+func TestDrainTimeout(t *testing.T) {
+	tests := []struct {
+		name  string
+		setup func(*command)
+		want  time.Duration
+	}{
+		{name: "default", setup: func(*command) {}, want: defaultShutdownTimeout},
+		{name: "unset", setup: func(c *command) { c.shutdownTimeout = nil }, want: defaultShutdownTimeout},
+		{name: "zero falls back to default", setup: func(c *command) { c.shutdownTimeout = new(time.Duration) }, want: defaultShutdownTimeout},
+		{name: "configured", setup: func(c *command) { *c.shutdownTimeout = time.Minute }, want: time.Minute},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Command()
+			tt.setup(c)
+			testboil.FailTestIfDiff(t, c.drainTimeout(), tt.want)
+		})
+	}
+}
+
+// TestRun_stuckStoreDoesNotBlockShutdown proves the first signal is enough even
+// when a store goroutine never returns: the drain deadline ends the wait.
+func TestRun_stuckStoreDoesNotBlockShutdown(t *testing.T) {
+	withoutCredentials(t)
+	short := 50 * time.Millisecond
+	c := Command()
+	c.Flagset()
+	c.configDir = new(t.TempDir())
+	c.port = new(int)
+	c.shutdownTimeout = &short
+
+	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer cancel()
+	if err := c.Setup(ctx); err != nil {
+		t.Fatalf("unexpected setup error: %v", err)
+	}
+	c.watchPath = t.TempDir()
+	c.storeWait = func() { select {} }
+
+	start := time.Now()
+	if err := c.Run(ctx); err != nil {
+		t.Errorf("unexpected error during Run: %v", err)
+	}
+	if elapsed := time.Since(start); elapsed > 3*time.Second {
+		t.Fatalf("Run took %v: a stuck store goroutine must not hold the process", elapsed)
 	}
 }

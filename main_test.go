@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -87,4 +88,42 @@ func TestSetupStderrFilter_filterActiveAfterRun(t *testing.T) {
 	// Note: the pipe's write end may be closed since the filter goroutine
 	// exits when the scanner gets EOF. After run() returns, the process
 	// is about to exit anyway, so the pipe state doesn't matter.
+}
+
+func TestSetupStderrFilter_dropsOnlyCostEstimateNoise(t *testing.T) {
+	originalStderr := os.Stderr
+	t.Cleanup(func() { os.Stderr = originalStderr })
+
+	sink, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatalf("failed to create sink: %v", err)
+	}
+	defer sink.Close()
+	os.Stderr = sink
+
+	setupStderrFilter()
+
+	fmt.Fprintln(os.Stderr, "failed to enrich chat with cost estimate: boom")
+	fmt.Fprintln(os.Stderr, "kept line")
+
+	var got string
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		b, readErr := os.ReadFile(sink.Name())
+		if readErr != nil {
+			t.Fatalf("failed to read sink: %v", readErr)
+		}
+		got = string(b)
+		if strings.Contains(got, "kept line") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	if !strings.Contains(got, "kept line") {
+		t.Fatalf("filter dropped a normal line: %q", got)
+	}
+	if strings.Contains(got, "cost estimate") {
+		t.Fatalf("filter kept the cost estimate noise: %q", got)
+	}
 }

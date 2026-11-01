@@ -75,14 +75,14 @@ func TestDirector_ToolSet(t *testing.T) {
 	d, _ := newTestDirector(t, &fakeSwarm{})
 
 	globs, tools := d.toolSet()
-	for _, want := range []string{"cat", "rows_between", "ls", "rg", "write_file", "apply_patch", "mkdir"} {
+	for _, want := range []string{"cat", "rows_between", "ls", "rg", "write_file", "apply_patch", "mkdir", "view_image"} {
 		if !slices.Contains(globs, want) {
 			t.Errorf("globs missing the file tool %q: %v", want, globs)
 		}
 	}
-	for _, absent := range []string{"mcp_slivingdoc_notes_pull", "mcp_slivingdoc_notes_commit"} {
+	for _, absent := range []string{"mcp_slivingdoc_notes_pull", "mcp_slivingdoc_notes_commit", "mcp_playwright_browser_navigate"} {
 		if slices.Contains(globs, absent) {
-			t.Errorf("globs carry %q without the notebook: %v", absent, globs)
+			t.Errorf("globs carry %q while its server is disabled: %v", absent, globs)
 		}
 	}
 	got := make([]string, len(tools))
@@ -103,12 +103,23 @@ func TestDirector_ToolSet(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("the show adds the perception glob", func(t *testing.T) {
+		d, _ := newTestDirector(t, &fakeSwarm{}, WithDirectorShowURL("http://localhost:8080/"))
+		globs, _ := d.toolSet()
+		for _, want := range []string{"mcp_playwright_browser_navigate", "mcp_playwright_browser_take_screenshot"} {
+			if !slices.Contains(globs, want) {
+				t.Errorf("globs missing %q with the show on: %v", want, globs)
+			}
+		}
+	})
 }
 
 // TestDirector_Prompt pins the assembled prompt: the fixed workflow naming
 // the submit step, the current UTC stamped in the play-id format (the
 // director authors story_<UTC> ids and the registry carries no clock tool),
-// and the shared NOTES partial when the notebook is on.
+// the SHOW partial when perception is on, and the shared NOTES partial when
+// the notebook is on.
 func TestDirector_Prompt(t *testing.T) {
 	d, _ := newTestDirector(t, &fakeSwarm{})
 	p := d.prompt()
@@ -124,6 +135,9 @@ func TestDirector_Prompt(t *testing.T) {
 	if strings.Contains(p, "NOTES") {
 		t.Errorf("no-notebook prompt must omit the NOTES partial:\n%s", p)
 	}
+	if strings.Contains(p, "SHOW") {
+		t.Errorf("prompt without perception must omit the SHOW partial:\n%s", p)
+	}
 
 	t.Run("notebook names the workspace", func(t *testing.T) {
 		server := notebookServer()
@@ -133,6 +147,36 @@ func TestDirector_Prompt(t *testing.T) {
 			t.Errorf("prompt must carry the NOTES partial naming the workspace:\n%s", p)
 		}
 	})
+
+	t.Run("show names the rendered URL", func(t *testing.T) {
+		d, _ := newTestDirector(t, &fakeSwarm{}, WithDirectorShowURL("http://localhost:8080/"))
+		p := d.prompt()
+		if !strings.Contains(p, "SHOW\nThe show renders in a browser at http://localhost:8080/.") {
+			t.Errorf("prompt must carry the SHOW partial naming the show URL:\n%s", p)
+		}
+		if !strings.Contains(p, "Inspect the show after you submit. If the render is wrong, correct the notes and submit a new play id.") {
+			t.Errorf("prompt must tell the director to correct a wrong render:\n%s", p)
+		}
+	})
+}
+
+// TestDirector_RunCancelsTheAgentContext pins the lifetime contract with
+// clai: a child MCP server (the browser, the notebook) lives until the
+// context the agent was set up with is cancelled, so Run must hand the
+// director loop a context that is cancelled before Run returns.
+func TestDirector_RunCancelsTheAgentContext(t *testing.T) {
+	d, _ := newTestDirector(t, &fakeSwarm{})
+	var loopCtx context.Context
+	d.runDirector = func(ctx context.Context, _ directorParams) (string, error) {
+		loopCtx = ctx
+		return "done", nil
+	}
+	if _, err := d.Run(t.Context()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if loopCtx == nil || loopCtx.Err() == nil {
+		t.Error("the director loop's context must be cancelled when the generation ends")
+	}
 }
 
 // TestDirector_GenerationSubmits is the phase-7 headline: a generation with

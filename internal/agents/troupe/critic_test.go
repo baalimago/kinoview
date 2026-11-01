@@ -146,20 +146,21 @@ func TestNewCritic_Errors(t *testing.T) {
 }
 
 // TestCritic_ToolSet pins the critic's instrument set: the read-only file
-// tools from the closed registry and nothing else — no write_file, no
-// apply_patch, no mkdir, no notebook tools, no spawn_role, no submit_play —
-// plus write_criticism pinned to the reviewed generation's outcome. The
-// "never edits" rule is enforced by the tool set, not by the prompt.
+// tools and the perception tools from the closed registry and nothing else —
+// no write_file, no apply_patch, no mkdir, no notebook tools, no spawn_role,
+// no submit_play — plus write_criticism pinned to the reviewed generation's
+// outcome. The "never edits" rule is enforced by the tool set, not by the
+// prompt.
 func TestCritic_ToolSet(t *testing.T) {
 	c, _ := newTestCritic(t)
 
 	globs, tools := c.toolSet(Outcome{Submitted: true, PlayID: "story_20260820T161500Z"})
-	for _, want := range []string{"cat", "rows_between", "ls", "rg"} {
+	for _, want := range []string{"cat", "rows_between", "ls", "rg", "view_image"} {
 		if !slices.Contains(globs, want) {
 			t.Errorf("globs missing the read tool %q: %v", want, globs)
 		}
 	}
-	for _, absent := range []string{"write_file", "apply_patch", "mkdir", "mcp_slivingdoc_notes_pull", "mcp_slivingdoc_notes_commit"} {
+	for _, absent := range []string{"write_file", "apply_patch", "mkdir", "mcp_playwright_browser_navigate", "mcp_slivingdoc_notes_pull", "mcp_slivingdoc_notes_commit"} {
 		if slices.Contains(globs, absent) {
 			t.Errorf("globs carry the write/notebook tool %q: %v", absent, globs)
 		}
@@ -182,11 +183,20 @@ func TestCritic_ToolSet(t *testing.T) {
 			t.Errorf("empty-stage playID = %q, want empty — the critic cannot claim a play", inner.playID)
 		}
 	})
+
+	t.Run("the show adds the perception glob", func(t *testing.T) {
+		c, _ := newTestCritic(t, WithCriticShowURL("http://localhost:8080/"))
+		globs, _ := c.toolSet(Outcome{Submitted: true, PlayID: "story_20260820T161500Z"})
+		if !slices.Contains(globs, "mcp_playwright_browser_take_screenshot") {
+			t.Errorf("globs missing the perception screenshot tool with the show on: %v", globs)
+		}
+	})
 }
 
 // TestCritic_Prompt pins the assembled prompt: the fixed workflow naming
 // the write_criticism gate, the generation id stamped, and the outcome —
-// the submitted play id, or the honest empty stage naming no play.
+// the submitted play id, or the honest empty stage naming no play — plus the
+// SHOW partial when perception is on.
 func TestCritic_Prompt(t *testing.T) {
 	c, _ := newTestCritic(t)
 	p := c.prompt("g_01j8x", Outcome{Submitted: true, PlayID: "story_20260820T161500Z"})
@@ -199,6 +209,39 @@ func TestCritic_Prompt(t *testing.T) {
 	empty := c.prompt("g_01j9y", Outcome{})
 	if !strings.Contains(empty, "PLAY none") || strings.Contains(empty, "PLAY story_") {
 		t.Errorf("empty-stage prompt must say PLAY none and stamp no play id:\n%s", empty)
+	}
+	if strings.Contains(p, "SHOW") {
+		t.Errorf("prompt without perception must omit the SHOW partial:\n%s", p)
+	}
+
+	c, _ = newTestCritic(t, WithCriticShowURL("http://localhost:8080/"))
+	inspected := c.prompt("g_01j8x", Outcome{Submitted: true, PlayID: "story_20260820T161500Z"})
+	if !strings.Contains(inspected, "SHOW\nThe show renders in a browser at http://localhost:8080/.") {
+		t.Errorf("prompt must carry the SHOW partial naming the show URL:\n%s", inspected)
+	}
+
+	stale := c.prompt("g_01j9y", Outcome{})
+	if !strings.Contains(stale, "never attribute that render to this generation") {
+		t.Errorf("the empty stage warns that the browser may render an older play:\n%s", stale)
+	}
+}
+
+// TestCritic_RunCancelsTheAgentContext pins the lifetime contract with clai:
+// a child MCP server (the browser, the notebook) lives until the context the
+// agent was set up with is cancelled, so Run must hand the critic loop a
+// context that is cancelled before Run returns.
+func TestCritic_RunCancelsTheAgentContext(t *testing.T) {
+	c, _ := newTestCritic(t)
+	var loopCtx context.Context
+	c.runCritic = func(ctx context.Context, _ criticParams) (string, error) {
+		loopCtx = ctx
+		return "reviewed", nil
+	}
+	if err := c.Run(t.Context(), "g_01j8x", Outcome{}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if loopCtx == nil || loopCtx.Err() == nil {
+		t.Error("the critic loop's context must be cancelled when the review ends")
 	}
 }
 

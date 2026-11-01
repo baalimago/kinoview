@@ -335,7 +335,7 @@ func (s *store) Start(ctx context.Context) {
 	s.wg.Go(func() {
 		err := s.StartClassificationStation(ctx)
 		if err != nil {
-			s.classifierErrors <- fmt.Errorf("failed to start classification station: %w", err)
+			s.reportClassifierError(ctx, fmt.Errorf("failed to start classification station: %w", err))
 		}
 	})
 	if s.startupWriteWindow > 0 {

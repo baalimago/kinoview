@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -259,5 +260,116 @@ func TestSetup_SeedSuccess_EnablesTroupe(t *testing.T) {
 	}
 	if !c.troupeEnabled {
 		t.Error("the troupe must start when the seed succeeds and -troupe is set")
+	}
+}
+
+// TestClaiConfigDir pins the suffix rule the perception availability check
+// mirrors from clai: a dir already ending in clai is used as-is, any other dir
+// gets a clai child.
+func TestClaiConfigDir(t *testing.T) {
+	cases := map[string]string{
+		"/home/u/.config/kinoview": "/home/u/.config/kinoview/clai",
+		"/custom/clai":             "/custom/clai",
+	}
+	for in, want := range cases {
+		if got := claiConfigDir(in); got != want {
+			t.Errorf("claiConfigDir(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// TestIsLoopbackHost pins the locality rule: only this machine's addresses
+// can reach the show the troupe inspects.
+func TestIsLoopbackHost(t *testing.T) {
+	cases := map[string]bool{
+		"localhost":   true,
+		"127.0.0.1":   true,
+		"::1":         true,
+		"0.0.0.0":     false,
+		"example.com": false,
+		"":            false,
+	}
+	for host, want := range cases {
+		if got := isLoopbackHost(host); got != want {
+			t.Errorf("isLoopbackHost(%q) = %v, want %v", host, got, want)
+		}
+	}
+}
+
+// writePerceptionServer writes the Playwright MCP server config the troupe
+// agents load into the clai config dir under the test's config dir.
+func writePerceptionServer(t *testing.T, configDir, body string) {
+	t.Helper()
+	cfg := filepath.Join(configDir, "clai", "mcpServers", "playwright.json")
+	if err := os.MkdirAll(filepath.Dir(cfg), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfg, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestTroupeShowURL pins the perception switch: a perception server config in
+// the clai config dir the spawned agents load turns perception on, but only
+// when the server can start here; a missing config, a malformed config and a
+// command that does not resolve all leave it off.
+func TestTroupeShowURL(t *testing.T) {
+	executable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct {
+		name string
+		body string // empty: no config file
+		want string
+	}{
+		{"no perception config", "", ""},
+		{"command on PATH", `{"command":` + strconv.Quote(executable) + `}`, "http://localhost:8080/"},
+		{"loopback endpoint", `{"url":"http://127.0.0.1:8931/mcp"}`, "http://localhost:8080/"},
+		{"remote endpoint", `{"url":"http://browserbox:8931/mcp"}`, ""},
+		{"url without a scheme", `{"url":"127.0.0.1:8931"}`, ""},
+		{"both transports", `{"command":` + strconv.Quote(executable) + `,"url":"http://127.0.0.1:8931/mcp"}`, ""},
+		{"command off PATH", `{"command":"kinoview-no-such-perception-server"}`, ""},
+		{"command and url absent", `{}`, ""},
+		{"malformed config", `{`, ""},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			c := Command()
+			c.Flagset()
+			dir := t.TempDir()
+			c.configDir = &dir
+			if tt.body != "" {
+				writePerceptionServer(t, dir, tt.body)
+			}
+			if got := c.troupeShowURL(); got != tt.want {
+				t.Errorf("show URL = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+// TestPlayURL pins the browser address: wildcard binds are addressed through
+// loopback, TLS changes the scheme, and port 0 yields no stable URL.
+func TestPlayURL(t *testing.T) {
+	cases := []struct {
+		name string
+		host string
+		port int
+		tls  bool
+		want string
+	}{
+		{"localhost", "localhost", 8080, false, "http://localhost:8080/"},
+		{"wildcard ipv4", "0.0.0.0", 80, false, "http://127.0.0.1:80/"},
+		{"empty host", "", 80, false, "http://127.0.0.1:80/"},
+		{"tls", "localhost", 443, true, "https://localhost:443/"},
+		{"port zero", "localhost", 0, false, ""},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := playURL(tt.host, tt.port, tt.tls); got != tt.want {
+				t.Errorf("playURL(%q, %d, %v) = %q, want %q", tt.host, tt.port, tt.tls, got, tt.want)
+			}
+		})
 	}
 }

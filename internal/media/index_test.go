@@ -1240,3 +1240,31 @@ func TestConcierge_TimeoutAbortsStuckRun(t *testing.T) {
 		t.Fatalf("last-run not persisted after aborted run: %v", err)
 	}
 }
+
+// TestErrorListener_stopsWhenOutIsUnread pins the shutdown invariant: the
+// listener must exit on ctx cancel even when nothing drains its out channel any
+// more. Blocking there leaks the goroutine forever, since out is only read by
+// Indexer.Start, which returns as soon as the process context is cancelled.
+func TestErrorListener_stopsWhenOutIsUnread(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	in := make(chan error, 2)
+	in <- errors.New("first")
+	in <- errors.New("second")
+	el := errorListener{name: "store", in: in, out: make(chan error)}
+
+	done := make(chan struct{})
+	go func() {
+		el.start(ctx)
+		close(done)
+	}()
+
+	// Give the listener the chance to park on its unread out channel.
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("errorListener stayed blocked on its unread out channel after shutdown")
+	}
+}

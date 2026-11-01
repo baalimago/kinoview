@@ -308,6 +308,13 @@ never define, and a note naming anything outside the registry is refused.
 
 - filesystem read/write — `cat`, `rows_between`, `ls`, `rg`, `write_file`,
   `apply_patch`, `mkdir`
+- perception — `view_image` (a clai native tool: look at a local image) and
+  `mcp_playwright` (the read-only inspection subset of the Playwright MCP
+  server, which is `@playwright/mcp` in a container: navigate, wait, snapshot,
+  screenshot, console, resize, close; page mutation and code execution are
+  deliberately absent from the registry, though the server offers them). The
+  subset is live only when the operator configures that server for the troupe's
+  clai config dir; selecting it without the server is refused at spawn
 - slivingdoc — `mcp_slivingdoc_notes_pull`, `mcp_slivingdoc_notes_commit`
   (live only when the notebook is on; selecting them without the notebook is
   refused at spawn)
@@ -342,9 +349,10 @@ The director runs under the same termination authority as every spawn: its
 run is depth 0, it admits against the generation budget before the loop
 starts, and its agent accounts every budgeted model call into the same
 budget. Its tool set is the closed registry (file tools, notebook tools when
-the notebook is on, `spawn_role` bound to the swarm) plus `submit_play`; the
-prompt names the submit step and carries the current UTC time, because the
-play id is a `story_<UTC>` datetime and the registry carries no clock tool.
+the notebook is on, perception tools when the show is inspectable,
+`spawn_role` bound to the swarm) plus `submit_play`; the prompt names the
+submit step, the rendered show and the current UTC time, because the play id
+is a `story_<UTC>` datetime and the registry carries no clock tool.
 
 The facade (`Prepare`/`Warm`) guards generations: `Prepare` triggers at most
 one (hardcoded cooldown + single-flight), `Warm` materialises the notebook
@@ -376,13 +384,36 @@ appended to `feedback/` through the `write_criticism` gate:
   overwritten.
 
 The critic's tool set is the read-only registry file tools (`cat`,
-`rows_between`, `ls`, `rg`) plus `write_criticism` — no `write_file`, no
-`apply_patch`, no `mkdir`, no `spawn_role`, no `submit_play` — so the
-"never edits" rule is enforced by the tool set, not by the prompt. It runs
-after the generation, never inside it, and it is not part of the generation
-budget: an exhausted generation (stoploss or call max spent) is still
-reviewed, and the empty-stage review says why nothing shipped, citing
-whatever notes exist — never fabricating a play.
+`rows_between`, `ls`, `rg`), the perception tools (`view_image`, and
+`mcp_playwright` when the show is inspectable) plus `write_criticism` — no
+`write_file`, no `apply_patch`, no `mkdir`, no `spawn_role`, no
+`submit_play` — so the "never edits" rule is enforced by the tool set, not
+by the prompt. It runs after the generation, never inside it, and it is not
+part of the generation budget: an exhausted generation (stoploss or call max
+spent) is still reviewed, and the empty-stage review says why nothing
+shipped, citing whatever notes exist — never fabricating a play.
+
+### Perception
+
+The show is a browser render, so the troupe can look at what it authored.
+When a Playwright MCP server is configured in the clai config dir the
+spawned agents load, serve enables perception and passes the local show URL
+(the kinoview server address) to the director, the swarm and the critic.
+The server config is `<clai config dir>/mcpServers/playwright.json`, where the
+clai config dir is `<configDir>/clai` unless `-configDir` already ends in
+`clai`.
+Every prompt then carries the shared `SHOW` partial: navigate to the URL,
+wait for the play to run, take a screenshot and look at it, read the browser
+console for errors, correct the notes, and inspect again. `view_image` covers
+an inspection that leaves an image file. A spawned role carries the `SHOW`
+partial only when its note selects `mcp_playwright`: a role with file tools
+alone is never told to look at a browser it does not have. With no perception
+server, with a config clai rejects (both or neither of `command`/`url`), with
+a command that does not resolve on PATH, with an endpoint that is not on this
+host (a remote browser would look at its own loopback), or with an OS-chosen
+port, which has no stable URL, perception is off: roles cannot select
+`mcp_playwright`, the fixed roles drop it, and the prompts omit the `SHOW`
+partial. `view_image` stays available because it needs no server.
 
 ### The termination authority
 

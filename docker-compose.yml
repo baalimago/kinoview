@@ -1,6 +1,6 @@
 # seccomp is unconfined because dockerd 26.1.4 ships a default profile that
-# predates the 64-bit time syscalls. Go 1.26 calls futex_time64 on 32-bit ARM
-# (rpie), the profile denies it, the syscall returns EPERM, and Go's runtime
+# predates the 64-bit time syscalls. Go 1.26 calls futex_time64 on 32-bit ARM,
+# the profile denies it, the syscall returns EPERM, and Go's runtime
 # deliberately crashes the process at futexwakeup: "futexwakeup ... returned -1"
 # then SIGSEGV at 0x1006. Drop this once dockerd's profile lists futex_time64,
 # which current moby/profiles does.
@@ -17,6 +17,27 @@ services:
     volumes:
       - ./docker/entrypoint.sh:/usr/local/bin/kinoview-entrypoint:ro
       - seaweedfs-data:/data
+
+  # The troupe's eye: @playwright/mcp and one Chromium in a container, the shape
+  # sakfraga runs. Host network, because the loopback endpoint the agents load
+  # (docs/PERCEPTION.md) is the same loopback kinoview serves the show on.
+  # seccomp=unconfined is required for the clock: see the note at the top.
+  playwright:
+    build:
+      context: .
+      dockerfile: docker/playwright-mcp.Dockerfile
+    image: kinoview-playwright
+    restart: unless-stopped
+    network_mode: host
+    init: true
+    security_opt:
+      - seccomp=unconfined
+    # Writable scratch for the browser; the image home holds the rest.
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,mode=1777
+    shm_size: 512m
+    mem_limit: 1200m
+    mem_reservation: 256m
 
 volumes:
   seaweedfs-data:

@@ -50,6 +50,9 @@ func run(args []string) int {
 		exitCodeChan <- cmd.Run(ctx, args, commands, usage)
 		cancel()
 	}()
+	// MonitorV2 >= v1.33.12 keeps the escalation ladder alive after the first
+	// signal cancels ctx: the next Ctrl-C reaches a drainer instead of a
+	// registration nobody reads.
 	shutdown.MonitorV2(ctx, cancel)
 	return <-exitCodeChan
 }

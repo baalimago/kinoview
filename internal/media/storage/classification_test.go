@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -26,6 +27,20 @@ func waitUntil(t *testing.T, d time.Duration, f func() bool) {
 	t.Fatalf("timeout waiting for condition")
 }
 
+// startStation starts the classification station on a child context and drains
+// it on cleanup. The child cancel runs first, so a result written on the way
+// out cannot race the temp-dir removal that t.TempDir runs when the test ends,
+// whatever the parent context is.
+func startStation(t *testing.T, s *store, ctx context.Context) {
+	t.Helper()
+	ctx, cancel := context.WithCancel(ctx)
+	if err := s.StartClassificationStation(ctx); err != nil {
+		t.Fatalf("start failed: %v", err)
+	}
+	t.Cleanup(s.Wait)
+	t.Cleanup(cancel)
+}
+
 func Test_startClassificationStation_success(t *testing.T) {
 	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -46,9 +61,7 @@ func Test_startClassificationStation_success(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	M := 12
 	for i := range M {
@@ -107,9 +120,7 @@ func Test_startClassificationStation_error(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	M := 10
 	K := 4
@@ -226,9 +237,7 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	M := 8
 	for i := range M {
@@ -279,9 +288,7 @@ func Test_startClassificationStation_context(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	it := model.Item{
 		ID:       "ctx-1",
@@ -340,9 +347,7 @@ func Test_startClassificationStation_cancel_shutdown(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	for i := range 5 {
 		it := model.Item{
@@ -413,9 +418,7 @@ func Test_startClassificationStation_classifierTimeout(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	it := model.Item{ID: "stuck-1", Name: "stuck-1", MIMEType: "video/mp4"}
 	s.AddToClassificationQueue(it)
@@ -459,9 +462,7 @@ func Test_startClassificationStation_backpressure(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	M := 40
 	for i := range M {
@@ -507,9 +508,7 @@ func Test_startClassificationStation_corr_id_in_error(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	it := model.Item{
 		ID:       "cid-1",
@@ -557,9 +556,7 @@ func Test_startClassificationStation_large_volume(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	M := 200
 	for i := range M {
@@ -737,9 +734,7 @@ func Test_AddToClassificationQueue_cooldown(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// During cooldown: items should be dropped (deferred)
 	it := model.Item{ID: "cool-1", Name: "cool-1", MIMEType: "video/mp4"}
@@ -796,9 +791,7 @@ func Test_AddToClassificationQueue_rateLimit(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Send 10 rapid items — rate 10/s, burst 2
 	// First 2 admitted immediately, rest dropped until tokens refill
@@ -860,9 +853,7 @@ func Test_AddToClassificationQueue_queueCap(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Send items from goroutine since classificationRequest is unbuffered
 	M := 10
@@ -903,12 +894,6 @@ func Test_AddToClassificationQueue_queueCap(t *testing.T) {
 	if final == 0 {
 		t.Fatal("expected at least 1 item processed")
 	}
-
-	// Stop the station and drain its goroutines before the temp-dir cleanup
-	// runs: the delegator may still be writing a result to disk, and a write
-	// racing the RemoveAll fails the test in the cleanup phase.
-	cancel()
-	s.Wait()
 }
 
 func Test_AddToClassificationQueue_nilRateLimiter(t *testing.T) {
@@ -936,9 +921,7 @@ func Test_AddToClassificationQueue_nilRateLimiter(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// All items should flow through (no rate limit)
 	M := 10
@@ -981,9 +964,7 @@ func Test_AddToClassificationQueue_dedup_sameItem(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	it := model.Item{ID: "dedup-1", Name: "dedup-1", MIMEType: "video/mp4"}
 	s.AddToClassificationQueue(it)
@@ -1026,9 +1007,7 @@ func Test_AddToClassificationQueue_dedup_cleanupOnSuccess(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	it := model.Item{ID: "cleanup-ok", Name: "cleanup-ok", MIMEType: "video/mp4"}
 	s.AddToClassificationQueue(it)
@@ -1079,9 +1058,7 @@ func Test_AddToClassificationQueue_dedup_cleanupOnError(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Drain error channel in background
 	go func() {
@@ -1134,16 +1111,18 @@ func Test_AddToClassificationQueue_dedup_concurrent(t *testing.T) {
 		SetupFunc: func(ctx context.Context) error { return nil },
 		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
 			stored.Add(1)
-			<-blockClassify
+			select {
+			case <-ctx.Done():
+				return model.Item{}, ctx.Err()
+			case <-blockClassify:
+			}
 			meta := json.RawMessage(`{}`)
 			i.Metadata = &meta
 			return i, nil
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Fire many concurrent attempts with the same ID — only one should get through
 	var wg sync.WaitGroup
@@ -1207,9 +1186,7 @@ func Test_AddToClassificationQueue_dedup_differentItems(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	M := 10
 	for i := range M {
@@ -1258,9 +1235,7 @@ func Test_AddToClassificationQueue_dedup_cooldownCleanup(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// During cooldown: item is dropped but in-flight entry should be cleaned up
 	it := model.Item{ID: "cool-dup", Name: "cool-dup", MIMEType: "video/mp4"}
@@ -1309,9 +1284,7 @@ func Test_AddToClassificationQueue_dedup_limitCleanup(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// First item admitted, second dropped by rate limiter
 	it := model.Item{ID: "limit-dup", Name: "limit-dup", MIMEType: "video/mp4"}
@@ -1405,9 +1378,7 @@ func Test_StartClassificationStation_cooldownDefault(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Immediate: dropped
 	it := model.Item{ID: "cd-1", Name: "cd-1", MIMEType: "video/mp4"}
@@ -1460,9 +1431,7 @@ func Test_StartClassificationStation_negativeCooldown(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	it := model.Item{ID: "nc-1", Name: "nc-1", MIMEType: "video/mp4"}
 	s.AddToClassificationQueue(it)
@@ -1516,9 +1485,7 @@ func Test_startClassificationStation_workersUseClones(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Send items — each worker should process some
 	M := 8
@@ -1638,9 +1605,7 @@ func Test_startClassificationStation_memoryGuard(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Queue several items — all should be dropped by memory guard
 	for i := range 5 {
@@ -1674,51 +1639,25 @@ func Test_startClassificationStation_memoryGuard(t *testing.T) {
 
 func Test_StartClassificationStation_workersWarning(t *testing.T) {
 	t.Parallel()
-	t.Run("workers <= 3: no warning", func(t *testing.T) {
-		s := NewStore(
-			WithClassificationWorkers(3),
-			WithClassificationRate(0),
-			WithClassificationStartupCooldown(0),
-		)
-		s.classificationRequest = make(chan classificationCandidate, 10)
-		s.classifierErrors = make(chan error, 10)
-		s.classifier = &mockClassifier{
-			SetupFunc:    func(ctx context.Context) error { return nil },
-			ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) { return i, nil },
-		}
+	// The warning above three workers is logged, not returned, so both cases
+	// only have to start.
+	for _, workers := range []int{3, 5} {
+		t.Run(fmt.Sprintf("workers=%d", workers), func(t *testing.T) {
+			s := NewStore(
+				WithClassificationWorkers(workers),
+				WithClassificationRate(0),
+				WithClassificationStartupCooldown(0),
+			)
+			s.classificationRequest = make(chan classificationCandidate, 10)
+			s.classifierErrors = make(chan error, 10)
+			s.classifier = &mockClassifier{}
 
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
 
-		// Should not panic or error — just verify it starts
-		err := s.StartClassificationStation(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
-
-	t.Run("workers > 3: starts successfully", func(t *testing.T) {
-		s := NewStore(
-			WithClassificationWorkers(5),
-			WithClassificationRate(0),
-			WithClassificationStartupCooldown(0),
-		)
-		s.classificationRequest = make(chan classificationCandidate, 10)
-		s.classifierErrors = make(chan error, 10)
-		s.classifier = &mockClassifier{
-			SetupFunc:    func(ctx context.Context) error { return nil },
-			ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) { return i, nil },
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-		defer cancel()
-
-		// Should start despite warning (warning is logged, not returned as error)
-		err := s.StartClassificationStation(ctx)
-		if err != nil {
-			t.Fatalf("unexpected error: %v", err)
-		}
-	})
+			startStation(t, s, ctx)
+		})
+	}
 }
 
 // --- Phase 9: classification failure resilience ---
@@ -1839,9 +1778,7 @@ func Test_handleVideoItem_backoffExpired(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	i := model.Item{
 		ID:                     "backoff-expired",
@@ -1947,9 +1884,7 @@ func Test_startClassificationStation_successClearsAttempts(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	it := model.Item{
 		ID:                     "clear-test",
@@ -2005,9 +1940,7 @@ func Test_startClassificationStation_errorPersistsAttempts(t *testing.T) {
 		},
 	}
 
-	if err := s.StartClassificationStation(ctx); err != nil {
-		t.Fatalf("start failed: %v", err)
-	}
+	startStation(t, s, ctx)
 
 	// Drain error channel
 	go func() {
@@ -2041,5 +1974,87 @@ func Test_startClassificationStation_errorPersistsAttempts(t *testing.T) {
 	}
 	if item.ClassificationError == "" {
 		t.Fatal("expected ClassificationError to be set")
+	}
+}
+
+// TestWait_returnsWhenClassifierErrorsAreUnread pins the shutdown invariant:
+// Store.Wait must return even when a classification error is reported after the
+// indexer's error listener has stopped. The listener exits with the process
+// context, so the report is the last thing the delegator does at shutdown — if
+// it blocks there, Wait never returns and the process cannot exit on the first
+// signal.
+func TestWait_returnsWhenClassifierErrorsAreUnread(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	dir := t.TempDir()
+	s := NewStore(WithStorePath(dir), WithClassificationWorkers(1), WithClassificationRate(0), WithClassificationStartupCooldown(0))
+	s.classificationRequest = make(chan classificationCandidate, 10)
+	// Buffered and unread, exactly like a listener that has already exited:
+	// the buffer takes one report, the second one blocks the sender.
+	s.classifierErrors = make(chan error, 1)
+	s.classifierErrors <- errors.New("listener already gone")
+
+	classified := make(chan struct{})
+	var once sync.Once
+	s.classifier = &mockClassifier{
+		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
+			defer once.Do(func() { close(classified) })
+			return i, errors.New("boom")
+		},
+	}
+	startStation(t, s, ctx)
+	s.AddToClassificationQueue(model.Item{ID: "id-1", Name: "name-1", MIMEType: "video/mp4"})
+
+	<-classified
+	// The delegator drops the item from inFlight right before it hands the
+	// result over, so an empty inFlight means the report is what it does next.
+	waitUntil(t, time.Second, func() bool {
+		_, inFlight := s.inFlight.Load("id-1")
+		return !inFlight
+	})
+
+	cancel()
+	done := make(chan struct{})
+	go func() {
+		s.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Store.Wait blocked: the classifierErrors report outlived its reader")
+	}
+}
+
+// Test_startClassificationRoutine_doesNotBlockOnUnreadResult pins the same
+// shutdown invariant on the worker's result hand-off. The delegator is the only
+// reader of resChan and it exits with ctx, so a worker that finishes a
+// classification after that must drop the result — a worker parked on an unread
+// result keeps Wait blocked and the process cannot exit on the first signal.
+func Test_startClassificationRoutine_doesNotBlockOnUnreadResult(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	s := NewStore(WithClassificationRate(0))
+	s.classifier = &mockClassifier{}
+
+	workChan := make(chan classificationCandidate)
+	resChan := make(chan classificationResult) // unbuffered and unread
+	routineDone := make(chan struct{})
+	go func() {
+		s.startClassificationRoutine(ctx, 0, workChan, resChan)
+		close(routineDone)
+	}()
+
+	workChan <- classificationCandidate{correlationID: "c-1", item: model.Item{ID: "id-1"}}
+	cancel()
+
+	select {
+	case <-routineDone:
+	case <-time.After(2 * time.Second):
+		t.Fatal("worker blocked on an unread result after shutdown")
 	}
 }

@@ -74,6 +74,7 @@ type Director struct {
 	configDir string
 	server    models.McpServer // zero value: notebook disabled
 	workspace string           // materialised worktree path
+	showURL   string           // the rendered show; empty: inspection disabled
 	logger    *slog.Logger
 
 	// runDirector is the seam between the director and clai: production
@@ -156,6 +157,14 @@ func WithDirectorNotebook(server models.McpServer, workspace string) DirectorOpt
 	}
 }
 
+// WithDirectorShowURL enables the perception tools: the perception inspection
+// subset enters the director's tool set and the prompt carries the SHOW partial
+// naming the rendered show. A non-empty URL is the switch; serve passes it
+// only when the Playwright MCP server is configured.
+func WithDirectorShowURL(url string) DirectorOption {
+	return func(d *Director) { d.showURL = url }
+}
+
 // WithDirectorLogger attaches a slog logger to the director's agent, so the
 // generation's model steps land in a log sink instead of racing on stdout.
 func WithDirectorLogger(l *slog.Logger) DirectorOption {
@@ -222,6 +231,12 @@ func (d *Director) Run(ctx context.Context) (Outcome, error) {
 
 	d.submitted, d.submittedID = false, ""
 	globs, tools := d.toolSet()
+	// A child MCP server lives exactly as long as the context the agent was
+	// set up with (clai's manager returns only on ctx.Done, killing each child
+	// through exec.CommandContext), so a per-generation context keeps the
+	// director's own browser and notebook processes from outliving the run.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	_, err = d.runDirector(ctx, directorParams{
 		prompt: d.prompt(),
 		globs:  globs,
@@ -244,11 +259,14 @@ func (d *Director) Run(ctx context.Context) (Outcome, error) {
 // submit_play is the director-only recording wrapper over the submitter.
 func (d *Director) toolSet() (globs []string, tools []models.LLMTool) {
 	for _, e := range toolRegistry {
-		if e.glob != "" {
+		if len(e.globs) > 0 {
 			if e.notebook && !d.notebookEnabled() {
 				continue
 			}
-			globs = append(globs, e.glob)
+			if e.browser && !d.browserEnabled() {
+				continue
+			}
+			globs = append(globs, e.globs...)
 			continue
 		}
 		tools = append(tools, e.build(d.swarm))
@@ -264,6 +282,10 @@ func (d *Director) toolSet() (globs []string, tools []models.LLMTool) {
 func (d *Director) prompt() string {
 	now := time.Now().UTC().Format("20060102T150405Z")
 	p := directorPrompt + "\n\nNOW\n" + now + " UTC. Author the play under plays/story_" + now + ".json or a later story_YYYYMMDDTHHMMSSZ id — submit_play refuses an id already on disk.\n"
+	if d.browserEnabled() {
+		p += "\n" + showPartial(d.showURL)
+		p += "Inspect the show after you submit. If the render is wrong, correct the notes and submit a new play id. A role that must inspect the show selects mcp_playwright in its note.\n"
+	}
 	if d.notebookEnabled() {
 		p += "\n" + slivingdoc.NotesPartial(d.notebookWorkspace())
 	}
@@ -273,6 +295,12 @@ func (d *Director) prompt() string {
 // notebookEnabled reports whether the slivingdoc callsign is configured.
 func (d *Director) notebookEnabled() bool {
 	return d.server.Name != ""
+}
+
+// browserEnabled reports whether the perception tools are available: the
+// show URL is configured, so the Playwright MCP server exists.
+func (d *Director) browserEnabled() bool {
+	return d.showURL != ""
 }
 
 // notebookWorkspace is the worktree path substituted into the NOTES prompt

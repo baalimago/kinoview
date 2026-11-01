@@ -25,6 +25,12 @@ const (
 	defaultSlivingdocRegion   = "us-east-1"
 )
 
+// defaultShutdownTimeout bounds each phase of the graceful drain a signal
+// starts: the HTTP drain, then the store flush. Streams, in-flight
+// classifications and store goroutines each hold a piece of a phase, and none of
+// them may keep the process alive past its deadline.
+const defaultShutdownTimeout = 10 * time.Second
+
 //go:embed frontend/*
 var frontendFiles embed.FS
 
@@ -68,6 +74,7 @@ type command struct {
 	classificationBurst           *int
 	classificationStartupCooldown *time.Duration
 	classificationTimeout         *time.Duration
+	shutdownTimeout               *time.Duration
 	pprof                         *bool
 	butlerModel                   *string
 	recommenderModel              *string
@@ -129,6 +136,8 @@ func Command() *command {
 	*ret.conciergeInterval = 6 * time.Hour
 	ret.conciergeTimeout = new(time.Duration)
 	*ret.conciergeTimeout = 10 * time.Minute
+	ret.shutdownTimeout = new(time.Duration)
+	*ret.shutdownTimeout = defaultShutdownTimeout
 	ret.slivingdocCommand = new(string)
 	ret.slivingdocBucket = new(string)
 	*ret.slivingdocBucket = defaultSlivingdocBucket
@@ -251,18 +260,55 @@ func (c *command) Run(ctx context.Context) error {
 		break
 	}
 	ancli.PrintNotice("initiating webserver graceful shutdown")
-	err = serverShutdown(ctx)
+	// Each phase of the drain gets its own window: the HTTP drain can wait on a
+	// streaming response, while the store flush is the part that must not be
+	// skipped, so an exhausted HTTP window must not eat the flush's budget.
+	drainCtx, cancelDrain := context.WithTimeout(context.Background(), c.drainTimeout())
+	err = serverShutdown(drainCtx)
+	cancelDrain()
 	if err != nil {
 		ancli.Errf("failed to shutdown error: %v", err)
 	}
 	// On a normal shutdown the context is cancelled, which stops the store's
 	// goroutines. Wait for them so deferred writes flush before we exit. The
 	// error paths leave the context alive, so waiting there would hang.
-	if normalShutdown && c.storeWait != nil {
-		c.storeWait()
+	if normalShutdown {
+		storeCtx, cancelStore := context.WithTimeout(context.Background(), c.drainTimeout())
+		defer cancelStore()
+		c.waitStore(storeCtx)
 	}
 	ancli.Okf("shutdown complete")
 	return retErr
+}
+
+// drainTimeout is the wall-clock budget one drain phase may take. A non-positive
+// value means the default: an unset or zeroed flag must not turn the drain into
+// an immediate hard stop.
+func (c *command) drainTimeout() time.Duration {
+	if c.shutdownTimeout == nil || *c.shutdownTimeout <= 0 {
+		return defaultShutdownTimeout
+	}
+	return *c.shutdownTimeout
+}
+
+// waitStore blocks until the store's background goroutines have exited or the
+// drain deadline passes. The deadline is the point: a goroutine parked in an
+// agent call or on a blocked channel send would otherwise keep the process
+// alive after the first signal.
+func (c *command) waitStore(ctx context.Context) {
+	if c.storeWait == nil {
+		return
+	}
+	done := make(chan struct{})
+	go func() {
+		c.storeWait()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-ctx.Done():
+		ancli.Warnf("store goroutines still running after %v, exiting anyway; deferred writes may be lost", c.drainTimeout())
+	}
 }
 
 func (c *command) Help() string {
@@ -293,6 +339,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.classificationBurst = fs.Int("classificationBurst", 3, "max burst before rate limit kicks in")
 	c.classificationStartupCooldown = fs.Duration("classificationStartupCooldown", 10*time.Second, "delay before first classification is admitted")
 	c.classificationTimeout = fs.Duration("classifierTimeout", 5*time.Minute, "wall-clock cap for one classification call; a classifier stuck on a looping model is aborted after this and the attempt counts against the item's max-attempts budget")
+	c.shutdownTimeout = fs.Duration("shutdownTimeout", defaultShutdownTimeout, "wall-clock cap for each phase of the graceful shutdown that a signal starts (the HTTP drain, then the store flush); a phase still running at its deadline is abandoned and the process exits")
 	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")

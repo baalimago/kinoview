@@ -46,6 +46,20 @@ func newTestRecursiveWatcher(t *testing.T) *recursiveWatcher {
 	return rw
 }
 
+// waitUntilWatched polls the watch list until path is registered. Watch walks
+// the tree on its own goroutine, so a fixed sleep races that walk under load.
+func waitUntilWatched(t *testing.T, rw *recursiveWatcher, path string) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if slices.Contains(rw.watcher.WatchList(), path) {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("watch list %v never contained %v", rw.watcher.WatchList(), path)
+}
+
 func Test_recursiveWatcher_checkFile(t *testing.T) {
 	t.Run("error if file not exists", func(t *testing.T) {
 		rw := newTestRecursiveWatcher(t)
@@ -224,11 +238,7 @@ func Test_walkDo(t *testing.T) {
 		}()
 		<-waitStart
 
-		time.Sleep(time.Microsecond * 50)
-		got := rw.watcher.WatchList()
-		if !slices.Contains(got, tmpDirPath) {
-			t.Fatalf("expected: %v to contain: %v", got, tmpDirPath)
-		}
+		waitUntilWatched(t, rw, tmpDirPath)
 
 		testCtx, testCtxCancel := context.WithTimeout(context.Background(), time.Second)
 		t.Cleanup(testCtxCancel)

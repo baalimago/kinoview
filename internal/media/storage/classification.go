@@ -189,16 +189,16 @@ func (s *store) startClassificationRoutine(ctx context.Context, workerID int, wo
 	if ok {
 		f, err := os.Create(path.Join(s.classificationLogsOutdir, fmt.Sprintf("w%v.txt", workerID)))
 		if err != nil {
-			s.classifierErrors <- fmt.Errorf("worker %v: failed to create log file: %w", workerID, err)
+			s.reportClassifierError(ctx, fmt.Errorf("worker %v: failed to create log file: %w", workerID, err))
 		} else {
 			if err := outSetter.SetOutput(f); err != nil {
-				s.classifierErrors <- fmt.Errorf("worker %v: failed to set output: %w", workerID, err)
+				s.reportClassifierError(ctx, fmt.Errorf("worker %v: failed to set output: %w", workerID, err))
 			}
 		}
 	}
 
 	if err := workerClassifier.Setup(ctx); err != nil {
-		s.classifierErrors <- fmt.Errorf("worker %v: failed to setup classifier: %w", workerID, err)
+		s.reportClassifierError(ctx, fmt.Errorf("worker %v: failed to setup classifier: %w", workerID, err))
 		return
 	}
 
@@ -221,10 +221,18 @@ func (s *store) startClassificationRoutine(ctx context.Context, workerID int, wo
 			}
 			i, err := workerClassifier.Classify(classifyCtx, c.item)
 			cancel()
-			resChan <- classificationResult{
+			// The delegator is the only reader and it exits with ctx, so the
+			// hand-off must be droppable: a worker parked on an unread result
+			// keeps Wait blocked and the process never exits on the first
+			// signal.
+			select {
+			case resChan <- classificationResult{
 				correlationID: c.correlationID,
 				classifierErr: err,
 				item:          i,
+			}:
+			case <-ctx.Done():
+				return
 			}
 		}
 	}
@@ -303,12 +311,24 @@ func (s *store) StartClassificationStation(ctx context.Context) error {
 				} else {
 					r.item.ClassificationError = r.classifierErr.Error()
 					s.store(r.item)
-					s.classifierErrors <- fmt.Errorf("[%v] classification error: %v", r.correlationID, r.classifierErr)
+					s.reportClassifierError(ctx, fmt.Errorf("[%v] classification error: %v", r.correlationID, r.classifierErr))
 				}
 			}
 		}
 	})
 	return nil
+}
+
+// reportClassifierError hands err to the indexer's error listener without
+// letting a stopped listener block the reporting goroutine: the listener exits
+// with the process context, so a report arriving at shutdown has no reader.
+// Blocking there would hang Store.Wait, and the process would then never exit
+// on the first signal.
+func (s *store) reportClassifierError(ctx context.Context, err error) {
+	select {
+	case s.classifierErrors <- err:
+	case <-ctx.Done():
+	}
 }
 
 // classificationBackoff returns the backoff duration for a given number of

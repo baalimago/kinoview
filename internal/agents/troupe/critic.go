@@ -285,6 +285,7 @@ WORKFLOW — run these phases in order:
 type Critic struct {
 	model     string
 	configDir string
+	showURL   string // the rendered show; empty: inspection disabled
 	logger    *slog.Logger
 	writer    *CriticismWriter // the append-only gate
 
@@ -321,6 +322,14 @@ func WithCriticModel(m string) CriticOption {
 // WithCriticConfigDir sets the clai config dir the critic's agent uses.
 func WithCriticConfigDir(dir string) CriticOption {
 	return func(c *Critic) { c.configDir = dir }
+}
+
+// WithCriticShowURL enables the perception tools: the perception inspection
+// subset enters the critic's read-only tool set and the prompt carries the SHOW
+// partial naming the rendered show. A non-empty URL is the switch; serve
+// passes it only when the Playwright MCP server is configured.
+func WithCriticShowURL(url string) CriticOption {
+	return func(c *Critic) { c.showURL = url }
 }
 
 // WithCriticLogger attaches a slog logger to the critic's agent, so the
@@ -372,6 +381,12 @@ func (c *Critic) Run(ctx context.Context, generationID string, outcome Outcome) 
 		return errors.New("troupe: critic: generation id can't be empty")
 	}
 	globs, tools := c.toolSet(outcome)
+	// A child MCP server lives exactly as long as the context the agent was
+	// set up with (clai's manager returns only on ctx.Done, killing each child
+	// through exec.CommandContext), so a per-review context keeps the critic's
+	// own browser and notebook processes from outliving the review.
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	if _, err := c.runCritic(ctx, criticParams{
 		prompt: c.prompt(generationID, outcome),
 		globs:  globs,
@@ -383,11 +398,12 @@ func (c *Critic) Run(ctx context.Context, generationID string, outcome Outcome) 
 }
 
 // criticReadTools are the critic's instrument set: the read-only file tools
-// from the closed registry. The critic never writes the repertoire — no
-// write_file, no apply_patch, no mkdir, no spawn_role, no submit_play — so
-// its only write path is the write_criticism gate appended below. The
-// "never edits" rule is enforced by the tool set, not by the prompt.
-var criticReadTools = []string{"cat", "rows_between", "ls", "rg"}
+// and the perception tools from the closed registry. The critic never writes
+// the repertoire — no write_file, no apply_patch, no mkdir, no spawn_role, no
+// submit_play — so its only write path is the write_criticism gate appended
+// below. The "never edits" rule is enforced by the tool set, not by the
+// prompt.
+var criticReadTools = []string{"cat", "rows_between", "ls", "rg", "view_image", "mcp_playwright"}
 
 // toolSet is the critic's instrument set: the read-only registry globs plus
 // write_criticism pinned to the generation's outcome — the submitted play
@@ -397,12 +413,22 @@ var criticReadTools = []string{"cat", "rows_between", "ls", "rg"}
 // here, pinned by a test.
 func (c *Critic) toolSet(outcome Outcome) (globs []string, tools []models.LLMTool) {
 	for _, e := range toolRegistry {
-		if slices.Contains(criticReadTools, e.name) {
-			globs = append(globs, e.glob)
+		if !slices.Contains(criticReadTools, e.name) {
+			continue
 		}
+		if e.browser && !c.browserEnabled() {
+			continue
+		}
+		globs = append(globs, e.globs...)
 	}
 	tools = append(tools, c.writer.newWriteCriticismTool(outcome.PlayID))
 	return globs, tools
+}
+
+// browserEnabled reports whether the perception tools are available: the
+// show URL is configured, so the Playwright MCP server exists.
+func (c *Critic) browserEnabled() bool {
+	return c.showURL != ""
 }
 
 // prompt assembles the critic's system prompt: the fixed workflow, the
@@ -413,7 +439,10 @@ func (c *Critic) prompt(generationID string, outcome Outcome) string {
 	if outcome.Submitted {
 		p += "PLAY " + outcome.PlayID + " — this generation submitted it; review it against the feedback.\n"
 	} else {
-		p += "PLAY none — this generation shipped nothing; the stage is empty. Say why, citing whatever notes exist.\n"
+		p += "PLAY none — this generation shipped nothing. The browser may still show a previously submitted play; never attribute that render to this generation. Say why this generation shipped nothing, citing whatever notes exist.\n"
+	}
+	if c.browserEnabled() {
+		p += "\n" + showPartial(c.showURL)
 	}
 	return p
 }

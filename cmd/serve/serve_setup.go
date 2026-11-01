@@ -2,14 +2,19 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
+	"net"
 	"net/http"
 	"net/http/pprof"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
+	"strconv"
+	"strings"
 
 	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
@@ -303,11 +308,13 @@ func (c *command) setupTroupe(cfg slivingdoc.Config) (troupeParts, error) {
 	commit := func(filename string) error {
 		return notebook.Commit("append " + filename)
 	}
+	showURL := c.troupeShowURL()
 	budget := troupe.NewBudget(troupe.WithStoploss(*c.troupeTokenStoploss))
 	spawner, err := troupe.NewSpawner(
 		troupe.WithModel(*c.troupeModel),
 		troupe.WithConfigDir(*c.configDir),
 		troupe.WithNotebook(c.slivingdocServer, cfg.WorkspaceRoot),
+		troupe.WithShowURL(showURL),
 		troupe.WithBudget(budget),
 		// The live role source: roles are notes the director authors during
 		// the generation, so the swarm must read them from the worktree at
@@ -328,6 +335,7 @@ func (c *command) setupTroupe(cfg slivingdoc.Config) (troupeParts, error) {
 		troupe.WithDirectorModel(*c.troupeModel),
 		troupe.WithDirectorConfigDir(*c.configDir),
 		troupe.WithDirectorNotebook(c.slivingdocServer, cfg.WorkspaceRoot),
+		troupe.WithDirectorShowURL(showURL),
 	)
 	if err != nil {
 		return troupeParts{}, fmt.Errorf("troupe director: %w", err)
@@ -341,6 +349,7 @@ func (c *command) setupTroupe(cfg slivingdoc.Config) (troupeParts, error) {
 		troupe.WithCriticismWriter(criticismWriter),
 		troupe.WithCriticModel(*c.troupeModel),
 		troupe.WithCriticConfigDir(*c.configDir),
+		troupe.WithCriticShowURL(showURL),
 	)
 	if err != nil {
 		return troupeParts{}, fmt.Errorf("troupe critic: %w", err)
@@ -366,7 +375,133 @@ func (c *command) setupTroupe(cfg slivingdoc.Config) (troupeParts, error) {
 	}
 	c.troupeEnabled = true
 	ancli.Noticef("troupe ready over the shared notebook at %s", cfg.WorkspaceRoot)
+	if showURL != "" {
+		ancli.Noticef("troupe perception: the browser tools inspect the show at %s", showURL)
+	} else {
+		ancli.Noticef("troupe perception off: the show URL is unknown (the port is chosen by the OS); roles cannot select the browser tools")
+	}
 	return troupeParts{facade: facade, lib: lib, feedback: feedback}, nil
+}
+
+// troupeShowURL resolves the perception switch: the local URL the Playwright
+// MCP server inspects. A non-empty URL means the troupe's browser tools are
+// enabled. The switch follows the operator's Playwright MCP server config in
+// the clai config dir the spawned agents load; no startable server, no
+// perception. port 0 means the OS chooses the port after setup, so no stable
+// URL exists and perception stays off.
+func (c *command) troupeShowURL() string {
+	server, err := readPlaywrightServer(*c.configDir)
+	if err != nil {
+		ancli.Noticef("troupe perception off: %v", err)
+		return ""
+	}
+	if err := server.available(); err != nil {
+		ancli.Warnf("troupe perception off: %v", err)
+		return ""
+	}
+	tls := *c.tlsCertPath != "" && *c.tlsKeyPath != ""
+	return playURL(*c.host, *c.port, tls)
+}
+
+// playwrightServer is the part of a clai MCP server config the availability
+// check needs: a local command, or the endpoint of a remote server.
+type playwrightServer struct {
+	Command string `json:"command"`
+	URL     string `json:"url"`
+}
+
+// readPlaywrightServer loads the Playwright MCP server config the spawned
+// troupe agents load. A missing file is the normal off state.
+func readPlaywrightServer(configDir string) (playwrightServer, error) {
+	configPath := playwrightServerPath(configDir)
+	data, err := os.ReadFile(configPath)
+	if errors.Is(err, os.ErrNotExist) {
+		return playwrightServer{}, fmt.Errorf("no Playwright MCP server at %s", configPath)
+	}
+	if err != nil {
+		return playwrightServer{}, fmt.Errorf("read Playwright MCP server %s: %w", configPath, err)
+	}
+	var server playwrightServer
+	if err := json.Unmarshal(data, &server); err != nil {
+		return playwrightServer{}, fmt.Errorf("parse Playwright MCP server %s: %w", configPath, err)
+	}
+	return server, nil
+}
+
+// available reports whether the server can start on this host and reach the
+// show. It mirrors the parts of clai's own config validation that decide
+// whether the file yields a server at all: exactly one of command and url,
+// and an absolute http or https url. A local command must also resolve on
+// PATH, so a config naming a missing binary (for example npx on a host
+// without Node) keeps perception off instead of promising the troupe tools
+// that never start. A url endpoint must be loopback: the show URL addresses
+// this host, so a browser on another host would inspect its own loopback.
+func (p playwrightServer) available() error {
+	switch {
+	case p.Command != "" && p.URL != "":
+		return errors.New(`the Playwright MCP server config sets both "command" and "url"; exactly one is required`)
+	case p.Command == "" && p.URL == "":
+		return errors.New(`the Playwright MCP server config sets neither "command" nor "url"; exactly one is required`)
+	}
+	if p.URL != "" {
+		parsed, err := url.Parse(p.URL)
+		if err != nil || !parsed.IsAbs() || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+			return fmt.Errorf("the Playwright MCP server url %q is not an absolute http or https URL", p.URL)
+		}
+		if !isLoopbackHost(parsed.Hostname()) {
+			return fmt.Errorf("the Playwright MCP server url %q is not on this host, so it cannot reach the show", p.URL)
+		}
+		return nil
+	}
+	if _, err := exec.LookPath(p.Command); err != nil {
+		return fmt.Errorf("the Playwright MCP server command %q does not resolve: %w", p.Command, err)
+	}
+	return nil
+}
+
+// isLoopbackHost reports whether host names this machine: a literal loopback
+// address or localhost.
+func isLoopbackHost(host string) bool {
+	if host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// playwrightServerPath returns the clai MCP server config the spawned troupe
+// agents load as the browser callsign: the file name is the server name, so
+// the tools arrive as mcp_playwright_*.
+func playwrightServerPath(configDir string) string {
+	return path.Join(claiConfigDir(configDir), "mcpServers", "playwright.json")
+}
+
+// claiConfigDir mirrors clai's agent.WithConfigDir suffix rule: a dir already
+// ending in clai is used as-is, any other dir gets a clai child. The troupe
+// agents and this availability check must resolve the same directory.
+func claiConfigDir(configDir string) string {
+	if strings.HasSuffix(configDir, "clai") {
+		return configDir
+	}
+	return path.Join(configDir, "clai")
+}
+
+// playURL builds the URL a browser uses to render the served play. The browser
+// sidecar runs beside kinoview, so a wildcard bind is addressed through
+// loopback. port 0 returns an empty URL: the OS chooses the port later.
+func playURL(host string, port int, tls bool) string {
+	if port == 0 {
+		return ""
+	}
+	switch host {
+	case "", "0.0.0.0", "::", "[::]":
+		host = "127.0.0.1"
+	}
+	scheme := "http"
+	if tls {
+		scheme = "https"
+	}
+	return scheme + "://" + net.JoinHostPort(host, strconv.Itoa(port)) + "/"
 }
 
 // resolveSlivingdoc returns the slivingdoc CLI command: the -slivingdocCommand
