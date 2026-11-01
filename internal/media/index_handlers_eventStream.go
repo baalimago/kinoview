@@ -20,6 +20,9 @@ const (
 func (i *Indexer) handleWebsocketConnection(ws *websocket.Conn) {
 	defer ws.Close()
 
+	// A connection is a person opening the app: the troupe's only trigger.
+	i.noteAudience()
+
 	// Trigger a suggestions cascade on connect so the user sees fresh
 	// suggestions on arrival instead of one-session-behind.
 	i.handleConnect()

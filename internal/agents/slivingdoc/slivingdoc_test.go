@@ -10,6 +10,70 @@ import (
 	"github.com/baalimago/clai/pkg/text/models"
 )
 
+// stubBinary writes a stand-in that answers `--version` with version.
+func stubBinary(t *testing.T, version string) string {
+	t.Helper()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--version\" ]; then echo \"slivingdoc " + version + "\"; exit 0; fi\n"
+	path := filepath.Join(t.TempDir(), "slivingdoc")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestCheckVersion pins the release gate: the args Server builds need the
+// --login flag v1.3.0 added, so an older binary must be refused before the
+// notebook reports ready and every agent then dies at MCP initialize.
+func TestCheckVersion(t *testing.T) {
+	cases := []struct {
+		name    string
+		version string
+		wantErr string
+	}{
+		{name: "current release", version: "1.3.1"},
+		{name: "first release with login", version: "1.3.0"},
+		{name: "newer release", version: "1.4.2"},
+		{name: "development build of a newer release", version: "1.4.0-dev"},
+		{name: "too old", version: "1.2.0", wantErr: "older than the supported 1.3.0"},
+		{name: "far too old", version: "0.1.0", wantErr: "older than the supported 1.3.0"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			err := CheckVersion(stubBinary(t, tt.version))
+			if tt.wantErr == "" {
+				if err != nil {
+					t.Fatalf("CheckVersion(%s): %v", tt.version, err)
+				}
+				return
+			}
+			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+				t.Fatalf("CheckVersion(%s) = %v, want error naming %q", tt.version, err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// TestCheckVersion_Unreadable asserts a binary that cannot answer the probe
+// is refused instead of trusted.
+func TestCheckVersion_Unreadable(t *testing.T) {
+	t.Run("unparseable output", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "slivingdoc")
+		if err := os.WriteFile(path, []byte("#!/bin/sh\necho 'no release here'\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := CheckVersion(path); err == nil || !strings.Contains(err.Error(), "no release number") {
+			t.Fatalf("CheckVersion(unparseable) = %v, want a parse error", err)
+		}
+	})
+
+	t.Run("missing binary", func(t *testing.T) {
+		if err := CheckVersion(filepath.Join(t.TempDir(), "absent")); err == nil {
+			t.Fatal("CheckVersion(missing) = nil, want an error")
+		}
+	})
+}
+
 // testConfig is the notebook config every seam test drives: one release
 // binary, one S3 target and the worktree pair handed in.
 func testConfig(workspace, private, envFile string) Config {

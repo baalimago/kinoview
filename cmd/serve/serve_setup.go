@@ -274,6 +274,9 @@ func (c *command) setupNotebook() (slivingdoc.Config, error) {
 	if err != nil {
 		return slivingdoc.Config{}, err
 	}
+	if err := slivingdoc.CheckVersion(command); err != nil {
+		return slivingdoc.Config{}, err
+	}
 	envFile := path.Join(*c.configDir, "slivingdoc", "credentials.env")
 	if err := os.MkdirAll(path.Dir(envFile), 0o755); err != nil {
 		return slivingdoc.Config{}, fmt.Errorf("notebook credentials dir: %w", err)
@@ -308,7 +311,7 @@ func (c *command) setupTroupe(cfg slivingdoc.Config) (troupeParts, error) {
 	commit := func(filename string) error {
 		return notebook.Commit("append " + filename)
 	}
-	showURL := c.troupeShowURL()
+	showURL, perceptionErr := c.troupeShowURL()
 	budget := troupe.NewBudget(troupe.WithStoploss(*c.troupeTokenStoploss))
 	spawner, err := troupe.NewSpawner(
 		troupe.WithModel(*c.troupeModel),
@@ -375,32 +378,33 @@ func (c *command) setupTroupe(cfg slivingdoc.Config) (troupeParts, error) {
 	}
 	c.troupeEnabled = true
 	ancli.Noticef("troupe ready over the shared notebook at %s", cfg.WorkspaceRoot)
-	if showURL != "" {
-		ancli.Noticef("troupe perception: the browser tools inspect the show at %s", showURL)
+	if perceptionErr != nil {
+		ancli.Noticef("troupe perception off: %v; roles cannot select the browser tools", perceptionErr)
 	} else {
-		ancli.Noticef("troupe perception off: the show URL is unknown (the port is chosen by the OS); roles cannot select the browser tools")
+		ancli.Noticef("troupe perception: the browser tools inspect the show at %s", showURL)
 	}
 	return troupeParts{facade: facade, lib: lib, feedback: feedback}, nil
 }
 
 // troupeShowURL resolves the perception switch: the local URL the Playwright
-// MCP server inspects. A non-empty URL means the troupe's browser tools are
-// enabled. The switch follows the operator's Playwright MCP server config in
-// the clai config dir the spawned agents load; no startable server, no
-// perception. port 0 means the OS chooses the port after setup, so no stable
-// URL exists and perception stays off.
-func (c *command) troupeShowURL() string {
+// MCP server inspects, or the one reason the troupe has no browser tools. The
+// switch follows the operator's Playwright MCP server config in the clai
+// config dir the spawned agents load; no startable server, no perception.
+// port 0 means the OS chooses the port after setup, so no stable URL exists.
+func (c *command) troupeShowURL() (string, error) {
 	server, err := readPlaywrightServer(*c.configDir)
 	if err != nil {
-		ancli.Noticef("troupe perception off: %v", err)
-		return ""
+		return "", err
 	}
 	if err := server.available(); err != nil {
-		ancli.Warnf("troupe perception off: %v", err)
-		return ""
+		return "", err
 	}
 	tls := *c.tlsCertPath != "" && *c.tlsKeyPath != ""
-	return playURL(*c.host, *c.port, tls)
+	showURL := playURL(*c.host, *c.port, tls)
+	if showURL == "" {
+		return "", errors.New("the show URL is unknown (the port is chosen by the OS)")
+	}
+	return showURL, nil
 }
 
 // playwrightServer is the part of a clai MCP server config the availability

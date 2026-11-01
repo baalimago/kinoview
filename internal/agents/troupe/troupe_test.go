@@ -38,6 +38,14 @@ func TestNewTroupe_Errors(t *testing.T) {
 	}
 }
 
+// TestGenerationCooldown_Daily pins the cadence the hardcoded cooldown
+// carries: one generation a day is the ceiling.
+func TestGenerationCooldown_Daily(t *testing.T) {
+	if generationCooldown != 24*time.Hour {
+		t.Errorf("generationCooldown = %v, want 24h", generationCooldown)
+	}
+}
+
 // TestTroupe_Prepare_SingleFlight pins the facade's first gate: a
 // generation already in flight refuses a concurrent Prepare, so concurrent
 // triggers run at most one generation.

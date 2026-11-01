@@ -15,6 +15,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"github.com/baalimago/clai/pkg/text/models"
@@ -23,6 +25,12 @@ import (
 const (
 	// Callsign is the MCP server name agents address the notebook through.
 	Callsign = "slivingdoc"
+
+	// MinVersion is the oldest slivingdoc release whose serve accepts every
+	// argument Server builds. v1.3.0 added --login; an older binary rejects
+	// the flag at startup, after the notebook has reported ready, and every
+	// agent that names the callsign then fails at MCP initialize.
+	MinVersion = "1.3.0"
 
 	// timeoutSeconds bounds a single MCP tool call: a pull or commit over a
 	// cold S3 gateway must never hang an agent loop forever.
@@ -35,6 +43,51 @@ const (
 	// seedMessage is the commit message for the seeded bulletin.
 	seedMessage = "seed bulletin.md"
 )
+
+// releasePattern matches a release number anywhere in the binary's version
+// banner, so a development build ("1.4.0-dev") still yields its base release.
+var releasePattern = regexp.MustCompile(`\d+\.\d+\.\d+`)
+
+// CheckVersion reports whether command is a slivingdoc release Server's args
+// support. The gate runs before the worktree is seeded: a binary that is too
+// old must degrade the notebook, never report it ready and fail later inside
+// an agent.
+func CheckVersion(command string) error {
+	out, err := exec.Command(command, "--version").Output()
+	if err != nil {
+		return fmt.Errorf("slivingdoc version (%s --version): %w", command, err)
+	}
+	got := releasePattern.FindString(string(out))
+	if got == "" {
+		return fmt.Errorf("slivingdoc version: no release number in %q", strings.TrimSpace(string(out)))
+	}
+	if olderRelease(got, MinVersion) {
+		return fmt.Errorf("slivingdoc %s is older than the supported %s (serve --login)", got, MinVersion)
+	}
+	return nil
+}
+
+// olderRelease reports whether a is an earlier release than b. Both carry
+// exactly three numeric parts (releasePattern), so a field comparison is
+// enough.
+func olderRelease(a, b string) bool {
+	pa, pb := parseRelease(a), parseRelease(b)
+	for i := range pa {
+		if pa[i] != pb[i] {
+			return pa[i] < pb[i]
+		}
+	}
+	return false
+}
+
+// parseRelease splits a version triple into its three numeric fields.
+func parseRelease(version string) [3]int {
+	var out [3]int
+	for i, field := range strings.Split(version, ".") {
+		out[i], _ = strconv.Atoi(field)
+	}
+	return out
+}
 
 // Config is everything the slivingdoc CLI needs from kinoview: the release
 // binary to run, the S3 target of the notebook and the roots it materialises

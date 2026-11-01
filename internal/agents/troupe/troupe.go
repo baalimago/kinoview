@@ -10,11 +10,11 @@ import (
 )
 
 // generationCooldown is the hardcoded minimum wall time between two
-// generations (decision 13: the cooldown is hardcoded, never a flag). A
-// generation is an expensive swarm, and a handful of page refreshes must not
-// each trigger one; the cadence matches the concierge's autonomous interval
-// (6h), the sibling heavy agent on the same server.
-const generationCooldown = 6 * time.Hour
+// generations (decision 13: the cooldown is hardcoded, never a flag, and
+// revised from 6h to 24h on 2026-11-01 when the trigger moved from a blind
+// ticker to an audience signal). A generation is an expensive swarm: one a
+// day is the ceiling, and it is only spent when someone opened the app.
+const generationCooldown = 24 * time.Hour
 
 // generationIDPrefix distinguishes the generation id the facade stamps into
 // the critic's review from the play ids the director authors: g_<UTC> for a

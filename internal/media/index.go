@@ -110,9 +110,15 @@ type Indexer struct {
 	// The troupe (phase 9): the generation facade and the play API. All three
 	// are nil when the troupe is disabled (no notebook or no -troupe) —
 	// the troupe routes then stay unmounted and the API answers 404.
-	troupe         *troupe.Troupe
+	troupe         generationTrigger
 	troupeLibrary  *troupe.PlayLibrary
 	troupeFeedback *troupe.FeedbackWriter
+
+	// audience carries one buffered proof that somebody opened the app since
+	// the loop last looked. It is the troupe's only trigger: a generation runs
+	// when the audience channel holds a signal and the facade's cooldown
+	// allows it, so an idle server spends nothing.
+	audience chan struct{}
 
 	// Agent support managers
 	clientContextMgr agents.ClientContextManager
@@ -184,10 +190,15 @@ func WithConcierge(c agents.Concierge) IndexerOption {
 }
 
 // WithTroupe sets the generation facade: the server's generation loop calls
-// Prepare on the hardcoded cooldown, and the play API is mounted when the
-// library is set too. Nil disables the troupe entirely.
+// Prepare when a visitor opens the app and the hardcoded daily cooldown
+// allows it, and the play API is mounted when the library is set too. Nil
+// disables the troupe entirely — a typed nil must not land in the interface,
+// or the loop's nil check would pass and the goroutine would dereference it.
 func WithTroupe(t *troupe.Troupe) IndexerOption {
 	return func(i *Indexer) {
+		if t == nil {
+			return
+		}
 		i.troupe = t
 	}
 }
@@ -312,6 +323,7 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 		pongGrace:         defaultPongGrace,
 		conciergeInterval: 6 * time.Hour,
 		conciergeTimeout:  10 * time.Minute,
+		audience:          make(chan struct{}, 1),
 		recommender: recommender.New(models.Configurations{
 			Model:         "gpt-5",
 			ConfigDir:     claiPath,
@@ -485,13 +497,25 @@ func (i *Indexer) Close() error {
 	return i.watcher.Close()
 }
 
+// generationTrigger is the part of the troupe facade the generation loop
+// drives: Warm materialises the notebook, Prepare runs at most one generation
+// under the facade's own gates, and Cooldown is the hardcoded cadence.
+// *troupe.Troupe implements it; the interface exists so the loop's trigger
+// wiring is testable without a swarm.
+type generationTrigger interface {
+	Warm(ctx context.Context)
+	Prepare(ctx context.Context, reason string) bool
+	Cooldown() time.Duration
+}
+
 // runTroupeLoop is the background goroutine that schedules troupe
-// generations: Warm materialises the notebook first, the first generation
-// runs after the concierge's startup delay (the troupe has no flags of its
-// own — decision 19 — and shares the server's "delay before the first heavy
-// agent run" cadence), then a generation is attempted every cooldown. The
-// facade's own gates (single-flight + cooldown) are the authority: the loop
-// just calls Prepare, and a skipped trigger is logged there, never here.
+// generations. Warm materialises the notebook first; after the concierge's
+// startup delay the loop waits for the audience signal — one buffered proof
+// that somebody opened the app — and only then spends a generation. The
+// facade's gates (single-flight + cooldown) remain the authority, and the
+// loop rests for one cooldown after each attempt, so the ceiling is one
+// generation per cooldown and idle servers generate nothing (decision 13 as
+// revised 2026-11-01: audience-triggered, daily).
 func (i *Indexer) runTroupeLoop(ctx context.Context) {
 	i.troupe.Warm(ctx)
 
@@ -500,17 +524,30 @@ func (i *Indexer) runTroupeLoop(ctx context.Context) {
 		return
 	case <-time.After(i.conciergeStartupDelay):
 	}
-	i.troupe.Prepare(ctx, "startup")
 
-	tick := time.NewTicker(i.troupe.Cooldown())
-	defer tick.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case <-tick.C:
-			i.troupe.Prepare(ctx, "interval")
+		case <-i.audience:
 		}
+		i.troupe.Prepare(ctx, "audience")
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(i.troupe.Cooldown()):
+		}
+	}
+}
+
+// noteAudience records that somebody opened the app. The channel holds one
+// signal, so a page refresh, a reconnect storm and a second tab all coalesce
+// into the same proof: at least one visitor arrived since the loop last
+// looked.
+func (i *Indexer) noteAudience() {
+	select {
+	case i.audience <- struct{}{}:
+	default:
 	}
 }
 

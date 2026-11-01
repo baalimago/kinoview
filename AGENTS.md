@@ -198,6 +198,11 @@ replaces it from phase 7 onward.
   interaction. With the slivingdoc callsign configured it also pulls the
   shared notebook, posts its findings and commits them (the shared `NOTES`
   partial).
+- **The troupe generates for an audience, not a clock.** A browser opening the
+  app pokes one buffered audience signal (the event-stream connect); the
+  generation loop spends it when the hardcoded daily cooldown (24 h, decision
+  13 as revised 2026-11-01) allows, and rests one cooldown after every attempt.
+  An idle server generates nothing and keeps serving the newest submitted play.
 - **The frontend uses SSE for live updates.** The `index_handlers_eventStream.go`
   broadcasts item changes, suggestions, and logs to connected browsers.
 - **The troupe can see its own show.** When a Playwright MCP server config
@@ -373,7 +378,11 @@ see docker-compose.yml) is configured by these `serve` flags:
 The binary is the slivingdoc release asset for the host architecture (v1.3.1
 or later). kinoview never installs, builds or wraps it: an operator drops it
 on PATH (or names it with `-slivingdocCommand`), and the notebook needs no
-runtime package manager.
+runtime package manager. Setup probes `slivingdoc --version` before it seeds
+the worktree: a binary older than v1.3.0 (the release that added `--login`)
+turns the notebook off with one warning, because such a binary answers `pull`
+and then exits `serve` at MCP initialize, which kills the concierge and every
+troupe generation.
 
 The MCP child runs as `slivingdoc serve … --login never`. slivingdoc ≥ v1.3.0
 starts serve without a credential and signs in when a tool is first called,

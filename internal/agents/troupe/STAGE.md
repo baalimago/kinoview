@@ -357,7 +357,10 @@ is a `story_<UTC>` datetime and the registry carries no clock tool.
 The facade (`Prepare`/`Warm`) guards generations: `Prepare` triggers at most
 one (hardcoded cooldown + single-flight), `Warm` materialises the notebook
 without authoring anything, and the served play is always the newest
-submitted play read from disk — never an in-memory story.
+submitted play read from disk — never an in-memory story. The trigger is an
+audience signal, not a clock: the server pokes one buffered signal when a
+browser opens the app, so an idle server generates nothing and the ceiling is
+one generation per cooldown (24h).
 
 ### The critic
 

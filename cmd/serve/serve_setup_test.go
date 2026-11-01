@@ -186,13 +186,16 @@ func TestSetup_TroupeFlags_Registered(t *testing.T) {
 // resolveSlivingdoc succeeds. The seed is the injected seam (see the Seed
 // success/failure tests below).
 func notebookCommand(t *testing.T) *command {
+	return notebookCommandWith(t, "1.3.1")
+}
+
+// notebookCommandWith builds the same command over a slivingdoc stand-in that
+// reports version, so a test can drive the release gate.
+func notebookCommandWith(t *testing.T, version string) *command {
 	t.Helper()
 	t.Setenv("AWS_ACCESS_KEY_ID", "kinoview")
 	t.Setenv("AWS_SECRET_ACCESS_KEY", "kinoview-notebook-secret")
-	slivingdocBin := filepath.Join(t.TempDir(), "slivingdoc")
-	if err := os.WriteFile(slivingdocBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	slivingdocBin := stubSlivingdoc(t, version)
 
 	c := Command()
 	fs := c.Flagset()
@@ -209,6 +212,19 @@ func notebookCommand(t *testing.T) *command {
 	c.conciergeModel = &empty
 	c.classificationWorkers = new(1)
 	return c
+}
+
+// stubSlivingdoc writes a slivingdoc stand-in that answers the release probe
+// with version; the seed stays the injected seam (see seedNotebook).
+func stubSlivingdoc(t *testing.T, version string) string {
+	t.Helper()
+	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = \"--version\" ]; then echo \"slivingdoc " + version + "\"; exit 0; fi\n"
+	path := filepath.Join(t.TempDir(), "slivingdoc")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	return path
 }
 
 // TestSetup_SeedFailure_DisablesNotebookAndTroupe pins the degrade path: a
@@ -263,6 +279,35 @@ func TestSetup_SeedSuccess_EnablesTroupe(t *testing.T) {
 	}
 }
 
+// TestSetup_OldSlivingdoc_DisablesNotebookAndTroupe reproduces the 2026-11-01
+// incident: a slivingdoc release that answers pull but predates serve
+// --login. The notebook must never report ready, the worktree must not be
+// seeded, and the troupe must stay unmounted (404) instead of failing every
+// generation at MCP initialize.
+func TestSetup_OldSlivingdoc_DisablesNotebookAndTroupe(t *testing.T) {
+	c := notebookCommandWith(t, "1.2.0")
+	seeded := false
+	prev := seedNotebook
+	seedNotebook = func(slivingdoc.Config) error {
+		seeded = true
+		return nil
+	}
+	t.Cleanup(func() { seedNotebook = prev })
+
+	if err := c.Setup(context.Background()); err != nil {
+		t.Fatalf("Setup with an old slivingdoc: %v", err)
+	}
+	if seeded {
+		t.Error("the worktree must not be seeded by a binary that cannot serve the notebook")
+	}
+	if c.slivingdocServer.Name != "" {
+		t.Errorf("slivingdoc callsign must stay zero for an old binary, got %+v", c.slivingdocServer)
+	}
+	if c.troupeEnabled {
+		t.Error("the troupe must not start when slivingdoc is too old")
+	}
+}
+
 // TestClaiConfigDir pins the suffix rule the perception availability check
 // mirrors from clai: a dir already ending in clai is used as-is, any other dir
 // gets a clai child.
@@ -312,26 +357,28 @@ func writePerceptionServer(t *testing.T, configDir, body string) {
 // TestTroupeShowURL pins the perception switch: a perception server config in
 // the clai config dir the spawned agents load turns perception on, but only
 // when the server can start here; a missing config, a malformed config and a
-// command that does not resolve all leave it off.
+// command that does not resolve all leave it off, each with its own reason so
+// the startup notice never names a cause it did not check.
 func TestTroupeShowURL(t *testing.T) {
 	executable, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	cases := []struct {
-		name string
-		body string // empty: no config file
-		want string
+		name    string
+		body    string // empty: no config file
+		want    string
+		wantErr string
 	}{
-		{"no perception config", "", ""},
-		{"command on PATH", `{"command":` + strconv.Quote(executable) + `}`, "http://localhost:8080/"},
-		{"loopback endpoint", `{"url":"http://127.0.0.1:8931/mcp"}`, "http://localhost:8080/"},
-		{"remote endpoint", `{"url":"http://browserbox:8931/mcp"}`, ""},
-		{"url without a scheme", `{"url":"127.0.0.1:8931"}`, ""},
-		{"both transports", `{"command":` + strconv.Quote(executable) + `,"url":"http://127.0.0.1:8931/mcp"}`, ""},
-		{"command off PATH", `{"command":"kinoview-no-such-perception-server"}`, ""},
-		{"command and url absent", `{}`, ""},
-		{"malformed config", `{`, ""},
+		{name: "no perception config", wantErr: "no Playwright MCP server at"},
+		{name: "command on PATH", body: `{"command":` + strconv.Quote(executable) + `}`, want: "http://localhost:8080/"},
+		{name: "loopback endpoint", body: `{"url":"http://127.0.0.1:8931/mcp"}`, want: "http://localhost:8080/"},
+		{name: "remote endpoint", body: `{"url":"http://browserbox:8931/mcp"}`, wantErr: "is not on this host"},
+		{name: "url without a scheme", body: `{"url":"127.0.0.1:8931"}`, wantErr: "not an absolute http or https URL"},
+		{name: "both transports", body: `{"command":` + strconv.Quote(executable) + `,"url":"http://127.0.0.1:8931/mcp"}`, wantErr: "both"},
+		{name: "command off PATH", body: `{"command":"kinoview-no-such-perception-server"}`, wantErr: "does not resolve"},
+		{name: "command and url absent", body: `{}`, wantErr: "neither"},
+		{name: "malformed config", body: `{`, wantErr: "parse"},
 	}
 	for _, tt := range cases {
 		t.Run(tt.name, func(t *testing.T) {
@@ -342,10 +389,43 @@ func TestTroupeShowURL(t *testing.T) {
 			if tt.body != "" {
 				writePerceptionServer(t, dir, tt.body)
 			}
-			if got := c.troupeShowURL(); got != tt.want {
+			got, err := c.troupeShowURL()
+			if tt.wantErr != "" {
+				if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("troupeShowURL() error = %v, want one naming %q", err, tt.wantErr)
+				}
+				if got != "" {
+					t.Errorf("show URL = %q, want empty when perception is off", got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("troupeShowURL(): %v", err)
+			}
+			if got != tt.want {
 				t.Errorf("show URL = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// TestTroupeShowURL_OSChosenPort pins the one case where perception is off
+// although the server is configured: port 0 leaves no stable address to name.
+func TestTroupeShowURL_OSChosenPort(t *testing.T) {
+	c := Command()
+	c.Flagset()
+	dir := t.TempDir()
+	c.configDir = &dir
+	port := 0
+	c.port = &port
+	writePerceptionServer(t, dir, `{"url":"http://127.0.0.1:8931/mcp"}`)
+
+	got, err := c.troupeShowURL()
+	if err == nil || !strings.Contains(err.Error(), "port is chosen by the OS") {
+		t.Fatalf("troupeShowURL() error = %v, want the OS-chosen-port reason", err)
+	}
+	if got != "" {
+		t.Errorf("show URL = %q, want empty", got)
 	}
 }
 
