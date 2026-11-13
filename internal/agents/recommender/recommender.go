@@ -2,6 +2,7 @@ package recommender
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -19,14 +20,15 @@ type recommender struct {
 	llm text.FullResponse
 }
 
-const systemPrompt = `You are a media picker. You will be given request by a user, user context and a list of media. Your task is to determine the right piece of media for the user, based on the request and context.
+const systemPrompt = `You are a media picker. You will be given a request by a user, the user's context and the library: one video item per line as JSON.
+Your task is to determine the right piece of media for the user, based on the request and context.
 
 Be smart. Avoid picking media which has already been seen. When queried to continue something, doublecheck the existing duration since there may be some minutes left.
 But also think about how there's end credits taking up final 5 percent of movies/series.
 
 Respond with json in this format:
 {
-  "mediaId": "<ID_FROM_MEDIA>",
+  "mediaId": "<id of the chosen item, copied from the media list>",
   "motivation": "<Motivation for why specific item was selected>"
 }
 
@@ -34,6 +36,34 @@ Request: '%v'
 
 Media:
 %v`
+
+// itemView is the per-item payload the prompt carries. The whole library has
+// to fit in one request — full classifier metadata is about 0.5 MB on the
+// reference library — so only the fields that pick media are sent, the same
+// payload diet the butler uses (internal/agents/butler, butlerItemView).
+type itemView struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Title   string `json:"title,omitempty"`
+	Show    string `json:"show,omitempty"`
+	Year    int    `json:"year,omitempty"`
+	Season  int    `json:"season,omitempty"`
+	Episode int    `json:"episode,omitempty"`
+	Genre   string `json:"genre,omitempty"`
+	Runtime int    `json:"runtimeMin,omitempty"`
+}
+
+// itemMetadata is the subset of classifier metadata the view is built from.
+type itemMetadata struct {
+	Name        string `json:"name"`
+	AltName     string `json:"alt_name"`
+	ShowName    string `json:"showName"`
+	Year        int    `json:"year"`
+	Season      int    `json:"season"`
+	Episode     int    `json:"episode"`
+	Genre       string `json:"genre"`
+	DurationMin int    `json:"duration_min"`
+}
 
 // New configured by models.Configurations
 func New(c models.Configurations) agents.Recommender {
@@ -56,26 +86,7 @@ func (r *recommender) Recommend(
 	request string,
 	items []model.Item,
 ) (model.Item, error) {
-	var itemsStr strings.Builder
-	for _, it := range items {
-		metadataJSONStr := ""
-		if it.Metadata != nil {
-			metadataJSON, err := it.Metadata.MarshalJSON()
-			if err != nil {
-				ancli.Warnf("failed to encode metadata for %v. Continuing without it, error: %v", it.Name, err)
-			} else {
-				metadataJSONStr = string(metadataJSON)
-			}
-		}
-
-		itemsStr.WriteString(fmt.Sprintf(
-			"- id: %s, name: %s, type: %s, metadata: %s\n",
-			it.ID,
-			it.Name,
-			it.MIMEType,
-			metadataJSONStr,
-		))
-	}
+	candidates := formatCandidates(recommendationCandidates(items))
 	chat := models.Chat{
 		Messages: []models.Message{
 			{
@@ -83,7 +94,7 @@ func (r *recommender) Recommend(
 				Content: fmt.Sprintf(
 					systemPrompt,
 					request,
-					itemsStr.String(),
+					candidates,
 				),
 			},
 		},
@@ -121,6 +132,65 @@ func (r *recommender) Recommend(
 		"no item found with id %q",
 		id,
 	)
+}
+
+// recommendationCandidates projects the recommendable items — the videos — into
+// the compact view the prompt carries.
+func recommendationCandidates(items []model.Item) []itemView {
+	views := make([]itemView, 0, len(items))
+	for _, it := range items {
+		if !strings.Contains(it.MIMEType, "video") {
+			continue
+		}
+		meta := unmarshalItemMetadata(it.Metadata)
+		views = append(views, itemView{
+			ID:      it.ID,
+			Name:    it.Name,
+			Title:   firstNonEmpty(meta.Name, meta.AltName),
+			Show:    meta.ShowName,
+			Year:    meta.Year,
+			Season:  meta.Season,
+			Episode: meta.Episode,
+			Genre:   meta.Genre,
+			Runtime: meta.DurationMin,
+		})
+	}
+	return views
+}
+
+// formatCandidates renders one JSON line per candidate.
+func formatCandidates(views []itemView) string {
+	var b strings.Builder
+	for _, view := range views {
+		line, err := json.Marshal(view)
+		if err != nil {
+			continue
+		}
+		b.WriteString("- ")
+		b.Write(line)
+		b.WriteString("\n")
+	}
+	return b.String()
+}
+
+func unmarshalItemMetadata(raw *json.RawMessage) itemMetadata {
+	var meta itemMetadata
+	if raw == nil {
+		return meta
+	}
+	if err := json.Unmarshal(*raw, &meta); err != nil {
+		return itemMetadata{}
+	}
+	return meta
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // extractMediaID by using some unholy concoction an LLM conjured up. It seems to work though, see tests

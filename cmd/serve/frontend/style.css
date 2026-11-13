@@ -304,6 +304,36 @@ body {
   padding: 0.4rem 0;
 }
 
+/* Series / Movies switch */
+.sidebar-toggle {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+}
+
+.sidebar-toggle-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  padding: 0.4rem 0.7rem;
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.15s var(--ease-out), color 0.15s var(--ease-out);
+}
+
+.sidebar-toggle-btn:hover { color: var(--text-primary); }
+.sidebar-toggle-btn.active {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+
 .sidebar-loading, .sidebar-empty {
   padding: 2.5rem 1rem;
   color: var(--text-secondary);
@@ -416,6 +446,7 @@ body {
 
 /* Episode item */
 .sidebar-episodes { padding: 0 0.7rem; }
+.sidebar-movies { padding: 0.3rem 0.7rem; }
 
 .sidebar-ep {
   display: flex; align-items: center; gap: 0.5rem;
@@ -429,6 +460,10 @@ body {
   overflow: hidden;
 }
 .sidebar-ep:hover { background: var(--accent-soft); color: var(--text-primary); }
+.sidebar-ep:focus-visible {
+  background: var(--accent-soft); color: var(--text-primary);
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
 .sidebar-ep.playing {
   background: linear-gradient(90deg, var(--accent-soft), transparent);
   color: var(--text-primary); font-weight: 600;

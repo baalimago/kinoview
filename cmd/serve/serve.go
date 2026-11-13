@@ -340,7 +340,7 @@ func (c *command) Flagset() *flag.FlagSet {
 	c.classificationStartupCooldown = fs.Duration("classificationStartupCooldown", 10*time.Second, "delay before first classification is admitted")
 	c.classificationTimeout = fs.Duration("classifierTimeout", 5*time.Minute, "wall-clock cap for one classification call; a classifier stuck on a looping model is aborted after this and the attempt counts against the item's max-attempts budget")
 	c.shutdownTimeout = fs.Duration("shutdownTimeout", defaultShutdownTimeout, "wall-clock cap for each phase of the graceful shutdown that a signal starts (the HTTP drain, then the store flush); a phase still running at its deadline is abandoned and the process exits")
-	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the classifier. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
+	c.recommenderModel = fs.String("recommender", "", "set to LLM text model you'd like to use for the recommender. Supports multiple vendors automatically via clai. If unset, /gallery/recommend answers 501 and the concierge command bar cannot recommend.")
 	c.butlerModel = fs.String("butler", "", "set to LLM text model you'd like to use for the butler. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeModel = fs.String("concierge", "", "set to LLM text model you'd like to use for the concierge. Supports multiple vendors automatically via clai. If unset, feature will be disabled.")
 	c.conciergeStartupDelay = fs.Duration("conciergeStartupDelay", 60*time.Second, "delay before first concierge run, 0 runs immediately")

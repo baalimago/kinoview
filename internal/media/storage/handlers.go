@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -116,42 +115,60 @@ func handlePaginatedRequest(
 func (s *store) ListHandlerFunc() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.cacheMu.RLock()
-		defer s.cacheMu.RUnlock()
 		if s.cache == nil {
+			s.cacheMu.RUnlock()
 			http.Error(w, "store not initialized", http.StatusInternalServerError)
 			return
 		}
 		paginatedRequest, err := handlePaginatedRequest(len(s.cache), r)
 		if err != nil {
+			s.cacheMu.RUnlock()
 			http.Error(w, fmt.Sprintf("failed to handle paginated request: %v", err), http.StatusBadRequest)
+			return
 		}
-		items := make([]model.Item, 0, paginatedRequest.Am)
-		keys := make([]string, 0, len(s.cache))
-		for key, v := range s.cache {
-			if paginatedRequest.MIMEType != "" && !strings.Contains(v.MIMEType, paginatedRequest.MIMEType) {
-				continue
-			}
-			if paginatedRequest.Search != "" && !model.MatchesGlobalSearch(v, paginatedRequest.Search) {
-				continue
-			}
-			keys = append(keys, key)
-		}
-		slices.Sort(keys)
-		i := paginatedRequest.Start
-		end := min(len(keys), paginatedRequest.Am)
-		for ; i < end; i++ {
-			items = append(items, s.cache[keys[i]])
-		}
+		page := s.listPage(paginatedRequest)
+		s.cacheMu.RUnlock()
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(model.PaginatedResponse[model.Item]{
-			Total: len(keys),
+			Total: page.total,
 			Start: paginatedRequest.Start,
-			End:   i,
-			Items: items,
+			End:   page.end,
+			Items: page.items,
 		}); err != nil {
 			http.Error(w, "failed to encode items", http.StatusInternalServerError)
 		}
 	}
+}
+
+// listPage is one page of the filtered and ordered listing held by the store.
+type listPage struct {
+	items []model.Item
+	total int
+	end   int
+}
+
+// listPage filters the cache by mime type and query, orders the survivors by
+// relevance and cuts the requested window out of them. The caller holds
+// cacheMu.
+func (s *store) listPage(req model.PaginatedRequest) listPage {
+	matched := make([]model.Item, 0, len(s.cache))
+	for _, v := range s.cache {
+		if req.MIMEType != "" && !strings.Contains(v.MIMEType, req.MIMEType) {
+			continue
+		}
+		if !model.MatchesGlobalSearch(v, req.Search) {
+			continue
+		}
+		matched = append(matched, v)
+	}
+	ordered := model.OrderItems(matched, req.Search)
+	page := listPage{total: len(ordered), end: min(len(ordered), req.Am)}
+	if req.Start < page.end {
+		page.items = ordered[req.Start:page.end]
+	} else {
+		page.end = req.Start
+	}
+	return page
 }
 
 // VideoHandlerFunc returns a handler to get a video by ID, if item is not a video

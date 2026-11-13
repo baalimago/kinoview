@@ -21,8 +21,9 @@ type showRE struct {
 var showREs = []showRE{
 	// S01E02 or s01e02
 	{re: regexp.MustCompile(`(?i)^(.+?)[.\s\-_]*[Ss](\d{1,2})[Ee](\d{1,3})`), hasSeason: true},
-	// 1x02 or 01x02
-	{re: regexp.MustCompile(`(?i)^(.+?)[.\s\-_]*(\d{1,2})[xX](\d{1,3})`), hasSeason: true},
+	// 1x02 or 01x02. The separator is required, so a resolution tag such as
+	// "1280x720" is not read as season 80 episode 720.
+	{re: regexp.MustCompile(`(?i)^(.+?)[.\s\-_]+(\d{1,2})[xX](\d{1,3})`), hasSeason: true},
 	// Season 01 Episode 02
 	{re: regexp.MustCompile(`(?i)^(.+?)[.\s\-_]*Season[.\s\-_]*(\d{1,2})[.\s\-_]*Episode[.\s\-_]*(\d{1,3})`), hasSeason: true},
 	// E02 (single episode within a show-named folder, assume season 1)
@@ -134,88 +135,169 @@ func normalizeShowName(name string) string {
 	return strings.TrimSpace(strings.ToLower(name))
 }
 
-// showsHandler groups all video items into shows → seasons → episodes.
+// showsHandler serves the library browser: series grouped into seasons and
+// episodes, and the standalone movies beside them.
 func (i *Indexer) showsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-
-		allItems := i.store.Snapshot()
-		showMap := make(map[string]*model.ShowSeries)
-		showOrder := []string{}
-
-		for _, item := range allItems {
-			if !strings.Contains(item.MIMEType, "video") {
-				continue
-			}
-
-			showName, season, episode, ok := extractShowMetadata(item)
-			if !ok {
-				continue
-			}
-
-			key := normalizeShowName(showName)
-			se := model.ShowEpisode{
-				Item:     item,
-				ShowName: showName,
-				Season:   season,
-				Episode:  episode,
-			}
-
-			show, exists := showMap[key]
-			if !exists {
-				show = &model.ShowSeries{
-					Name:    showName,
-					Seasons: []model.ShowSeason{},
-				}
-				showMap[key] = show
-				showOrder = append(showOrder, key)
-			}
-
-			// Find or create season
-			seasonIdx := -1
-			for idx := range show.Seasons {
-				if show.Seasons[idx].Season == season {
-					seasonIdx = idx
-					break
-				}
-			}
-			if seasonIdx < 0 {
-				show.Seasons = append(show.Seasons, model.ShowSeason{
-					Season:   season,
-					Episodes: []model.ShowEpisode{},
-				})
-				seasonIdx = len(show.Seasons) - 1
-			}
-			show.Seasons[seasonIdx].Episodes = append(show.Seasons[seasonIdx].Episodes, se)
-		}
-
-		// Sort seasons and episodes
-		for _, show := range showMap {
-			sort.Slice(show.Seasons, func(a, b int) bool {
-				return show.Seasons[a].Season < show.Seasons[b].Season
-			})
-			for sIdx := range show.Seasons {
-				sort.Slice(show.Seasons[sIdx].Episodes, func(a, b int) bool {
-					return show.Seasons[sIdx].Episodes[a].Episode < show.Seasons[sIdx].Episodes[b].Episode
-				})
-			}
-		}
-
-		// Build ordered response
-		resp := model.ShowsResponse{Shows: make([]model.ShowSeries, 0, len(showOrder))}
-		for _, key := range showOrder {
-			resp.Shows = append(resp.Shows, *showMap[key])
-		}
-		sort.Slice(resp.Shows, func(a, b int) bool {
-			return strings.ToLower(resp.Shows[a].Name) < strings.ToLower(resp.Shows[b].Name)
-		})
-
+		resp := buildLibraryView(i.store.Snapshot())
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(resp); err != nil {
 			http.Error(w, "failed to encode shows", http.StatusInternalServerError)
 		}
 	}
+}
+
+// buildLibraryView splits the video items of a library into the two views the
+// sidebar offers: series (season → episode) and standalone movies.
+func buildLibraryView(items []model.Item) model.ShowsResponse {
+	return model.ShowsResponse{
+		Shows:  buildSeries(items),
+		Movies: buildMovies(items),
+	}
+}
+
+// seriesBuilder accumulates episodes into their show and season while keeping
+// the order the shows were first seen.
+type seriesBuilder struct {
+	byKey map[string]*model.ShowSeries
+	order []string
+}
+
+// buildSeries groups the episodes of the library into shows and seasons.
+func buildSeries(items []model.Item) []model.ShowSeries {
+	b := seriesBuilder{byKey: make(map[string]*model.ShowSeries)}
+	for _, item := range items {
+		b.add(item)
+	}
+	shows := make([]model.ShowSeries, 0, len(b.order))
+	for _, key := range b.order {
+		shows = append(shows, *b.byKey[key])
+	}
+	sort.Slice(shows, func(a, c int) bool {
+		return strings.ToLower(shows[a].Name) < strings.ToLower(shows[c].Name)
+	})
+	return shows
+}
+
+// add places one item into its show and season. Items that are not episodes are
+// ignored: buildMovies picks them up.
+func (b *seriesBuilder) add(item model.Item) {
+	if !strings.Contains(item.MIMEType, "video") {
+		return
+	}
+	if isExtra(item) {
+		return
+	}
+	showName, season, episode, ok := extractShowMetadata(item)
+	if !ok {
+		return
+	}
+	show := b.show(showName)
+	show.Seasons = addEpisode(show.Seasons, model.ShowEpisode{
+		Item:     item,
+		ShowName: showName,
+		Season:   season,
+		Episode:  episode,
+	})
+}
+
+// isExtra reports whether the classifier filed the item as a bonus feature of a
+// series rather than a show or a movie of its own. An extra belongs to neither
+// view: it has no position a season can hold and no title a movie row can show.
+func isExtra(item model.Item) bool {
+	return mdString(metadataMap(item.Metadata), "extra_to") != ""
+}
+
+// show returns the show for the name, creating it on first sight.
+func (b *seriesBuilder) show(name string) *model.ShowSeries {
+	key := normalizeShowName(name)
+	show, exists := b.byKey[key]
+	if exists {
+		return show
+	}
+	show = &model.ShowSeries{Name: name, Seasons: []model.ShowSeason{}}
+	b.byKey[key] = show
+	b.order = append(b.order, key)
+	return show
+}
+
+// addEpisode inserts the episode into its season, keeping the seasons ordered
+// by number and the episodes by episode number.
+func addEpisode(seasons []model.ShowSeason, ep model.ShowEpisode) []model.ShowSeason {
+	for idx := range seasons {
+		if seasons[idx].Season != ep.Season {
+			continue
+		}
+		seasons[idx].Episodes = insertEpisode(seasons[idx].Episodes, ep)
+		return seasons
+	}
+	seasons = append(seasons, model.ShowSeason{Season: ep.Season, Episodes: []model.ShowEpisode{ep}})
+	sort.Slice(seasons, func(a, b int) bool { return seasons[a].Season < seasons[b].Season })
+	return seasons
+}
+
+func insertEpisode(episodes []model.ShowEpisode, ep model.ShowEpisode) []model.ShowEpisode {
+	episodes = append(episodes, ep)
+	sort.SliceStable(episodes, func(a, b int) bool { return episodes[a].Episode < episodes[b].Episode })
+	return episodes
+}
+
+// releaseYearRE matches the release year a file name carries, which is where
+// the release tags that follow it begin.
+var releaseYearRE = regexp.MustCompile(`(?i)\s(19|20)\d{2}(\s|$)`)
+
+// buildMovies lists the video items that belong to no series. Items the
+// classifier marked as extras belong to a series they cannot be sorted into, so
+// they are left out of both views.
+func buildMovies(items []model.Item) []model.ShowMovie {
+	movies := make([]model.ShowMovie, 0, len(items))
+	for _, item := range items {
+		if !strings.Contains(item.MIMEType, "video") {
+			continue
+		}
+		if _, _, _, isEpisode := extractShowMetadata(item); isEpisode {
+			continue
+		}
+		view := resolveSuggestionView(item)
+		// An episode the classifier placed in a series keeps that series, even
+		// when its file name does not parse: it is not a movie.
+		if isExtra(item) || view.Kind == "episode" {
+			continue
+		}
+		title := view.Title
+		year := view.Year
+		if view.Kind == "media" {
+			var fallbackYear int
+			title, fallbackYear = movieTitleFallback(item)
+			if year == 0 {
+				year = fallbackYear
+			}
+		}
+		movies = append(movies, model.ShowMovie{Item: item, Title: title, Year: year})
+	}
+	sort.SliceStable(movies, func(a, b int) bool {
+		left, right := strings.ToLower(movies[a].Title), strings.ToLower(movies[b].Title)
+		if left != right {
+			return left < right
+		}
+		return movies[a].ID < movies[b].ID
+	})
+	return movies
+}
+
+// movieTitleFallback reads a title and its release year off the file name of an
+// unclassified movie, cutting the release tags at the year:
+// "Warfare.2025.1080p" reads "Warfare", 2025.
+func movieTitleFallback(item model.Item) (string, int) {
+	name := cleanFilename(item)
+	loc := releaseYearRE.FindStringIndex(name)
+	if loc == nil || loc[0] == 0 {
+		return name, 0
+	}
+	year, _ := strconv.Atoi(strings.TrimSpace(name[loc[0]:loc[1]]))
+	return strings.TrimSpace(name[:loc[0]]), year
 }

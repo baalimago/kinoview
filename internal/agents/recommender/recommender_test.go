@@ -2,6 +2,7 @@ package recommender
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
@@ -62,11 +63,41 @@ func TestRecommend_OK(t *testing.T) {
 	if !strings.Contains(sys.Content, "Media:") {
 		t.Fatalf("prompt missing media header")
 	}
-	if !strings.Contains(sys.Content, "- id: 1") {
+	if !strings.Contains(sys.Content, `"id":"1"`) {
 		t.Fatalf("prompt missing item 1")
 	}
-	if !strings.Contains(sys.Content, "- id: 2") {
+	if !strings.Contains(sys.Content, `"id":"2"`) {
 		t.Fatalf("prompt missing item 2")
+	}
+}
+
+// TestRecommend_PayloadDiet pins what the prompt carries: the whole library has
+// to fit in one request, so full classifier metadata must not be shipped.
+func TestRecommend_PayloadDiet(t *testing.T) {
+	f := &fakeLLM{
+		resp: models.Chat{Messages: []models.Message{{Role: "assistant", Content: `{"mediaId":"m1"}`}}},
+	}
+	r := &recommender{llm: f}
+	movie := json.RawMessage(`{"name":"Shutter Island","year":2010,"genre":"Thriller","duration_min":138,"description":"A marshal investigates a disappearance at an asylum for the criminally insane.","actors":["Leonardo DiCaprio","Mark Ruffalo"]}`)
+	episode := json.RawMessage(`{"name":"Ethon","showName":"Stargate SG-1","season":9,"episode":15,"year":2005}`)
+	items := []model.Item{
+		{ID: "m1", Name: "Shutter Island 2010 2160p.mkv", MIMEType: "video/x-matroska", Metadata: &movie},
+		{ID: "e1", Name: "Stargate.SG-1.S09E15.Ethon.mkv", MIMEType: "video/x-matroska", Metadata: &episode},
+		{ID: "i1", Name: "cover.jpg", MIMEType: "image/jpeg"},
+	}
+	if _, err := r.Recommend(context.Background(), "something tense", items); err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	prompt := f.got.Messages[0].Content
+	for _, want := range []string{`"id":"m1"`, `"title":"Shutter Island"`, `"year":2010`, `"show":"Stargate SG-1"`, `"season":9`, `"episode":15`, `"runtimeMin":138`} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("prompt missing %s", want)
+		}
+	}
+	for _, unwanted := range []string{"criminally insane", "Leonardo DiCaprio", "cover.jpg"} {
+		if strings.Contains(prompt, unwanted) {
+			t.Errorf("prompt should not carry %q", unwanted)
+		}
 	}
 }
 

@@ -3,7 +3,6 @@ package model
 import (
 	"encoding/json"
 	"image"
-	"strings"
 	"time"
 )
 
@@ -178,52 +177,4 @@ type SuggestionsFile struct {
 	Suggestions []Suggestion           `json:"suggestions"`
 	Fingerprint *SuggestionFingerprint `json:"fingerprint,omitempty"`
 	Generated   string                 `json:"generated,omitempty"`
-}
-
-// MatchesGlobalSearch performs a global search across item metadata and basic fields.
-// It searches through the item's name, path, and metadata fields for the given needle.
-// An empty needle matches everything.
-func MatchesGlobalSearch(it Item, needle string) bool {
-	if needle == "" {
-		return true
-	}
-	needle = strings.ToLower(needle)
-
-	if strings.Contains(strings.ToLower(it.Name), needle) ||
-		strings.Contains(strings.ToLower(it.Path), needle) {
-		return true
-	}
-
-	if it.Metadata != nil {
-		var metadata map[string]any
-		if err := json.Unmarshal(*it.Metadata, &metadata); err == nil {
-			if SearchMetadata(metadata, needle) {
-				return true
-			}
-		}
-	}
-	return false
-}
-
-// SearchMetadata recursively searches through metadata for a substring match.
-func SearchMetadata(data any, needle string) bool {
-	switch v := data.(type) {
-	case map[string]any:
-		for _, val := range v {
-			if SearchMetadata(val, needle) {
-				return true
-			}
-		}
-	case []any:
-		for _, val := range v {
-			if SearchMetadata(val, needle) {
-				return true
-			}
-		}
-	case string:
-		if strings.Contains(strings.ToLower(v), needle) {
-			return true
-		}
-	}
-	return false
 }

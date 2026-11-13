@@ -141,6 +141,64 @@ func Test_store_ListHandlerFunc_search(t *testing.T) {
 	})
 }
 
+// Test_store_ListHandlerFunc_searchRanking pins the ordering of a filtered
+// listing: the best match comes first, so a frontend that shows the head of the
+// list shows the item the user asked for.
+func Test_store_ListHandlerFunc_searchRanking(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	h := s.ListHandlerFunc()
+
+	saw := json.RawMessage(`{"name":"Saw","year":2004}`)
+	sawFour := json.RawMessage(`{"name":"Saw IV","year":2007}`)
+	// The ID sorts first, so an ID-ordered listing would hide the movie.
+	s.cacheMu.Lock()
+	s.cache = map[string]model.Item{
+		"0010": {ID: "0010", Name: "4. Saw IV (2007).mkv", MIMEType: "video/x-matroska", Metadata: &sawFour},
+		"9999": {ID: "9999", Name: "1. Saw (2004).mkv", MIMEType: "video/x-matroska", Metadata: &saw},
+	}
+	s.cacheMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/list?start=0&am=10&search=saw", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d", rr.Code)
+	}
+	var resp model.PaginatedResponse[model.Item]
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if resp.Total != 2 {
+		t.Fatalf("expected 2 results, got %d", resp.Total)
+	}
+	if resp.Items[0].ID != "9999" {
+		t.Fatalf("expected the bare 'Saw' movie first, got %q", resp.Items[0].Name)
+	}
+}
+
+// Test_store_ListHandlerFunc_invalidPaging covers the paging error path: the
+// handler must answer once, with a plain error body, and never append JSON.
+func Test_store_ListHandlerFunc_invalidPaging(t *testing.T) {
+	t.Parallel()
+	s := newTestStore(t)
+	h := s.ListHandlerFunc()
+	s.cacheMu.Lock()
+	s.cache = map[string]model.Item{"1": {ID: "1", Name: "a.mp4"}}
+	s.cacheMu.Unlock()
+
+	req := httptest.NewRequest(http.MethodGet, "/list?start=5&am=5", nil)
+	rr := httptest.NewRecorder()
+	h.ServeHTTP(rr, req)
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("want 400, got %d", rr.Code)
+	}
+	var resp model.PaginatedResponse[model.Item]
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err == nil {
+		t.Fatalf("expected a plain error body, got a JSON listing: %v", resp)
+	}
+}
+
 // TestStoreSearchE2E primes the store via Setup, then queries with search.
 func TestStoreSearchE2E(t *testing.T) {
 	t.Parallel()

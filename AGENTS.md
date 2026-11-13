@@ -68,7 +68,8 @@ internal/
 │   ├── index.go         # Indexer: central orchestrator — wires all components, owns HTTP handler
 │   ├── index_handlers.go            # Gallery HTTP endpoints
 │   ├── index_handlers_eventStream.go # SSE event stream for frontend live updates
-│   ├── index_handlers_shows.go      # TV show grouping endpoints
+│   ├── index_handlers_shows.go      # Library browser: series (season → episode)
+│   │                                #   and the standalone movies beside them
 │   ├── fingerprint.go   # Perceptual hashing for media deduplication
 │   ├── storage/         # JSON-file-backed persistent store
 │   │   ├── store.go     # Store: Setup, Start, Store, Snapshot, ListHandlerFunc, etc.
@@ -84,6 +85,8 @@ internal/
 │   └── constants/       # Shared media constants
 ├── model/               # Domain types — free of external dependencies
 │   ├── item.go          # Item, Metadata, ShowGrouping, Suggestion
+│   ├── search.go        # Ranked global search: token AND match, field weights
+│   ├── show.go          # ShowSeries, ShowSeason, ShowEpisode, ShowMovie
 │   ├── media.go         # MediaInfo, Stream (codec/language/subtitle metadata)
 │   ├── event.go         # Event types for SSE broadcast
 │   └── log.go           # Structured log types for LLM agent introspection
@@ -156,6 +159,11 @@ concurrent changes with visible conflict markers.
 
 All agentic components are **opt-in** — each has its own `-model` flag. When unset,
 that agent is nil and the indexer skips the corresponding feature path. The
+recommender is opt-in the same way: without `-recommender` the
+`/gallery/recommend` endpoint answers 501 and the concierge command bar cannot
+recommend. With it set, the request carries one compact JSON line per video
+item (the same payload diet as the butler) rather than full classifier
+metadata, because the whole library has to fit in one prompt. The
 shared notebook is opt-in too: `serve` enables it when the AWS credentials
 (`AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`) resolve, the slivingdoc release
 binary resolves (the `slivingdoc` binary on PATH, or a path via

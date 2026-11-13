@@ -11,11 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/baalimago/clai/pkg/text/models"
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/go_away_boilerplate/pkg/misc"
 	"github.com/baalimago/kinoview/internal/agents"
-	"github.com/baalimago/kinoview/internal/agents/recommender"
 	"github.com/baalimago/kinoview/internal/agents/troupe"
 	"github.com/baalimago/kinoview/internal/loghandler"
 	"github.com/baalimago/kinoview/internal/media/suggestions"
@@ -311,12 +309,6 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create recursive watcher: %w", err)
 	}
-	cfgDir, err := os.UserConfigDir()
-	if err != nil {
-		ancli.Warnf("failed to find user config dir: %v", err)
-	}
-	claiPath := path.Join(cfgDir, "kinoview", "clai")
-
 	i := &Indexer{
 		watcher:           w,
 		clock:             time.Now,
@@ -324,13 +316,8 @@ func NewIndexer(opts ...IndexerOption) (*Indexer, error) {
 		conciergeInterval: 6 * time.Hour,
 		conciergeTimeout:  10 * time.Minute,
 		audience:          make(chan struct{}, 1),
-		recommender: recommender.New(models.Configurations{
-			Model:         "gpt-5",
-			ConfigDir:     claiPath,
-			InternalTools: []models.ToolName{},
-		}),
-		errorChannels: make(map[string]errorListener),
-		errorUpdates:  make(chan error, 1000),
+		errorChannels:     make(map[string]errorListener),
+		errorUpdates:      make(chan error, 1000),
 	}
 
 	for _, opt := range opts {
@@ -385,7 +372,7 @@ func (i *Indexer) Setup(ctx context.Context) error {
 	if i.recommender != nil {
 		recSetupErr := i.recommender.Setup(ctx)
 		if recSetupErr != nil {
-			ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", err)
+			ancli.Errf("failed to setup recommender, recommendations wont work. Err: %v", recSetupErr)
 		}
 	}
 

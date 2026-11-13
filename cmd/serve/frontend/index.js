@@ -386,9 +386,9 @@ function populateSearchResults(items, query) {
 
 // populateMediaDropdown indexes video items into the in-memory `media` map and
 // syncs the persisted store. (Historically it also populated a <select>; that
-// crude control was replaced by the search-driven UI.)
+// crude control was replaced by the search-driven UI.) It keeps the order the
+// server sent: that is the ranking, and the search results are its first rows.
 function populateMediaDropdown(items) {
-  items.sort((a, b) => a.Name.localeCompare(b.Name));
   const persistedMedia = getPersistedMedia();
   for (const i of items) {
     if (!i.MIMEType.includes("video")) {
@@ -478,6 +478,7 @@ function requestRecommendation() {
     body: req,
   })
     .then((r) => {
+      if (r.status === 501) throw new Error("recommender off");
       if (!r.ok) throw new Error("status " + r.status);
       return r.json();
     })
@@ -492,6 +493,11 @@ function requestRecommendation() {
     .catch((err) => {
       console.error("recommend error:");
       console.error(err);
+      if (err && err.message === "recommender off") {
+        status.innerText =
+          "Recommendations are off on this server. Ask the operator to start kinoview with -recommender <model>.";
+        return;
+      }
       status.innerText = "Error — check kinoview server logs, or console logs";
     })
     .finally(() => {
@@ -851,6 +857,9 @@ function renderSuggestionsFromPayload(payload) {
   if (!sidebar) return;
 
   var sidebarShows = [];
+  var sidebarMovies = [];
+  var libraryMode = "series"; // "series" | "movies"
+  var sidebarLoaded = false; // false until /gallery/shows answers
   var activeShowIdx = -1; // which show is expanded (-1 = none)
   var activeSeasonIdx = {}; // show index → season index (-1 = none selected)
   var initialRenderDone = false;
@@ -1003,6 +1012,8 @@ function renderSuggestionsFromPayload(payload) {
       })
       .then(function(data) {
         sidebarShows = data.shows || [];
+        sidebarMovies = data.movies || [];
+        sidebarLoaded = true;
         activeSeasonIdx = {};
         for (var i = 0; i < sidebarShows.length; i++) activeSeasonIdx[i] = -1;
         render();
@@ -1064,13 +1075,25 @@ function renderSuggestionsFromPayload(payload) {
     render();
   }
 
+  // render dispatches to the view the sidebar toggle selects. It holds the
+  // loading placeholder until the first response lands, so a toggle tapped
+  // during the fetch never reports an empty library.
   function render() {
+    if (!sidebarLoaded) return;
+    if (libraryMode === "movies") {
+      renderMovies();
+      return;
+    }
+    renderSeries();
+  }
+
+  function renderSeries() {
     // Clear continue cache each render cycle
     continueEpisodeCache = {};
 
     sidebar.innerHTML = "";
     if (sidebarShows.length === 0) {
-      sidebar.innerHTML = '<div class="sidebar-empty">No shows detected</div>';
+      sidebar.innerHTML = '<div class="sidebar-empty">No series in your library</div>';
       return;
     }
     for (var si = 0; si < sidebarShows.length; si++) {
@@ -1189,42 +1212,16 @@ function renderSuggestionsFromPayload(payload) {
               name.textContent = episodeDisplayName(ep);
               epRow.appendChild(name);
 
-              var ws = episodeWatched(ep.ID, ep.Metadata);
-              if (ws.status === "watched") {
-                var dot = document.createElement("span");
-                dot.className = "sidebar-ep-watched";
-                epRow.appendChild(dot);
-                epRow.style.opacity = "0.7";
-              } else if (ws.status === "progress") {
-                var pct = 0;
-                if (
-                  ep.Metadata &&
-                  typeof ep.Metadata === "object" &&
-                  ep.Metadata.duration_min
-                ) {
-                  var totalSec = parseFloat(ep.Metadata.duration_min) * 60;
-                  if (totalSec > 0)
-                    pct = Math.min(
-                      100,
-                      Math.round((ws.playedFor / totalSec) * 100),
-                    );
-                }
-                var prog = document.createElement("span");
-                prog.className = "sidebar-ep-progress-text";
-                prog.textContent = Math.round(ws.playedFor / 60) + "m";
-                epRow.appendChild(prog);
-                // Thin progress bar
-                var bar = document.createElement("span");
-                bar.className = "sidebar-ep-progress-bar";
-                bar.innerHTML = '<span style="width:' + pct + '%"></span>';
-                epRow.appendChild(bar);
-              }
+              appendWatchState(epRow, episodeWatched(ep.ID, ep.Metadata), ep.Metadata);
 
-              epRow.onclick = (function(epID) {
-                return function() {
-                  selectMedia(epID);
-                };
-              })(ep.ID);
+              makeActivatable(
+                epRow,
+                (function(epID) {
+                  return function() {
+                    selectMedia(epID);
+                  };
+                })(ep.ID),
+              );
               epContainer.appendChild(epRow);
             }
           }
@@ -1249,14 +1246,124 @@ function renderSuggestionsFromPayload(payload) {
     return d.innerHTML;
   }
 
-  // Refresh watch dots periodically
+  // appendWatchState marks a row as watched, or shows how far into it the user
+  // got. Shared by the episode rows and the movie rows.
+  function appendWatchState(row, ws, metadata) {
+    if (ws.status === "watched") {
+      var dot = document.createElement("span");
+      dot.className = "sidebar-ep-watched";
+      row.appendChild(dot);
+      row.style.opacity = "0.7";
+      return;
+    }
+    if (ws.status !== "progress") return;
+
+    var prog = document.createElement("span");
+    prog.className = "sidebar-ep-progress-text";
+    prog.textContent = Math.round(ws.playedFor / 60) + "m";
+    row.appendChild(prog);
+
+    var bar = document.createElement("span");
+    bar.className = "sidebar-ep-progress-bar";
+    bar.innerHTML =
+      '<span style="width:' + progressPercent(ws, metadata) + '%"></span>';
+    row.appendChild(bar);
+  }
+
+  function progressPercent(ws, metadata) {
+    if (!metadata || typeof metadata !== "object" || !metadata.duration_min)
+      return 0;
+    var totalSec = parseFloat(metadata.duration_min) * 60;
+    if (!(totalSec > 0)) return 0;
+    return Math.min(100, Math.round((ws.playedFor / totalSec) * 100));
+  }
+
+  // renderMovies lists the standalone movies: title, year and watch state.
+  function renderMovies() {
+    sidebar.innerHTML = "";
+    if (sidebarMovies.length === 0) {
+      sidebar.innerHTML = '<div class="sidebar-empty">No movies in your library</div>';
+      return;
+    }
+    var list = document.createElement("div");
+    list.className = "sidebar-episodes sidebar-movies";
+    for (var i = 0; i < sidebarMovies.length; i++) {
+      var movie = sidebarMovies[i];
+      var row = document.createElement("div");
+      row.className = "sidebar-ep sidebar-movie";
+      if (movie.ID === mostRecentID) row.classList.add("playing");
+
+      var name = document.createElement("span");
+      name.className = "sidebar-ep-name";
+      name.textContent = movieTitle(movie);
+      row.appendChild(name);
+
+      appendWatchState(row, episodeWatched(movie.ID, movie.Metadata), movie.Metadata);
+      makeActivatable(row, (function(movieID) {
+        return function() {
+          selectMedia(movieID);
+        };
+      })(movie.ID));
+      list.appendChild(row);
+    }
+    sidebar.appendChild(list);
+  }
+
+  function movieTitle(movie) {
+    var title = movie.title || movie.Name || "";
+    if (movie.year) return title + " (" + movie.year + ")";
+    return title;
+  }
+
+  // makeActivatable gives a row the keyboard route a click already has: it
+  // enters the tab order, so Enter and Space play the item like a click does.
+  function makeActivatable(row, onActivate) {
+    row.setAttribute("role", "button");
+    row.tabIndex = 0;
+    row.addEventListener("click", onActivate);
+    row.addEventListener("keydown", function(e) {
+      if (e.key !== "Enter" && e.key !== " ") return;
+      e.preventDefault();
+      onActivate();
+    });
+  }
+
+  // setLibraryMode switches the sidebar between the series and movies views.
+  function setLibraryMode(next) {
+    libraryMode = next;
+    syncToggleState();
+    render();
+  }
+
+  // syncToggleState mirrors libraryMode into the toggle buttons. Assistive
+  // technology reads aria-pressed, not the CSS class.
+  function syncToggleState() {
+    var buttons = document.querySelectorAll(".sidebar-toggle-btn");
+    for (var i = 0; i < buttons.length; i++) {
+      var active = buttons[i].getAttribute("data-mode") === libraryMode;
+      buttons[i].classList.toggle("active", active);
+      buttons[i].setAttribute("aria-pressed", active ? "true" : "false");
+    }
+  }
+
+  (function wireLibraryToggle() {
+    var toggle = document.getElementById("libraryToggle");
+    if (!toggle) return;
+    toggle.addEventListener("click", function(e) {
+      var target = e.target.closest(".sidebar-toggle-btn");
+      if (!target) return;
+      setLibraryMode(target.getAttribute("data-mode"));
+    });
+  })();
+
   // Refresh watch dots periodically (but don't change expansion state)
   setInterval(function() {
-    if (sidebarShows.length > 0) render();
+    if (sidebarLoaded) render();
   }, 30000);
 
   // ── End Sidebar Shows Browser ──
 
+  syncToggleState();
   fetchShows();
 })();
 

@@ -23,4 +23,14 @@ type ShowSeries struct {
 // ShowsResponse is the top-level API response.
 type ShowsResponse struct {
 	Shows []ShowSeries `json:"shows"`
+	// Movies are the video items that belong to no series, ordered by title.
+	Movies []ShowMovie `json:"movies"`
+}
+
+// ShowMovie is an Item that belongs to no series: the movies view of the
+// library browser renders it as one row.
+type ShowMovie struct {
+	Item
+	Title string `json:"title"`
+	Year  int    `json:"year,omitempty"`
 }

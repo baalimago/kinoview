@@ -263,6 +263,77 @@ func Test_extractShowMetadata(t *testing.T) {
 	})
 }
 
+// TestBuildLibraryView_viewsExcludeEachOther covers the two ways an item can
+// land in the wrong view: an extra whose file name parses as an episode, and an
+// episode the classifier placed in a series whose file name does not parse.
+func TestBuildLibraryView_viewsExcludeEachOther(t *testing.T) {
+	t.Parallel()
+	extra := json.RawMessage(`{"name":"Honest Trailer","showName":"Ted Lasso","season":1,"episode":1,"extra_to":"Ted Lasso"}`)
+	episode := json.RawMessage(`{"name":"Goodbye Earl","showName":"Ted Lasso","season":3,"episode":11}`)
+	items := []model.Item{
+		{ID: "x1", Name: "Ted.Lasso.S01E01.Honest.Trailer.mkv", Path: "/media/Ted.Lasso.S01E01.Honest.Trailer.mkv", MIMEType: "video/x-matroska", Metadata: &extra},
+		{ID: "e9", Name: "Goodbye Earl.mkv", Path: "/media/Ted Lasso/Goodbye Earl.mkv", MIMEType: "video/x-matroska", Metadata: &episode},
+	}
+	view := buildLibraryView(items)
+	if len(view.Shows) != 0 {
+		t.Fatalf("expected no series (the extra is not an episode), got %v", view.Shows)
+	}
+	if len(view.Movies) != 0 {
+		t.Fatalf("expected no movies (the episode is not a movie), got %v", view.Movies)
+	}
+}
+
+// Test_parseSeasonEpisodeFromPath covers the file name patterns the fallback
+// reads, and the release tags it must not read: "1280x720" is a resolution, not
+// season 80 episode 720.
+func Test_parseSeasonEpisodeFromPath(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		path    string
+		season  int
+		episode int
+		ok      bool
+	}{
+		{name: "S01E02", path: "/media/The.Office.S03E05.mkv", season: 3, episode: 5, ok: true},
+		{name: "1x02", path: "/media/Fargo.2x04.mkv", season: 2, episode: 4, ok: true},
+		{name: "episode only", path: "/media/Show.E02.mkv", season: 1, episode: 2, ok: true},
+		{name: "resolution is not a position", path: "/media/Saw.2004.1280x720.mkv"},
+		{name: "movie", path: "/media/Shutter.Island.2010.mkv"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			season, episode, ok := parseSeasonEpisodeFromPath(tt.path)
+			if ok != tt.ok {
+				t.Fatalf("expected ok=%v, got ok=%v (s%de%d)", tt.ok, ok, season, episode)
+			}
+			if season != tt.season || episode != tt.episode {
+				t.Fatalf("expected s%de%d, got s%de%d", tt.season, tt.episode, season, episode)
+			}
+		})
+	}
+}
+
+// TestBuildMovies_yearFallback covers the unclassified movie, whose title and
+// year can only be read off its file name.
+func TestBuildMovies_yearFallback(t *testing.T) {
+	t.Parallel()
+
+	movies := buildMovies([]model.Item{
+		{ID: "a", Name: "Dune.1984.1080p.mkv", Path: "/media/Dune.1984.1080p.mkv", MIMEType: "video/x-matroska"},
+	})
+	if len(movies) != 1 {
+		t.Fatalf("expected 1 movie, got %v", movies)
+	}
+	if movies[0].Title != "Dune" {
+		t.Fatalf("expected the title 'Dune', got %q", movies[0].Title)
+	}
+	if movies[0].Year != 1984 {
+		t.Fatalf("expected the year 1984, got %d", movies[0].Year)
+	}
+}
+
 func Test_showsHandler(t *testing.T) {
 	t.Parallel()
 
@@ -339,6 +410,45 @@ func Test_showsHandler(t *testing.T) {
 		}
 		if len(show.Seasons[1].Episodes) != 2 {
 			t.Fatalf("expected 2 episodes in season 9, got %d", len(show.Seasons[1].Episodes))
+		}
+	})
+
+	t.Run("movies are listed apart from the series", func(t *testing.T) {
+		movie := json.RawMessage(`{"name":"Shutter Island","year":2010,"season":0,"episode":0,"extra_to":""}`)
+		noMeta := json.RawMessage(`{"name":"","season":0,"episode":0,"extra_to":""}`)
+		extra := json.RawMessage(`{"name":"Honest Trailer","showName":"Ted Lasso","season":1,"extra_to":"Ted Lasso"}`)
+		episode := json.RawMessage(`{"name":"Ethon","season":9,"episode":15}`)
+		store := &mockStore{
+			items: []model.Item{
+				{ID: "m1", Name: "Shutter Island 2010 2160p.mkv", Path: "/media/Shutter Island 2010.mkv", MIMEType: "video/x-matroska", Metadata: &movie},
+				{ID: "m2", Name: "Warfare.2025.1080p.mkv", Path: "/media/Warfare.2025.1080p.mkv", MIMEType: "video/x-matroska", Metadata: &noMeta},
+				{ID: "x1", Name: "Season 1 - Honest Trailer.mkv", Path: "/media/Season 1 - Honest Trailer.mkv", MIMEType: "video/x-matroska", Metadata: &extra},
+				{ID: "e1", Name: "Stargate.SG-1.S09E15.Ethon.mkv", Path: "/media/Stargate.SG-1.S09E15.Ethon.mkv", MIMEType: "video/x-matroska", Metadata: &episode},
+				{ID: "i1", Name: "cover.jpg", Path: "/media/cover.jpg", MIMEType: "image/jpeg"},
+			},
+		}
+		idx := &Indexer{store: store}
+		rec := httptest.NewRecorder()
+		idx.showsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/shows", nil))
+
+		var resp model.ShowsResponse
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("unmarshal: %v", err)
+		}
+		if len(resp.Shows) != 1 {
+			t.Fatalf("expected 1 show, got %d", len(resp.Shows))
+		}
+		if len(resp.Movies) != 2 {
+			t.Fatalf("expected 2 movies (extras and episodes excluded), got %d: %v", len(resp.Movies), resp.Movies)
+		}
+		if resp.Movies[0].Title != "Shutter Island" || resp.Movies[0].Year != 2010 {
+			t.Fatalf("expected Shutter Island (2010) first, got %+v", resp.Movies[0])
+		}
+		if resp.Movies[1].Title != "Warfare" {
+			t.Fatalf("expected the filename fallback title 'Warfare', got %q", resp.Movies[1].Title)
+		}
+		if resp.Movies[0].ID != "m1" {
+			t.Fatalf("expected the movie item to be embedded, got %q", resp.Movies[0].ID)
 		}
 	})
 
