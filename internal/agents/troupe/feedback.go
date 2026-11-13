@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -30,6 +31,13 @@ var audienceNoteTypes = map[string]bool{
 	NoteTypeReplay:     true,
 	NoteTypeContinuity: true,
 }
+
+// The direction caps: one entry names one element the audience wants kept or
+// changed, so a note stays a direction rather than a rewrite brief.
+const (
+	maxDirectionEntries = 5
+	maxDirectionLen     = 120
+)
 
 // ErrFeedbackInvalid is the writer's validation sentinel: the note is
 // well-formed JSON but violates the feedback contract — a malformed play id,
@@ -63,9 +71,15 @@ type FeedbackNote struct {
 // refusal.
 type (
 	// RatingData is a thumbs vote: +1 up, -1 down, an optional comment.
+	// Keep and change are the room's direction: the named elements to preserve
+	// and the named elements to replace. A verdict alone is generalised by the
+	// director (a +1 for one detail retired a whole set on 2026-11-13), so the
+	// audience says what it means in its own words.
 	RatingData struct {
-		Rating  int    `json:"rating"`
-		Comment string `json:"comment,omitempty"`
+		Rating  int      `json:"rating"`
+		Comment string   `json:"comment,omitempty"`
+		Keep    []string `json:"keep,omitempty"`
+		Change  []string `json:"change,omitempty"`
 	}
 	// DismissalData is where the viewer stopped watching, in ms.
 	DismissalData struct {
@@ -204,6 +218,12 @@ func validateFeedbackData(noteType string, data []byte) error {
 		if d.Rating != 1 && d.Rating != -1 {
 			return errors.New("data: rating must be +1 or -1")
 		}
+		if err := validateDirection("keep", d.Keep); err != nil {
+			return err
+		}
+		if err := validateDirection("change", d.Change); err != nil {
+			return err
+		}
 	case NoteTypeDismissal:
 		var d DismissalData
 		if err := decodeStrict(data, &d, "data"); err != nil {
@@ -235,6 +255,26 @@ func validateFeedbackData(noteType string, data []byte) error {
 		}
 		if len(d.History) == 0 {
 			return errors.New("data: history must not be empty")
+		}
+	}
+	return nil
+}
+
+// validateDirection checks one direction list: at most maxDirectionEntries
+// entries, each a non-blank element name of at most maxDirectionLen
+// characters. The error names the offending position, so the audience's client
+// can point at the field it refused.
+func validateDirection(field string, entries []string) error {
+	if len(entries) > maxDirectionEntries {
+		return fmt.Errorf("data: %s has %d entries, at most %d are read", field, len(entries), maxDirectionEntries)
+	}
+	for i, entry := range entries {
+		name := strings.TrimSpace(entry)
+		if name == "" {
+			return fmt.Errorf("data: %s[%d] must name one thing", field, i)
+		}
+		if len([]rune(name)) > maxDirectionLen {
+			return fmt.Errorf("data: %s[%d] is longer than %d characters", field, i, maxDirectionLen)
 		}
 	}
 	return nil

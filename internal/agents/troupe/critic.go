@@ -17,6 +17,7 @@ import (
 
 	"github.com/baalimago/clai/pkg/agent"
 	"github.com/baalimago/clai/pkg/text/models"
+	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 )
 
 // criticToolCalls is the critic's per-agent tool-call cap: the same
@@ -267,7 +268,8 @@ WORKFLOW — run these phases in order:
    Read whatever the swarm left in the repertoire.
 2. JUDGE — form an opinion: did the play serve the viewers' ground truth?
    What worked, what did not, what should the next generation try? Be spicy
-   and specific — evidence, not vibes.
+   and specific — evidence, not vibes. A performance repeated entry for entry
+   behind a new set is the room's first complaint: name the repeat first.
 3. COMMENT — call write_criticism with the generation id, the note paths you
    are grounded in (cites) and your body. Every cite must be a real notebook
    note path you read — feedback/ notes first; never fabricate a note. The
@@ -439,6 +441,9 @@ func (c *Critic) prompt(generationID string, outcome Outcome) string {
 	p := criticPrompt + "\n\nGENERATION " + generationID + "\n"
 	if outcome.Submitted {
 		p += "PLAY " + outcome.PlayID + " — this generation submitted it; review it against the feedback.\n"
+		if repeated := c.repeatedMotion(outcome.PlayID); len(repeated) > 0 {
+			p += "REPEAT " + strings.Join(repeated, ", ") + " moved entry for entry like the previous submitted play: the same clips, timings and tweens behind a new set. Name that repeat first — the room has already seen those motions.\n"
+		}
 	} else {
 		p += "PLAY none — this generation shipped nothing. The browser may still show a previously submitted play; never attribute that render to this generation. Say why this generation shipped nothing, citing whatever notes exist.\n"
 	}
@@ -446,6 +451,22 @@ func (c *Critic) prompt(generationID string, outcome Outcome) string {
 		p += "\n" + showPartial(c.showURL)
 	}
 	return p
+}
+
+// repeatedMotion names the instances the reviewed play repeats from the play
+// before it. A broken notebook reads as no repeat: the critic's job is the
+// review, never a failed generation.
+func (c *Critic) repeatedMotion(playID string) []string {
+	lib, err := NewPlayLibrary(c.writer.worktree)
+	if err != nil {
+		return nil
+	}
+	repeated, err := repeatedMotion(lib, playID)
+	if err != nil {
+		ancli.Errf("troupe: critic: repeated motion: %v", err)
+		return nil
+	}
+	return repeated
 }
 
 // runAgent is the default critic seam: the bounded clai agent with the

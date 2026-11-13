@@ -25,7 +25,7 @@ cmd/
 │   │                    #   plus the SeaweedFS supervisor and slivingdoc notebook wiring
 │   ├── serve_setup_test.go
 │   ├── serve_test.go
-│   └── frontend/        # //go:embed vanilla JS SPA (gallery, minigallery, events, SSE client)
+│   └── frontend/        # //go:embed vanilla JS SPA (gallery, minigallery, troupe splash, events, SSE client)
 ├── classify/            # Standalone CLI for ad-hoc item classification (debugging)
 ├── debug/               # Standalone CLI for store inspection and debugging
 ├── media/               # Standalone CLI for media listing
@@ -210,7 +210,20 @@ replaces it from phase 7 onward.
   app pokes one buffered audience signal (the event-stream connect); the
   generation loop spends it when the hardcoded daily cooldown (24 h, decision
   13 as revised 2026-11-01) allows, and rests one cooldown after every attempt.
-  An idle server generates nothing and keeps serving the newest submitted play.
+  The cooldown is durable (`<cache>/troupe/generation.stamp`): `Troupe` loads
+  the last generation start at construction, so a deploy cannot spend a
+  generation on the next page open. An idle server generates nothing and keeps
+  serving the newest submitted play.
+- **The audience's verdict carries direction.** A rating note may name a
+  `keep` list (preserve it, retire nothing in it) and a `change` list (replace
+  it) beside the comment — the fix for a +1 on one detail retiring a whole set
+  on 2026-11-13. The director reads both as binding; the critic sees the
+  previous play compared entry for entry with the shipped one and is told which
+  instances `REPEAT`ed, so a new set behind an unchanged performance is named
+  rather than inferred. The splash is `frontend/troupe.js` (its own file, so
+  `frontend_test/splash.test.js` can drive it headless) and always offers a
+  Skip button: over the play it records a dismissal, over the feedback control
+  it leaves without rating.
 - **The frontend uses SSE for live updates.** The `index_handlers_eventStream.go`
   broadcasts item changes, suggestions, and logs to connected browsers.
 - **The troupe can see its own show.** When a Playwright MCP server config

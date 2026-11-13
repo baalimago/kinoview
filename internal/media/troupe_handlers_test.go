@@ -245,3 +245,30 @@ func TestTroupeFeedback(t *testing.T) {
 		t.Errorf("commit failure = %d, want 500", rec500.Code)
 	}
 }
+
+// TestTroupeFeedback_Direction pins the splash's direction payload: the thumbs
+// send the room's keep and change lists inside the same rating note, so the
+// director reads "keep the walk, change the pier" instead of generalising a
+// verdict into a set-level decision.
+func TestTroupeFeedback_Direction(t *testing.T) {
+	idx, worktree := newTroupeIndexer(t)
+	submitTroupePlay(t, worktree, "story_20260820T161500Z")
+
+	body := `{"playId":"story_20260820T161500Z","type":"rating","data":{"rating":1,"comment":"keep it","keep":["the cat walking away"],"change":["the pier"]}}`
+	rec := httptest.NewRecorder()
+	idx.TroupeHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/v1/troupe/feedback", bytes.NewBufferString(body)))
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("rating with direction = %d, want 204 (%s)", rec.Code, rec.Body.String())
+	}
+	notes, err := os.ReadDir(filepath.Join(worktree, "feedback"))
+	if err != nil || len(notes) != 1 {
+		t.Fatalf("feedback notes = %v, want exactly one file", notes)
+	}
+	data, err := os.ReadFile(filepath.Join(worktree, "feedback", notes[0].Name()))
+	if err != nil {
+		t.Fatalf("read note: %v", err)
+	}
+	if !strings.Contains(string(data), `"keep":["the cat walking away"]`) {
+		t.Errorf("persisted note = %s, want the keep list preserved", data)
+	}
+}

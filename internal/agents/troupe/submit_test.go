@@ -35,12 +35,25 @@ func seedWorktree(t *testing.T) string {
 // id — each authoring is a new UTC datetime, never a rewrite.
 const draftPlay = `{"kind":"play","id":"%s","status":"draft","author":"director","provenance":"generation g_01j9x","spec":{"instances":[{"id":"forest","model":"forest@1","role":"backdrop","scale":2.4,"y":-0.2},{"id":"cat","model":"cat@1","role":"actor","voice":"cat@1","scale":1,"x":0.1}],"timeline":[{"at":0,"on":"cat","clip":"walk@1"},{"at":0,"on":"cat","tween":{"to":{"x":0.5},"over":3000,"easing":"ease-in-out"}}]}}`
 
+// draftPlayRetimed is draftPlay with the cat's tween slowed by 200 ms: the same
+// cast and the same clips, a different performance.
+const draftPlayRetimed = `{"kind":"play","id":"%s","status":"draft","author":"director","provenance":"generation g_01j9x","spec":{"instances":[{"id":"forest","model":"forest@1","role":"backdrop","scale":2.4,"y":-0.2},{"id":"cat","model":"cat@1","role":"actor","voice":"cat@1","scale":1,"x":0.1}],"timeline":[{"at":0,"on":"cat","clip":"walk@1"},{"at":0,"on":"cat","tween":{"to":{"x":0.5},"over":3200,"easing":"ease-in-out"}}]}}`
+
 // writeDraft authors one draft play into the seeded worktree.
 func writeDraft(t *testing.T, worktree, playID string) {
 	t.Helper()
 	path := filepath.Join(worktree, "plays", playID+".json")
 	if err := os.WriteFile(path, fmt.Appendf(nil, draftPlay, playID), 0o644); err != nil {
 		t.Fatalf("write draft play: %v", err)
+	}
+}
+
+// writeDraftRetimed authors draftPlayRetimed into the seeded worktree.
+func writeDraftRetimed(t *testing.T, worktree, playID string) {
+	t.Helper()
+	path := filepath.Join(worktree, "plays", playID+".json")
+	if err := os.WriteFile(path, fmt.Appendf(nil, draftPlayRetimed, playID), 0o644); err != nil {
+		t.Fatalf("write retimed draft play: %v", err)
 	}
 }
 

@@ -70,21 +70,45 @@ body {
   pointer-events: none;
 }
 
-/* The blocking audience control shown when the play completes: a note and a
-   thumbs up/down pair. index.js appends it to #troupe over the frozen final
-   frame; it is the only exit while live. */
+/* The skip exit: over the running play it records a dismissal, over the
+   feedback control it leaves without rating. Top-right, out of the picture's
+   way, and the only exit that needs no opinion. */
+.troupe-skip {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  background: rgba(15, 23, 42, 0.7);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.9rem;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  z-index: 10000;
+  transition: background 0.15s, transform 0.1s;
+}
+.troupe-skip:hover { background: rgba(15, 23, 42, 0.95); }
+.troupe-skip:active { transform: scale(0.96); }
+
+/* The blocking audience control shown when the play completes: a note, the
+   keep/change direction pair and a thumbs up/down pair. index.js appends it
+   to #troupe over the frozen final frame; the skip button and a thumb are the
+   exits while live. */
 .troupe-feedback {
   position: absolute;
   left: 50%;
   bottom: 8%;
   transform: translateX(-50%);
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 0.6rem;
+  gap: 0.5rem;
+  width: min(520px, 92%);
   background: rgba(15, 23, 42, 0.82);
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 0.5rem 0.6rem 0.5rem 1rem;
+  border-radius: 1rem;
+  padding: 0.75rem;
   box-shadow: var(--shadow-lg);
   opacity: 0;
   transition: opacity 0.3s var(--ease-out);
@@ -100,10 +124,25 @@ body {
   color: var(--text-primary);
   font-size: 0.95rem;
   font-family: inherit;
-  width: 220px;
+  width: 100%;
   padding: 0.5rem 0;
 }
 .troupe-feedback-note::placeholder { color: var(--text-muted); }
+
+.troupe-feedback-direction {
+  flex: 1 1 45%;
+  min-width: 0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 0.6rem;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  padding: 0.5rem 0.6rem;
+}
+.troupe-feedback-direction::placeholder { color: var(--text-muted); }
+.troupe-feedback-direction:focus { border-color: var(--accent); }
 
 .troupe-feedback-thumb {
   background: rgba(255, 255, 255, 0.1);

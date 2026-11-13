@@ -36,7 +36,10 @@ WORKFLOW — run these phases in order:
 
 1. PULL — pull the shared notebook and read the viewer feedback in feedback/
    (ls feedback/, cat the notes). Read what the critic left for the last
-   generation.
+   generation. A rating's keep list names what the room wants preserved: keep
+   those elements and retire nothing they name. Its change list names what to
+   replace. Act on both lists; never generalise a verdict into a set-level
+   decision.
 2. DECOMPOSE — split the work into smaller concerns: which models, clips,
    voices, sounds and gags need authoring or revision, and what the play
    should be. Author a role note for each concern (write_file roles/<id>.json)
@@ -48,7 +51,10 @@ WORKFLOW — run these phases in order:
 4. ASSEMBLE — read what the swarm left with the file tools and assemble the
    play: write plays/story_<UTC>.json with model instantiations and a timed
    timeline, references intact ("model": "cat@1"), status "draft", author
-   "director", provenance "generation <play id>".
+   "director", provenance "generation <play id>". Read the newest submitted
+   play in plays/ first and change at least one motion entry for every
+   instance your play shares with it: a new set behind the same performance is
+   the room's one complaint. A correction of the same film may keep the motion.
 5. SUBMIT — call submit_play with the play id. It validates that every
    reference resolves and persists the resolved play; exact errors return for
    you to fix and resubmit.

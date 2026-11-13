@@ -621,3 +621,54 @@ func TestWriteCriticism_NotInGeneralRegistry(t *testing.T) {
 		t.Error("write_criticism must not be in the general tool registry")
 	}
 }
+
+// TestCritic_PromptNamesRepeatedMotion pins the advisory gate on repetition:
+// the critic is told, as a computed fact, which instances moved entry for
+// entry like the previous submitted play — the room's one recorded complaint
+// (a new set behind the same performance) is never left to the critic's own
+// reading of the prose.
+func TestCritic_PromptNamesRepeatedMotion(t *testing.T) {
+	// reviewSecond submits two consecutive plays and returns the prompt of the
+	// review of the second.
+	reviewSecond := func(t *testing.T, writeSecond func(*testing.T, string, string)) string {
+		t.Helper()
+		s := newTestSubmitter(t)
+		first, second := "story_20260821T093000Z", "story_20260821T093100Z"
+		writeDraft(t, s.worktree, first)
+		if _, err := s.Submit(first); err != nil {
+			t.Fatalf("first submit: %v", err)
+		}
+		writeSecond(t, s.worktree, second)
+		if _, err := s.Submit(second); err != nil {
+			t.Fatalf("second submit: %v", err)
+		}
+		writer, err := NewCriticismWriter(s.worktree)
+		if err != nil {
+			t.Fatalf("NewCriticismWriter: %v", err)
+		}
+		var reviewed string
+		c, _ := newTestCritic(t,
+			WithCriticismWriter(writer),
+			WithRunCritic(func(_ context.Context, p criticParams) (string, error) {
+				reviewed = p.prompt
+				return "", nil
+			}),
+		)
+		if err := c.Run(t.Context(), "g_20260821T093100Z", Outcome{Submitted: true, PlayID: second}); err != nil {
+			t.Fatalf("Run: %v", err)
+		}
+		return reviewed
+	}
+
+	t.Run("a repeated performance is named", func(t *testing.T) {
+		if prompt := reviewSecond(t, writeDraft); !strings.Contains(prompt, "REPEAT cat moved entry for entry") {
+			t.Errorf("prompt = %q, want the repeated instance named", prompt)
+		}
+	})
+
+	t.Run("a changed performance is not named", func(t *testing.T) {
+		if prompt := reviewSecond(t, writeDraftRetimed); strings.Contains(prompt, "REPEAT") {
+			t.Errorf("prompt = %q, want no repeat for a retimed performance", prompt)
+		}
+	})
+}

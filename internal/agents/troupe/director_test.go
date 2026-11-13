@@ -123,7 +123,15 @@ func TestDirector_ToolSet(t *testing.T) {
 func TestDirector_Prompt(t *testing.T) {
 	d, _ := newTestDirector(t, &fakeSwarm{})
 	p := d.prompt()
-	for _, want := range []string{"WORKFLOW", "spawn_role", "submit_play", "single writer of plays"} {
+	for _, want := range []string{
+		"WORKFLOW", "spawn_role", "submit_play", "single writer of plays",
+		// The room's direction is binding: the keep list is preserved, the
+		// change list is replaced, and a verdict is never generalised.
+		"keep list", "change list", "never generalise",
+		// A generation must not re-ship the previous performance behind a
+		// new set: the director reads the newest play and varies the motion.
+		"newest submitted", "same performance",
+	} {
 		if !strings.Contains(p, want) {
 			t.Errorf("prompt missing %q", want)
 		}

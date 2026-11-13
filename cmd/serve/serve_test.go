@@ -212,7 +212,9 @@ func TestTroupeMountPointIsFullscreen(t *testing.T) {
 	// must be styled too.
 	for _, want := range []string{
 		"#troupe.live",
+		".troupe-skip",
 		".troupe-feedback",
+		".troupe-feedback-direction",
 		".troupe-feedback-thumb",
 	} {
 		if !strings.Contains(body, want) {

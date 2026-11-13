@@ -330,3 +330,90 @@ func newTestCriticWithCapture(t *testing.T) (*Critic, *criticCapture) {
 	}))
 	return c, cap
 }
+
+// TestTroupe_Cooldown_SurvivesRestart pins the durable cooldown: the last
+// generation start is recorded on disk, so a restart builds a facade that
+// still refuses a trigger inside the cooldown. Without the record, every
+// deploy spent a generation on the first page open, and the audience saw a
+// film replaced minutes after rating it.
+func TestTroupe_Cooldown_SurvivesRestart(t *testing.T) {
+	var runs atomic.Int32
+	run := func(_ context.Context, _ directorParams) (string, error) {
+		runs.Add(1)
+		return "", nil
+	}
+	cache := t.TempDir()
+	first, _ := newTestDirector(t, &fakeSwarm{}, WithRunDirector(run))
+	if !newTestTroupe(t, first, WithGenerationRecord(cache)).Prepare(t.Context(), "before restart") {
+		t.Fatal("the first generation must run")
+	}
+
+	second, _ := newTestDirector(t, &fakeSwarm{}, WithRunDirector(run))
+	if newTestTroupe(t, second, WithGenerationRecord(cache)).Prepare(t.Context(), "after restart") {
+		t.Error("a restart must not spend a generation inside the cooldown")
+	}
+	if runs.Load() != 1 {
+		t.Errorf("generations ran = %d, want exactly 1", runs.Load())
+	}
+}
+
+// TestTroupe_Cooldown_RecordAgedPastCooldown pins the other side of the
+// durable gate: a recorded start older than the cooldown admits the next
+// generation.
+func TestTroupe_Cooldown_RecordAgedPastCooldown(t *testing.T) {
+	cache := t.TempDir()
+	record := filepath.Join(cache, "troupe", generationStampFile)
+	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(record, []byte(time.Now().UTC().Add(-25*time.Hour).Format(time.RFC3339Nano)), 0o644); err != nil {
+		t.Fatalf("write record: %v", err)
+	}
+	d, _ := newTestDirector(t, &fakeSwarm{}, WithRunDirector(func(_ context.Context, _ directorParams) (string, error) {
+		return "", nil
+	}))
+	if !newTestTroupe(t, d, WithGenerationRecord(cache)).Prepare(t.Context(), "next day") {
+		t.Error("an aged record must admit the next generation")
+	}
+}
+
+// TestTroupe_Cooldown_BrokenRecordAdmits pins the degraded read: an
+// unparseable record is not a lockout — the generation runs and the record
+// is rewritten.
+func TestTroupe_Cooldown_BrokenRecordAdmits(t *testing.T) {
+	cache := t.TempDir()
+	record := filepath.Join(cache, "troupe", generationStampFile)
+	if err := os.MkdirAll(filepath.Dir(record), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(record, []byte("not a time"), 0o644); err != nil {
+		t.Fatalf("write record: %v", err)
+	}
+	d, _ := newTestDirector(t, &fakeSwarm{}, WithRunDirector(func(_ context.Context, _ directorParams) (string, error) {
+		return "", nil
+	}))
+	if !newTestTroupe(t, d, WithGenerationRecord(cache)).Prepare(t.Context(), "broken record") {
+		t.Error("a broken record must admit the generation")
+	}
+}
+
+// TestTroupe_Cooldown_UnwritableRecordStillRuns pins the degraded write: a
+// cache dir the server cannot write to must not silence the stage — the
+// in-memory gate still holds for this process.
+func TestTroupe_Cooldown_UnwritableRecordStillRuns(t *testing.T) {
+	cache := t.TempDir()
+	blocker := filepath.Join(cache, "troupe")
+	if err := os.WriteFile(blocker, []byte("a file where the record dir belongs"), 0o644); err != nil {
+		t.Fatalf("write blocker: %v", err)
+	}
+	d, _ := newTestDirector(t, &fakeSwarm{}, WithRunDirector(func(_ context.Context, _ directorParams) (string, error) {
+		return "", nil
+	}))
+	tr := newTestTroupe(t, d, WithGenerationRecord(cache))
+	if !tr.Prepare(t.Context(), "unwritable record") {
+		t.Fatal("an unwritable record must not refuse the generation")
+	}
+	if tr.Prepare(t.Context(), "in-process gate") {
+		t.Error("the in-memory gate must still refuse a second trigger")
+	}
+}

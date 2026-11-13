@@ -187,8 +187,7 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 			rec, err := b.prepSuggestion(ctx, suggestion,
 				items)
 			if err != nil {
-				var psErr *PreloadSubsError
-				if errors.As(err, &psErr) {
+				if _, ok := errors.AsType[*PreloadSubsError](err); ok {
 					ancli.Warnf("preload subs error, keeping recs: %v", err)
 				} else {
 					ancli.Warnf(
@@ -199,7 +198,6 @@ func (b *butler) PrepSuggestions(ctx context.Context, clientCtx model.ClientCont
 					mu.Unlock()
 					return
 				}
-
 			}
 			mu.Lock()
 			recommendations = append(recommendations, rec)

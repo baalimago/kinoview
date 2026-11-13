@@ -226,6 +226,56 @@ func TestFeedbackWriter_Filename(t *testing.T) {
 	}
 }
 
+// TestFeedbackWriter_RatingDirection pins the room's direction vocabulary: a
+// rating may carry keep and change lists — what to preserve and what to
+// replace — persisted byte-preserved, so the director reads the audience's own
+// words instead of generalising a set-level verdict from one thumb.
+func TestFeedbackWriter_RatingDirection(t *testing.T) {
+	w := newTestFeedbackWriter(t)
+	req := FeedbackRequest{
+		PlayID: ratingReq.PlayID,
+		Type:   NoteTypeRating,
+		Data:   json.RawMessage(`{"rating":1,"comment":"the walk is good","keep":["the cat walking away","the bird size"],"change":["the pier"]}`),
+	}
+	if _, err := w.Write(req); err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	data, err := os.ReadFile(filepath.Join(w.worktree, "feedback", "story_20260820T161500Z_rating_20260821T093004Z.json"))
+	if err != nil {
+		t.Fatalf("the note is on disk: %v", err)
+	}
+	if !strings.Contains(string(data), `"keep":["the cat walking away","the bird size"]`) {
+		t.Errorf("persisted note = %s, want the keep list preserved", data)
+	}
+}
+
+// TestFeedbackWriter_DirectionValidation pins the direction rules: each entry
+// names one thing, so an empty entry, an over-long entry or a list past the
+// cap is refused with an exact error and nothing is written.
+func TestFeedbackWriter_DirectionValidation(t *testing.T) {
+	cases := []struct {
+		name string
+		data string
+		want string
+	}{
+		{"empty keep entry", `{"rating":1,"keep":[""]}`, "keep[0] must name one thing"},
+		{"blank change entry", `{"rating":1,"change":["   "]}`, "change[0] must name one thing"},
+		{"too many keeps", `{"rating":1,"keep":["a","b","c","d","e","f"]}`, "keep has 6 entries"},
+		{"over-long change", `{"rating":1,"change":["` + strings.Repeat("x", maxDirectionLen+1) + `"]}`, "change[0] is longer than"},
+	}
+	for _, tt := range cases {
+		t.Run(tt.name, func(t *testing.T) {
+			w := newTestFeedbackWriter(t)
+			req := FeedbackRequest{PlayID: ratingReq.PlayID, Type: NoteTypeRating, Data: json.RawMessage(tt.data)}
+			_, err := w.Write(req)
+			if !errors.Is(err, ErrFeedbackInvalid) || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("err = %v, want ErrFeedbackInvalid mentioning %q", err, tt.want)
+			}
+			assertNoFeedbackNotes(t, w.worktree, "a refused direction must write nothing")
+		})
+	}
+}
+
 // assertNoFeedbackNotes fails the test if any note exists in feedback/ — a
 // refused write must leave the directory empty (or absent).
 func assertNoFeedbackNotes(t *testing.T, worktree, msg string) {

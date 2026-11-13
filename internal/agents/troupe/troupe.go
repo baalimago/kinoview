@@ -3,6 +3,8 @@ package troupe
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -16,11 +18,20 @@ import (
 // day is the ceiling, and it is only spent when someone opened the app.
 const generationCooldown = 24 * time.Hour
 
+// generationStampFile is the durable cooldown record: the last generation
+// start, RFC3339Nano UTC, under <cache>/troupe/. It lives outside the shared
+// notebook because the cadence is the server's, not the troupe's content —
+// and because the notebook is pulled and committed, never kind to a scratch
+// file. Without it the cooldown reset on every restart, so a deploy spent a
+// generation on the first page open (2026-11-13: plays 0.23 h apart).
+const generationStampFile = "generation.stamp"
+
 // generationIDPrefix distinguishes the generation id the facade stamps into
 // the critic's review from the play ids the director authors: g_<UTC> for a
 // generation, story_<UTC> for a play. The critic's criticism note names the
 // generation it reviewed through this id; the second-precision stamp is
-// unambiguous because the hardcoded cooldown (6h) separates generations.
+// unambiguous because the hardcoded cooldown (24h, recorded on disk) separates
+// generations.
 const generationIDPrefix = "g_"
 
 // Troupe is the facade the server talks to: Prepare triggers at most one
@@ -41,6 +52,12 @@ type Troupe struct {
 	// job. The serve wiring supplies the slivingdoc pull over the worktree;
 	// tests inject a recording fake. Unset, Warm is a no-op.
 	materialise func(ctx context.Context) error
+
+	// record is the durable cooldown record's path — the last generation
+	// start, loaded at NewTroupe and rewritten by every admitted generation,
+	// so a restart keeps the cadence. Empty, the cooldown is in-memory only:
+	// the shape every test and a server with no cache dir uses.
+	record string
 
 	mu       sync.Mutex
 	lastGen  time.Time
@@ -77,6 +94,13 @@ func WithGenerationCooldown(d time.Duration) TroupeOption {
 	return func(t *Troupe) { t.cooldown = d }
 }
 
+// WithGenerationRecord persists the last generation start under cacheDir, so
+// the cooldown survives a restart: a deploy must never spend a generation.
+// Unset, the cooldown is in-memory only.
+func WithGenerationRecord(cacheDir string) TroupeOption {
+	return func(t *Troupe) { t.record = filepath.Join(cacheDir, "troupe", generationStampFile) }
+}
+
 // NewTroupe builds the facade. The director is required; the cooldown
 // defaults to the hardcoded generationCooldown.
 func NewTroupe(opts ...TroupeOption) (*Troupe, error) {
@@ -87,7 +111,39 @@ func NewTroupe(opts ...TroupeOption) (*Troupe, error) {
 	if t.director == nil {
 		return nil, errors.New("troupe: facade: director can't be nil")
 	}
+	t.lastGen = t.readRecord()
 	return t, nil
+}
+
+// readRecord loads the durable cooldown record. An absent or unparseable
+// record is no generation yet — a broken file must never lock the stage out.
+func (t *Troupe) readRecord() time.Time {
+	if t.record == "" {
+		return time.Time{}
+	}
+	data, err := os.ReadFile(t.record)
+	if err != nil {
+		return time.Time{}
+	}
+	started, err := time.Parse(time.RFC3339Nano, string(data))
+	if err != nil {
+		ancli.Errf("troupe: cooldown record %s: %v; treating as no generation yet", t.record, err)
+		return time.Time{}
+	}
+	return started
+}
+
+// writeRecord persists the generation start. A write failure is logged, never
+// fatal: the in-memory gate still holds for this process, and the next
+// restart spending one extra generation beats a silent stage.
+func (t *Troupe) writeRecord(started time.Time) {
+	if t.record == "" {
+		return
+	}
+	data := []byte(started.UTC().Format(time.RFC3339Nano))
+	if err := writeFileAtomic(t.record, data); err != nil {
+		ancli.Errf("troupe: cooldown record %s: %v; the cooldown is in-memory only", t.record, err)
+	}
 }
 
 // Prepare triggers at most one generation: single-flight (a generation
@@ -111,9 +167,11 @@ func (t *Troupe) Prepare(ctx context.Context, reason string) bool {
 			reason, (t.cooldown - since).Truncate(time.Second))
 		return false
 	}
+	started := time.Now()
 	t.inFlight = true
-	t.lastGen = time.Now()
+	t.lastGen = started
 	t.mu.Unlock()
+	t.writeRecord(started)
 
 	defer func() {
 		t.mu.Lock()

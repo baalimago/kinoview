@@ -205,12 +205,12 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 	s.classificationRequest = make(chan classificationCandidate, 1000)
 	s.classifierErrors = make(chan error, 1000)
 
-	var active int32
+	var active atomic.Int32
 	var maxConc int32
 	s.classifier = &mockClassifier{
 		SetupFunc: func(ctx context.Context) error { return nil },
 		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
-			cur := atomic.AddInt32(&active, 1)
+			cur := active.Add(1)
 			for {
 				m := atomic.LoadInt32(&maxConc)
 				if cur <= m {
@@ -226,11 +226,11 @@ func Test_startClassificationStation_concurrency(t *testing.T) {
 			// arrive after the first wave already finished its sleep, capping
 			// maxConc at 3 despite the station being fully concurrent.
 			deadline := time.Now().Add(2 * time.Second)
-			for atomic.LoadInt32(&active) < 4 && time.Now().Before(deadline) {
+			for active.Load() < 4 && time.Now().Before(deadline) {
 				time.Sleep(time.Millisecond)
 			}
 			time.Sleep(30 * time.Millisecond)
-			atomic.AddInt32(&active, -1)
+			active.Add(-1)
 			meta := json.RawMessage(`{"ok":true}`)
 			i.Metadata = &meta
 			return i, nil
@@ -1594,11 +1594,11 @@ func Test_startClassificationStation_memoryGuard(t *testing.T) {
 	s.classificationRequest = make(chan classificationCandidate, 100)
 	s.classifierErrors = make(chan error, 100)
 
-	var classified int32
+	var classified atomic.Int32
 	s.classifier = &mockClassifier{
 		SetupFunc: func(ctx context.Context) error { return nil },
 		ClassifyFunc: func(ctx context.Context, i model.Item) (model.Item, error) {
-			atomic.AddInt32(&classified, 1)
+			classified.Add(1)
 			meta := json.RawMessage(`{"ok":true}`)
 			i.Metadata = &meta
 			return i, nil
@@ -1625,7 +1625,7 @@ func Test_startClassificationStation_memoryGuard(t *testing.T) {
 		return !loaded
 	})
 
-	if n := atomic.LoadInt32(&classified); n != 0 {
+	if n := classified.Load(); n != 0 {
 		t.Fatalf("expected 0 classified items with memory guard active, got %d", n)
 	}
 

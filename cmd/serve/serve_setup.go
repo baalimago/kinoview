@@ -360,6 +360,9 @@ func (c *command) setupTroupe(cfg slivingdoc.Config) (troupeParts, error) {
 	facade, err := troupe.NewTroupe(
 		troupe.WithGenerationDirector(director),
 		troupe.WithGenerationCritic(critic),
+		// The cooldown outlives the process: a deploy must not spend a
+		// generation on the next page open.
+		troupe.WithGenerationRecord(*c.cacheDir),
 		troupe.WithMaterialise(func(context.Context) error {
 			return slivingdoc.Pull(cfg)
 		}),
