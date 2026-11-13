@@ -117,6 +117,58 @@ func Test_recursiveWatcher_checkFile(t *testing.T) {
 			t.Error("no update sent on video/image check")
 		}
 	})
+
+	// An ISO-BMFF file whose ftyp brands carry no "mp4" (isom/avc1 is what
+	// x264 BRRips ship) sniffs as application/octet-stream, which kept such
+	// videos out of the index (prod: The Twilight Saga New Moon, 2026-11-13).
+	t.Run("send Item update for isom branded mp4", func(t *testing.T) {
+		video := testboil.CreateTestFile(t, "isom.mp4")
+		video.Write([]byte{
+			0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+			0x69, 0x73, 0x6F, 0x6D, 0x00, 0x00, 0x00, 0x01,
+			0x69, 0x73, 0x6F, 0x6D, 0x61, 0x76, 0x63, 0x31,
+		})
+		defer video.Close()
+		updateChan := make(chan model.Item, 1)
+		rw := newTestRecursiveWatcher(t)
+		rw.updates = updateChan
+		if got := rw.checkFile(video.Name()); got != nil {
+			t.Fatalf("unexpected error: %v", got)
+		}
+		select {
+		case got := <-rw.updates:
+			testboil.AssertStringContains(t, got.MIMEType, "video/mp4")
+		default:
+			t.Error("no update sent for isom branded mp4")
+		}
+	})
+}
+
+func Test_detectMediaMIME(t *testing.T) {
+	jpeg := []byte{0xFF, 0xD8, 0xFF, 0xE0, 0x00, 0x10, 0x4A, 0x46, 0x49, 0x46}
+	isom := []byte{
+		0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70,
+		0x69, 0x73, 0x6F, 0x6D, 0x00, 0x00, 0x00, 0x01,
+		0x69, 0x73, 0x6F, 0x6D, 0x61, 0x76, 0x63, 0x31,
+	}
+	tests := []struct {
+		name   string
+		path   string
+		header []byte
+		want   string
+	}{
+		{name: "sniffed image wins", path: "cover.bin", header: jpeg, want: "image/jpeg"},
+		{name: "extension answers generic sniffer", path: "New.Moon.MP4", header: isom, want: "video/mp4"},
+		{name: "known extension without media header", path: "episode.mkv", header: []byte("junk"), want: "video/x-matroska"},
+		{name: "unmediaised file", path: "notes.txt", header: []byte("hello"), want: ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := detectMediaMIME(tt.path, tt.header); got != tt.want {
+				t.Errorf("detectMediaMIME(%q, %v) = %q, want %q", tt.path, tt.header, got, tt.want)
+			}
+		})
+	}
 }
 
 func Test_recursiveWatcher_Watch(t *testing.T) {

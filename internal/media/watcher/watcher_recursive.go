@@ -9,6 +9,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/baalimago/go_away_boilerplate/pkg/ancli"
 	"github.com/baalimago/kinoview/internal/model"
@@ -49,6 +50,36 @@ func (rw *recursiveWatcher) Close() error {
 	return rw.watcher.Close()
 }
 
+// mediaMIMEByExtension covers containers the mimesniff sniffer cannot name.
+// ISO-BMFF needs an "mp4" brand inside the ftyp box, so an x264 BRRip branded
+// isom/avc1 sniffs as application/octet-stream.
+// https://mimesniff.spec.whatwg.org/#signature-for-mp4
+var mediaMIMEByExtension = map[string]string{
+	".3gp":  "video/3gpp",
+	".avi":  "video/x-msvideo",
+	".m2ts": "video/mp2t",
+	".m4v":  "video/mp4",
+	".mkv":  "video/x-matroska",
+	".mov":  "video/quicktime",
+	".mp4":  "video/mp4",
+	".mpeg": "video/mpeg",
+	".mpg":  "video/mpeg",
+	".ts":   "video/mp2t",
+	".webm": "video/webm",
+	".wmv":  "video/x-ms-wmv",
+}
+
+// detectMediaMIME returns the media MIME type of p, or "" when p is neither
+// video nor image. The sniffed type wins; the extension only answers when the
+// sniffer is generic.
+func detectMediaMIME(p string, header []byte) string {
+	sniffed := http.DetectContentType(header)
+	if strings.HasPrefix(sniffed, "video") || strings.HasPrefix(sniffed, "image") {
+		return sniffed
+	}
+	return mediaMIMEByExtension[strings.ToLower(filepath.Ext(p))]
+}
+
 // checkFile and emit model.Item on updates channel if file is
 // is video-like or image-like
 func (rw *recursiveWatcher) checkFile(p string) error {
@@ -66,15 +97,16 @@ func (rw *recursiveWatcher) checkFile(p string) error {
 	defer f.Close()
 	buf := make([]byte, 512)
 	n, err := f.Read(buf)
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
-	mimeType := http.DetectContentType(buf[:n])
 
-	if mimeType[:5] == "video" || mimeType[:5] == "image" {
-		rw.updates <- model.Item{Name: path.Base(p), Path: p, MIMEType: mimeType}
+	mimeType := detectMediaMIME(p, buf[:n])
+	if mimeType == "" {
+		return nil
 	}
 
+	rw.updates <- model.Item{Name: path.Base(p), Path: p, MIMEType: mimeType}
 	return nil
 }
 
